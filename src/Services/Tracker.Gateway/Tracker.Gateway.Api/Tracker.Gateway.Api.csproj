@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
+    <ProjectReference Include="..\Tracker.Gateway.Runtime\Tracker.Gateway.Runtime.csproj" />
+    <ProjectReference Include="..\Tracker.Gateway.Infrastructure\Tracker.Gateway.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Admin\Swarmcore.Contracts.Admin.csproj" />
+    <ProjectReference Include="..\..\Tracker.UdpTracker\Tracker.UdpTracker.Service\Tracker.UdpTracker.Service.csproj" />
+  </ItemGroup>
+
+</Project>

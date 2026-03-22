@@ -1,0 +1,85 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0f172a;
+  background:
+    linear-gradient(180deg, #f7f8fb 0%, #eff2f7 100%);
+}
+
+html {
+  font-family: "IBM Plex Sans", Inter, "Segoe UI", sans-serif;
+}
+
+body {
+  min-height: 100vh;
+  color: #0f172a;
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+::selection {
+  background: rgba(29, 78, 216, 0.18);
+}
+
+@layer components {
+  .app-surface {
+    @apply rounded-[28px] border border-slate-200/80 bg-white shadow-panel;
+  }
+
+  .app-card {
+    @apply app-surface overflow-hidden;
+  }
+
+  .app-card-header {
+    @apply border-b border-slate-200/80 px-6 py-4;
+  }
+
+  .app-card-body {
+    @apply px-6 py-5;
+  }
+
+  .app-input {
+    @apply w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-4 focus:ring-brand/10;
+  }
+
+  .app-button-primary {
+    @apply rounded-2xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .app-button-secondary {
+    @apply rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .app-button-danger {
+    @apply rounded-2xl bg-ember px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .app-kicker {
+    @apply text-[11px] font-semibold uppercase tracking-[0.24em] text-steel/75;
+  }
+
+  .app-table-row {
+    @apply rounded-2xl border border-slate-200 bg-white px-4 py-4 transition hover:border-slate-300 hover:bg-slate-50/80;
+  }
+
+  .app-notice-info {
+    @apply rounded-2xl border border-brand/20 bg-brand/5 px-4 py-3 text-sm text-brand;
+  }
+
+  .app-notice-success {
+    @apply rounded-2xl border border-moss/20 bg-moss/5 px-4 py-3 text-sm text-moss;
+  }
+
+  .app-notice-warn {
+    @apply rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-sm text-ember;
+  }
+}

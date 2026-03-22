@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Application\Swarmcore.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Configuration\Swarmcore.Contracts.Configuration.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Runtime\Swarmcore.Contracts.Runtime.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Telemetry\Swarmcore.Contracts.Telemetry.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

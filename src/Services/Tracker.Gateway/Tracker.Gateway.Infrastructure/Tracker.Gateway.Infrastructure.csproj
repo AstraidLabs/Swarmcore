@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Infrastructure\Swarmcore.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Configuration\Swarmcore.Contracts.Configuration.csproj" />
+    <ProjectReference Include="..\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
+    <ProjectReference Include="..\Tracker.Gateway.Runtime\Tracker.Gateway.Runtime.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Swarmcore.Caching.Redis\Swarmcore.Caching.Redis.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Swarmcore.Serialization.BEncoding\Swarmcore.Serialization.BEncoding.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Observability\Swarmcore.BuildingBlocks.Observability.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Swarmcore.Persistence.Postgres\Swarmcore.Persistence.Postgres.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

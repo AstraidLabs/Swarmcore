@@ -1,0 +1,157 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: swarmcore
+      POSTGRES_USER: swarmcore
+      POSTGRES_PASSWORD: swarmcore
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swarmcore -d swarmcore"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.2
+
+  redis:
+    image: redis:7.4
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.3
+
+  tracker-gateway:
+    build:
+      context: .
+      dockerfile: src/Services/Tracker.Gateway/Tracker.Gateway.Api/Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Swarmcore__Postgres__ConnectionString: Host=postgres;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore
+      Swarmcore__Redis__Configuration: redis:6379
+      Swarmcore__TrackerNode__NodeId: gateway-node-1
+      Swarmcore__TrackerNode__Region: local-compose
+      Swarmcore__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
+      Swarmcore__StartupBootstrap__MaxAttempts: 30
+      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
+      Swarmcore__UdpTracker__Enabled: "true"
+    ports:
+      - "6969:6969/udp"
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.10
+
+  configuration-service:
+    build:
+      context: .
+      dockerfile: src/Services/Tracker.ConfigurationService/Tracker.ConfigurationService.Api/Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Swarmcore__Postgres__ConnectionString: Host=postgres;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore
+      Swarmcore__Redis__Configuration: redis:6379
+      Swarmcore__TrackerNode__NodeId: configuration-node-1
+      Swarmcore__TrackerNode__Region: local-compose
+      Swarmcore__StartupBootstrap__MaxAttempts: 30
+      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.11
+
+  admin-service:
+    build:
+      context: .
+      dockerfile: src/Services/Tracker.AdminService/Tracker.AdminService.Api/Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Swarmcore__Postgres__ConnectionString: Host=postgres;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore
+      Swarmcore__Redis__Configuration: redis:6379
+      Swarmcore__TrackerNode__NodeId: admin-node-1
+      Swarmcore__TrackerNode__Region: local-compose
+      Swarmcore__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
+      Swarmcore__StartupBootstrap__MaxAttempts: 30
+      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
+      Swarmcore__AdminIdentity__DisableTransportSecurityRequirement: "true"
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.12
+
+  cache-coordinator:
+    build:
+      context: .
+      dockerfile: src/Services/Tracker.CacheCoordinator/Tracker.CacheCoordinator.Worker/Dockerfile
+    environment:
+      Swarmcore__Redis__Configuration: redis:6379
+      Swarmcore__TrackerNode__NodeId: coordinator-node-1
+      Swarmcore__TrackerNode__Region: local-compose
+      Swarmcore__StartupBootstrap__MaxAttempts: 30
+      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
+    depends_on:
+      - redis
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.13
+
+  telemetry-ingest:
+    build:
+      context: .
+      dockerfile: src/Services/Tracker.TelemetryIngest/Tracker.TelemetryIngest.Worker/Dockerfile
+    environment:
+      Swarmcore__Postgres__ConnectionString: Host=postgres;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore
+      Swarmcore__TrackerNode__NodeId: telemetry-node-1
+      Swarmcore__TrackerNode__Region: local-compose
+      Swarmcore__StartupBootstrap__MaxAttempts: 30
+      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
+    depends_on:
+      - postgres
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.14
+
+  nginx:
+    image: nginx:1.29-alpine
+    depends_on:
+      - tracker-gateway
+      - admin-service
+    ports:
+      - "80:80"
+      - "81:81"
+    volumes:
+      - ./deploy/nginx/tracker.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.20
+
+volumes:
+  postgres-data:
+
+networks:
+  swarmcore:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24

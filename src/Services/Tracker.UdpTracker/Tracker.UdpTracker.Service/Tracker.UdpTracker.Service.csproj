@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tracker.UdpTracker.Protocol\Tracker.UdpTracker.Protocol.csproj" />
+    <ProjectReference Include="..\..\Tracker.Gateway\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
+    <ProjectReference Include="..\..\Tracker.Gateway\Tracker.Gateway.Runtime\Tracker.Gateway.Runtime.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Observability\Swarmcore.BuildingBlocks.Observability.csproj" />
+  </ItemGroup>
+
+</Project>

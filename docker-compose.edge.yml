@@ -1,0 +1,10 @@
+services:
+  nginx:
+    depends_on:
+      - tracker-gateway
+      - admin-service
+    ports:
+      - "80:80"
+      - "81:81"
+    volumes:
+      - ./deploy/nginx/tracker.conf:/etc/nginx/nginx.conf:ro

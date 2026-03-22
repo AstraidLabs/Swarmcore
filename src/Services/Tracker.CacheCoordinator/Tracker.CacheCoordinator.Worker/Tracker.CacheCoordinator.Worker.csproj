@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-Tracker.CacheCoordinator.Worker-55326dbd-dc08-4d0e-8ba8-8e92b0dd64ee</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tracker.CacheCoordinator.Application\Tracker.CacheCoordinator.Application.csproj" />
+    <ProjectReference Include="..\Tracker.CacheCoordinator.Infrastructure\Tracker.CacheCoordinator.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+  </ItemGroup>
+</Project>

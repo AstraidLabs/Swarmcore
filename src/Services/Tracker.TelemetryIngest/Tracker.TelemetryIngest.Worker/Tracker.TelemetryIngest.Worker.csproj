@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-Tracker.TelemetryIngest.Worker-b824812d-36a6-4f1e-979f-eacd05f9db13</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tracker.TelemetryIngest.Application\Tracker.TelemetryIngest.Application.csproj" />
+    <ProjectReference Include="..\Tracker.TelemetryIngest.Infrastructure\Tracker.TelemetryIngest.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+  </ItemGroup>
+</Project>

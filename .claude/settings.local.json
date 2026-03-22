@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(docker info:*)",
+      "Bash(dotnet ef:*)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -E \"\\\\.cs$\")",
+      "Bash(find /c/Users/tomas/source/repos/Swarmcore -name ScrapeService.cs -o -path */UdpTracker/* -name *.cs)",
+      "Bash(find /c/Users/tomas/source/repos/Swarmcore -name *crape* -type f)",
+      "Bash(find /c/Users/tomas/source/repos/Swarmcore/src/Services -name UdpTracker* -o -name *Udp*)",
+      "Bash(find /c/Users/tomas/source/repos/Swarmcore/src -name *Peer*Selection* -o -name *PeerMutation*)",
+      "Bash(find /c/Users/tomas/source/repos/Swarmcore -name *BencodeWriter* -o -name *bencode* -type f)",
+      "Bash(find /c/Users/tomas/source/repos/Swarmcore -path *Serialization* -name *.cs)",
+      "Bash(grep -rn TrackerDiagnostics. /c/Users/tomas/source/repos/Swarmcore/src/Services/Tracker.Gateway --include=*.cs)",
+      "Bash(grep -rn TrackerDiagnostics. /c/Users/tomas/source/repos/Swarmcore/src/Services/Tracker.UdpTracker --include=*.cs)",
+      "Bash(grep -rn CanScrape /c/Users/tomas/source/repos/Swarmcore/src --include=*.cs)",
+      "Bash(/tmp/udp_event_check.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(for s:*)",
+      "Bash(do echo:*)",
+      "Bash(echo -n \"$s\")",
+      "Bash(done)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker volume:*)"
+    ]
+  }
+}
