@@ -217,6 +217,26 @@ adminApi.MapGet("/cluster-overview", async ([FromServices] ISender sender, Cance
     return Results.Ok(result);
 }).RequireAuthorization(AdminAuthorizationPolicies.Read);
 
+// ─── Cluster Shard Diagnostics ────────────────────────────────────────────────
+
+adminApi.MapGet("/cluster/shards", async (
+    [FromQuery] int totalShards,
+    [FromServices] ISender sender,
+    CancellationToken cancellationToken) =>
+{
+    var count = totalShards > 0 ? totalShards : 256;
+    var result = await sender.Send(new GetClusterShardDiagnosticsQuery(count), cancellationToken);
+    return Results.Ok(result);
+}).RequireAuthorization(AdminAuthorizationPolicies.Read);
+
+adminApi.MapGet("/cluster/nodes", async (
+    [FromServices] ISender sender,
+    CancellationToken cancellationToken) =>
+{
+    var result = await sender.Send(new GetClusterNodeStatesQuery(), cancellationToken);
+    return Results.Ok(result);
+}).RequireAuthorization(AdminAuthorizationPolicies.Read);
+
 adminApi.MapGet("/audit",
     async (int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {

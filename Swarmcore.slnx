@@ -58,6 +58,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/ArchitectureTests/ArchitectureTests.csproj" />
     <Project Path="tests/Tracker.AdminService.IntegrationTests/Tracker.AdminService.IntegrationTests.csproj" />
+    <Project Path="tests/Tracker.Cluster.UnitTests/Tracker.Cluster.UnitTests.csproj" />
     <Project Path="tests/Tracker.Gateway.IntegrationTests/Tracker.Gateway.IntegrationTests.csproj" />
     <Project Path="tests/Tracker.Gateway.UnitTests/Tracker.Gateway.UnitTests.csproj" />
     <Project Path="tests/Tracker.UdpTracker.UnitTests/Tracker.UdpTracker.UnitTests.csproj" />

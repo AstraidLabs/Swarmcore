@@ -307,6 +307,41 @@ public sealed class PartitionedRuntimeSwarmStore : IRuntimeSwarmStore
         return total;
     }
 
+    public IEnumerable<(InfoHashKey InfoHash, SwarmCounts Counts)> EnumerateSwarms(DateTimeOffset now)
+    {
+        var nowSeconds = now.ToUnixTimeSeconds();
+        var results = new List<(InfoHashKey, SwarmCounts)>(64);
+
+        foreach (var shard in _shards)
+        {
+            lock (shard.SyncRoot)
+            {
+                foreach (var pair in shard.Swarms)
+                {
+                    lock (pair.Value.SyncRoot)
+                    {
+                        // Prune expired peers so counts are accurate in the snapshot.
+                        if (nowSeconds >= pair.Value.NextSweepUnixSeconds)
+                        {
+                            PruneExpiredUnlocked(pair.Value, nowSeconds);
+                            pair.Value.NextSweepUnixSeconds = nowSeconds + _options.ExpirySweepIntervalSeconds;
+                        }
+
+                        if (pair.Value.Peers.Count > 0)
+                        {
+                            results.Add((pair.Key, new SwarmCounts(
+                                pair.Value.SeederCount,
+                                pair.Value.LeecherCount,
+                                pair.Value.DownloadedCount)));
+                        }
+                    }
+                }
+            }
+        }
+
+        return results;
+    }
+
     private SwarmState GetOrCreateSwarm(in InfoHashKey infoHash)
     {
         var shard = GetShard(infoHash);

@@ -3,12 +3,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using System.Net;
 using Swarmcore.Contracts.Admin;
+using Swarmcore.Contracts.Runtime;
 using Swarmcore.BuildingBlocks.Abstractions.Hosting;
 using Swarmcore.BuildingBlocks.Abstractions.Options;
 using System.Diagnostics;
 using Swarmcore.BuildingBlocks.Observability.Diagnostics;
 using Swarmcore.Hosting;
 using Tracker.Gateway.Application.Announce;
+using Tracker.Gateway.Application.Cluster;
 using Tracker.Gateway.Infrastructure;
 using Tracker.Gateway.Runtime;
 using Tracker.UdpTracker.Service;
@@ -51,6 +53,7 @@ builder.Services.AddOptions<ForwardedHeadersOptions>()
 builder.Services.AddSwarmcoreInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
 builder.Services.AddGatewayRuntime(builder.Configuration);
 builder.Services.AddGatewayInfrastructure();
+builder.Services.AddGatewayClusterInfrastructure();
 builder.Services.AddGatewayObservabilityServices();
 builder.Services.AddUdpTracker(builder.Configuration);
 
@@ -61,33 +64,54 @@ app.UseMiddleware<TrackerProtocolExceptionMiddleware>();
 app.UseMiddleware<TrackerRequestGuardMiddleware>();
 
 app.MapHealthChecks("/health/live");
+
 app.MapGet("/health/startup", (IReadinessState readiness) =>
     readiness.IsReady
         ? Results.Ok(new { status = "started" })
         : Results.StatusCode(StatusCodes.Status503ServiceUnavailable));
 
-app.MapGet("/health/ready", (
+app.MapGet("/health/ready", async Task (
     IReadinessState readiness,
     IGatewayDependencyState dependencyState,
-    IOptions<DependencyDegradationOptions> degradationOptions) =>
+    INodeOperationalStateStore nodeStateStore,
+    IOptions<DependencyDegradationOptions> degradationOptions,
+    IOptions<ClusterShardingOptions> shardingOptions,
+    IOptions<TrackerNodeOptions> nodeOptions,
+    CancellationToken cancellationToken) =>
 {
     var snapshot = dependencyState.Snapshot;
     var isReady = readiness.IsReady
         && (!degradationOptions.Value.RequireRedisForReadiness || snapshot.Redis.IsHealthy)
         && (!degradationOptions.Value.RequirePostgresForReadiness || snapshot.Postgres.IsHealthy);
 
-    return isReady
-        ? Results.Ok(new
+    if (!isReady)
+    {
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+
+    // Fail readiness when draining or in maintenance, so the load balancer stops routing to this node.
+    // Non-ready does not mean unhealthy — it signals graceful removal from rotation.
+    if (shardingOptions.Value.FailReadinessWhenDraining)
+    {
+        var nodeState = await nodeStateStore.GetStateAsync(nodeOptions.Value.NodeId, cancellationToken);
+        if (nodeState is { State: NodeOperationalState.Draining or NodeOperationalState.Maintenance })
         {
-            status = "ready",
-            dependencies = new
-            {
-                redis = snapshot.Redis,
-                postgres = snapshot.Postgres
-            }
-        })
-        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    return Results.Ok(new
+    {
+        status = "ready",
+        dependencies = new
+        {
+            redis = snapshot.Redis,
+            postgres = snapshot.Postgres
+        }
+    });
 });
+
+// ─── Tracker Protocol Endpoints ───────────────────────────────────────────────
 
 app.MapGet("/announce/{passkey?}", async Task (
     HttpContext httpContext,
@@ -192,9 +216,12 @@ app.MapGet("/scrape/{passkey?}", async Task (
     TrackerDiagnostics.ScrapeDuration.Record(Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds);
 }).ExcludeFromDescription();
 
+// ─── Node Runtime Overview ────────────────────────────────────────────────────
+
 app.MapGet("/admin/overview", (
     IAnnounceTelemetryWriter telemetryWriter,
     IRuntimeSwarmStore runtimeSwarmStore,
+    IShardRouter shardRouter,
     IOptions<TrackerNodeOptions> nodeOptions) =>
 {
     var store = (PartitionedRuntimeSwarmStore)runtimeSwarmStore;
@@ -206,6 +233,127 @@ app.MapGet("/admin/overview", (
         [new CacheStatusDto("L1", "access", true), new CacheStatusDto("L2", "access", true)]);
 
     return Results.Ok(overview);
+});
+
+// ─── Cluster Shard Diagnostics ────────────────────────────────────────────────
+
+/// <summary>
+/// Returns the shard ownership map as seen by this node's local ownership cache.
+/// Reflects the state from the last ownership cache refresh (default every 15s).
+/// </summary>
+app.MapGet("/admin/cluster/shards", (
+    IShardRouter shardRouter,
+    IOptions<ClusterShardingOptions> shardingOptions) =>
+{
+    var total = shardingOptions.Value.ClusterShardCount;
+    var snapshot = shardRouter.GetOwnershipSnapshot();
+    var shards = new ClusterShardOwnershipDto[total];
+
+    for (var i = 0; i < total; i++)
+    {
+        snapshot.TryGetValue(i, out var ownerNodeId);
+        shards[i] = new ClusterShardOwnershipDto(
+            i,
+            ownerNodeId,
+            ownerNodeId is not null && shardRouter.IsLocallyOwned(i),
+            LeaseExpiresAtUtc: null); // TTL managed in Redis; not surfaced here
+    }
+
+    var owned = shards.Count(static s => s.OwnerNodeId is not null);
+    var result = new ClusterShardDiagnosticsDto(
+        DateTimeOffset.UtcNow,
+        total,
+        owned,
+        total - owned,
+        shards);
+
+    return Results.Ok(result);
+});
+
+/// <summary>
+/// Returns ownership info for a single cluster shard.
+/// </summary>
+app.MapGet("/admin/cluster/shards/{shardId:int}", (
+    int shardId,
+    IShardRouter shardRouter,
+    IOptions<ClusterShardingOptions> shardingOptions) =>
+{
+    if (shardId < 0 || shardId >= shardingOptions.Value.ClusterShardCount)
+    {
+        return Results.BadRequest(new { error = "shard_id out of range" });
+    }
+
+    var ownerNodeId = shardRouter.GetOwnerNodeId(shardId);
+    var dto = new ClusterShardOwnershipDto(
+        shardId,
+        ownerNodeId,
+        ownerNodeId is not null && shardRouter.IsLocallyOwned(shardId),
+        LeaseExpiresAtUtc: null);
+
+    return Results.Ok(dto);
+});
+
+// ─── Node Operational State Controls ─────────────────────────────────────────
+
+/// <summary>
+/// Returns the current operational state of the specified node.
+/// Used by operators and automation to check drain/maintenance status.
+/// </summary>
+app.MapGet("/admin/nodes/{nodeId}/state", async Task (
+    string nodeId,
+    INodeOperationalStateStore nodeStateStore,
+    CancellationToken cancellationToken) =>
+{
+    var state = await nodeStateStore.GetStateAsync(nodeId, cancellationToken);
+    if (state is null)
+    {
+        return Results.Ok(new NodeOperationalStateDto(nodeId, NodeOperationalState.Active, DateTimeOffset.UtcNow));
+    }
+
+    return Results.Ok(state);
+});
+
+/// <summary>
+/// Transitions the specified node to Draining state.
+/// The node's readiness probe will start failing, removing it from the load balancer pool.
+/// Owned shards will be released on graceful shutdown.
+/// </summary>
+app.MapPost("/admin/nodes/{nodeId}/drain", async Task (
+    string nodeId,
+    INodeOperationalStateStore nodeStateStore,
+    IOptions<TrackerNodeOptions> nodeOptions,
+    CancellationToken cancellationToken) =>
+{
+    var state = new NodeOperationalStateDto(nodeId, NodeOperationalState.Draining, DateTimeOffset.UtcNow);
+    await nodeStateStore.SetStateAsync(state, cancellationToken);
+    return Results.Ok(state);
+});
+
+/// <summary>
+/// Transitions the specified node to Maintenance state.
+/// Similar to Drain but signals a planned extended outage.
+/// </summary>
+app.MapPost("/admin/nodes/{nodeId}/maintenance", async Task (
+    string nodeId,
+    INodeOperationalStateStore nodeStateStore,
+    CancellationToken cancellationToken) =>
+{
+    var state = new NodeOperationalStateDto(nodeId, NodeOperationalState.Maintenance, DateTimeOffset.UtcNow);
+    await nodeStateStore.SetStateAsync(state, cancellationToken);
+    return Results.Ok(state);
+});
+
+/// <summary>
+/// Returns the specified node to Active state, re-enabling readiness and ownership claims.
+/// </summary>
+app.MapPost("/admin/nodes/{nodeId}/activate", async Task (
+    string nodeId,
+    INodeOperationalStateStore nodeStateStore,
+    CancellationToken cancellationToken) =>
+{
+    var state = new NodeOperationalStateDto(nodeId, NodeOperationalState.Active, DateTimeOffset.UtcNow);
+    await nodeStateStore.SetStateAsync(state, cancellationToken);
+    return Results.Ok(state);
 });
 
 if (app.Environment.IsDevelopment())

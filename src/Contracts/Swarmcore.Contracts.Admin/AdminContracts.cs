@@ -2,6 +2,37 @@ namespace Swarmcore.Contracts.Admin;
 
 public sealed record NodeHealthDto(string NodeId, string Region, bool Ready, DateTimeOffset ObservedAtUtc);
 
+// ─── Cluster / Distributed Runtime ───────────────────────────────────────────
+
+/// <summary>Ownership summary for a single cluster shard, returned by admin diagnostics.</summary>
+public sealed record ClusterShardOwnershipDto(
+    int ShardId,
+    string? OwnerNodeId,
+    bool LocallyOwned,
+    DateTimeOffset? LeaseExpiresAtUtc);
+
+/// <summary>Cluster-level view of a single node returned by admin diagnostics.</summary>
+public sealed record ClusterNodeStateDto(
+    string NodeId,
+    string Region,
+    string OperationalState,
+    int OwnedShardCount,
+    DateTimeOffset HeartbeatObservedAtUtc,
+    bool HeartbeatFresh);
+
+/// <summary>Full cluster shard ownership map returned by admin diagnostics.</summary>
+public sealed record ClusterShardDiagnosticsDto(
+    DateTimeOffset ObservedAtUtc,
+    int TotalShards,
+    int OwnedShards,
+    int UnownedShards,
+    IReadOnlyCollection<ClusterShardOwnershipDto> Shards);
+
+/// <summary>Request body for node drain / maintenance state transitions.</summary>
+public sealed record NodeStateTransitionRequest(
+    string TargetState,
+    bool Force = false);
+
 public sealed record CacheStatusDto(string Layer, string Scope, bool Healthy);
 
 public sealed record TrackerOverviewDto(

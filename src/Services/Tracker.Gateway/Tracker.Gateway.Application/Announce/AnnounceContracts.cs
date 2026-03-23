@@ -24,6 +24,13 @@ public interface IRuntimeSwarmStore
     AnnouncePeerSelection SelectPeers(in AnnounceRequest request, int peerCount, DateTimeOffset now);
     SwarmCounts GetCounts(in InfoHashKey infoHash, DateTimeOffset now);
     void SweepExpired(DateTimeOffset now);
+
+    /// <summary>
+    /// Enumerates all swarms currently active in the local runtime store with their counts.
+    /// Used for distributed summary publication and observability.
+    /// The snapshot is taken at the time of the call; the DateTimeOffset is used to expire stale peers.
+    /// </summary>
+    IEnumerable<(InfoHashKey InfoHash, SwarmCounts Counts)> EnumerateSwarms(DateTimeOffset now);
 }
 
 public interface IPeerMutationService
