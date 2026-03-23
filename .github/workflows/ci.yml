@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  DOTNET_QUALITY: "preview"
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-quality: ${{ env.DOTNET_QUALITY }}
+
+      - name: Restore dependencies
+        run: dotnet restore Swarmcore.slnx
+
+      - name: Build solution
+        run: dotnet build Swarmcore.slnx --no-restore -c Release
+
+  unit-tests:
+    name: Unit Tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-quality: ${{ env.DOTNET_QUALITY }}
+
+      - name: Restore dependencies
+        run: dotnet restore Swarmcore.slnx
+
+      - name: Run unit tests
+        run: >
+          dotnet test Swarmcore.slnx
+          --no-restore
+          -c Release
+          --filter "FullyQualifiedName~UnitTests|FullyQualifiedName~ArchitectureTests"
+          --logger "trx;LogFileName=unit-tests.trx"
+          --results-directory ./test-results
+          --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: ./test-results/**/*.trx
+          retention-days: 30
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-coverage
+          path: ./test-results/**/coverage.cobertura.xml
+          retention-days: 30
+
+  integration-tests:
+    name: Integration Tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-quality: ${{ env.DOTNET_QUALITY }}
+
+      - name: Restore dependencies
+        run: dotnet restore Swarmcore.slnx
+
+      # Testcontainers require Docker — available by default on ubuntu-latest
+      - name: Run integration tests
+        run: >
+          dotnet test Swarmcore.slnx
+          --no-restore
+          -c Release
+          --filter "FullyQualifiedName~IntegrationTests"
+          --logger "trx;LogFileName=integration-tests.trx"
+          --results-directory ./test-results
+          --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: ./test-results/**/*.trx
+          retention-days: 30
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-coverage
+          path: ./test-results/**/coverage.cobertura.xml
+          retention-days: 30
+
+  docker-build:
+    name: Docker Build (${{ matrix.service }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: swarmcore
+            dockerfile: Swarmcore/Dockerfile
+          - service: tracker-gateway
+            dockerfile: src/Services/Tracker.Gateway/Tracker.Gateway.Api/Dockerfile
+          - service: admin-service
+            dockerfile: src/Services/Tracker.AdminService/Tracker.AdminService.Api/Dockerfile
+          - service: configuration-service
+            dockerfile: src/Services/Tracker.ConfigurationService/Tracker.ConfigurationService.Api/Dockerfile
+          - service: cache-coordinator
+            dockerfile: src/Services/Tracker.CacheCoordinator/Tracker.CacheCoordinator.Worker/Dockerfile
+          - service: telemetry-ingest
+            dockerfile: src/Services/Tracker.TelemetryIngest/Tracker.TelemetryIngest.Worker/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (validation only)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: swarmcore/${{ matrix.service }}:ci-${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}

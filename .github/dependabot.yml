@@ -1,0 +1,61 @@
+version: 2
+
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      dotnet-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /Swarmcore
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /src/Services/Tracker.Gateway/Tracker.Gateway.Api
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /src/Services/Tracker.AdminService/Tracker.AdminService.Api
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /src/Services/Tracker.ConfigurationService/Tracker.ConfigurationService.Api
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /src/Services/Tracker.CacheCoordinator/Tracker.CacheCoordinator.Worker
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /src/Services/Tracker.TelemetryIngest/Tracker.TelemetryIngest.Worker
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3

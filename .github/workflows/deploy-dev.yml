@@ -1,0 +1,88 @@
+name: Deploy to Dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (defaults to latest master SHA)"
+        required: false
+        type: string
+  push:
+    branches: [master]
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/swarmcore
+  ENVIRONMENT: dev
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify images exist
+        run: |
+          services=(swarmcore tracker-gateway admin-service configuration-service cache-coordinator telemetry-ingest)
+          tag="${{ steps.tag.outputs.tag }}"
+          for svc in "${services[@]}"; do
+            image="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${svc}:${tag}"
+            echo "Checking ${image}..."
+            docker manifest inspect "${image}" > /dev/null 2>&1 || {
+              echo "::error::Image not found: ${image}"
+              exit 1
+            }
+          done
+          echo "All images verified for tag: ${tag}"
+
+      - name: Deploy to dev environment
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+          DEPLOY_HOST: ${{ secrets.DEV_DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.DEV_DEPLOY_KEY }}
+        run: |
+          echo "::notice::Deploying tag ${IMAGE_TAG} to dev environment"
+          # ──────────────────────────────────────────────────────────────────
+          # DEPLOYMENT BOUNDARY
+          # Replace this block with your actual deployment command, e.g.:
+          #   - SSH + docker compose pull/up
+          #   - kubectl set image
+          #   - Ansible playbook
+          #   - Terraform apply
+          #
+          # Available environment secrets to configure:
+          #   DEV_DEPLOY_HOST  — target host for deployment
+          #   DEV_DEPLOY_KEY   — SSH key or API token
+          #
+          # Example SSH deployment:
+          #   echo "${DEPLOY_KEY}" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+          #   ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no "deploy@${DEPLOY_HOST}" \
+          #     "cd /opt/swarmcore && IMAGE_TAG=${IMAGE_TAG} docker compose pull && docker compose up -d"
+          # ──────────────────────────────────────────────────────────────────
+          echo "::warning::Deployment command not yet configured. Set up DEV_DEPLOY_HOST and DEV_DEPLOY_KEY secrets."
