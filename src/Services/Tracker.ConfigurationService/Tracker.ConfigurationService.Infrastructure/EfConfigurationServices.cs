@@ -498,7 +498,15 @@ internal sealed class EfConfigurationMutationService(
             request.MaxNumWant,
             request.AllowScrape,
             version,
-            request.WarningMessage);
+            request.WarningMessage,
+            request.CompactOnly,
+            request.AllowUdp,
+            request.AllowIPv6,
+            request.StrictnessProfileOverride,
+            request.CompatibilityModeOverride,
+            request.ModerationState,
+            request.MaintenanceFlag,
+            request.TemporaryRestriction);
 
     private async Task<TorrentPolicyDto> SetTorrentEnabledAsync(string infoHash, bool isEnabled, TorrentActivationRequest request, AdminMutationContext context, CancellationToken cancellationToken)
     {

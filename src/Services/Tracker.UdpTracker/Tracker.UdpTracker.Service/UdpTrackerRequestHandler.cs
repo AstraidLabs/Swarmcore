@@ -12,6 +12,7 @@ public sealed class UdpTrackerRequestHandler
     private readonly ConnectionIdManager _connectionIdManager;
     private readonly IRuntimeSwarmStore _runtimeSwarmStore;
     private readonly IAccessPolicyResolver _accessPolicyResolver;
+    private readonly IRuntimeGovernanceState _governanceState;
     private readonly GatewayRuntimeOptions _runtimeOptions;
     private readonly UdpTrackerOptions _udpOptions;
 
@@ -19,12 +20,14 @@ public sealed class UdpTrackerRequestHandler
         ConnectionIdManager connectionIdManager,
         IRuntimeSwarmStore runtimeSwarmStore,
         IAccessPolicyResolver accessPolicyResolver,
+        IRuntimeGovernanceState governanceState,
         IOptions<GatewayRuntimeOptions> runtimeOptions,
         IOptions<UdpTrackerOptions> udpOptions)
     {
         _connectionIdManager = connectionIdManager;
         _runtimeSwarmStore = runtimeSwarmStore;
         _accessPolicyResolver = accessPolicyResolver;
+        _governanceState = governanceState;
         _runtimeOptions = runtimeOptions.Value;
         _udpOptions = udpOptions.Value;
     }
@@ -34,6 +37,19 @@ public sealed class UdpTrackerRequestHandler
         if (!UdpProtocolParser.TryParseAction(datagram.AsSpan(0, datagramLength), out var action, out var transactionId))
         {
             return 0;
+        }
+
+        // ── UDP governance check ──
+        if (_governanceState.UdpDisabled)
+        {
+            TrackerDiagnostics.GovernanceUdpRejected.Add(1);
+            return WriteError(responseBuffer, transactionId, "UDP tracker is temporarily disabled");
+        }
+
+        if (_governanceState.GlobalMaintenanceMode)
+        {
+            TrackerDiagnostics.GovernanceMaintenanceRejected.Add(1);
+            return WriteError(responseBuffer, transactionId, "tracker is in maintenance mode");
         }
 
         try
@@ -104,6 +120,12 @@ public sealed class UdpTrackerRequestHandler
             numWant,
             true, trackerEvent, null);
 
+        if (_governanceState.AnnounceDisabled)
+        {
+            TrackerDiagnostics.GovernanceAnnounceRejected.Add(1);
+            return WriteError(responseBuffer, udpRequest.TransactionId, "announce is temporarily disabled");
+        }
+
         var accessResolution = await _accessPolicyResolver.ResolveAsync(announceRequest, cancellationToken);
         if (!accessResolution.IsAllowed)
         {
@@ -111,9 +133,40 @@ public sealed class UdpTrackerRequestHandler
             return WriteError(responseBuffer, udpRequest.TransactionId, accessResolution.FailureReason);
         }
 
+        // Per-torrent UDP check
+        if (!accessResolution.Policy.AllowUdp)
+        {
+            TrackerDiagnostics.UdpErrorTotal.Add(1);
+            return WriteError(responseBuffer, udpRequest.TransactionId, "UDP is not allowed for this torrent");
+        }
+
+        // Per-torrent governance checks
+        if (accessResolution.Policy.MaintenanceFlag)
+        {
+            TrackerDiagnostics.TorrentMaintenanceRejected.Add(1);
+            return WriteError(responseBuffer, udpRequest.TransactionId, "torrent is under maintenance");
+        }
+
+        if (accessResolution.Policy.TemporaryRestriction)
+        {
+            TrackerDiagnostics.TorrentTemporaryRestrictionRejected.Add(1);
+            return WriteError(responseBuffer, udpRequest.TransactionId, "torrent is temporarily restricted");
+        }
+
         var now = DateTimeOffset.UtcNow;
-        var peerTtl = TimeSpan.FromSeconds(accessResolution.Policy.AnnounceIntervalSeconds * 1.5);
-        var counts = _runtimeSwarmStore.ApplyMutation(announceRequest, peerTtl, now);
+
+        // Read-only mode: skip mutation
+        SwarmCounts counts;
+        if (_governanceState.ReadOnlyMode)
+        {
+            TrackerDiagnostics.GovernanceReadOnlySkipped.Add(1);
+            counts = _runtimeSwarmStore.GetCounts(infoHash, now);
+        }
+        else
+        {
+            var peerTtl = TimeSpan.FromSeconds(accessResolution.Policy.AnnounceIntervalSeconds * 1.5);
+            counts = _runtimeSwarmStore.ApplyMutation(announceRequest, peerTtl, now);
+        }
 
         var maxPeersInResponse = Math.Min(
             (int)(((uint)_udpOptions.MaxDatagramSize - 20) / 6),
@@ -135,6 +188,12 @@ public sealed class UdpTrackerRequestHandler
 
     private int HandleScrape(byte[] data, int length, byte[] responseBuffer)
     {
+        if (_governanceState.ScrapeDisabled)
+        {
+            TrackerDiagnostics.GovernanceScrapeRejected.Add(1);
+            return WriteError(responseBuffer, 0, "scrape is temporarily disabled");
+        }
+
         if (!UdpProtocolParser.TryParseScrapeRequest(data.AsSpan(0, length), out var request))
         {
             TrackerDiagnostics.UdpErrorTotal.Add(1);

@@ -78,7 +78,15 @@ public sealed record TorrentAdminDto(
     int DefaultNumWant,
     int MaxNumWant,
     bool AllowScrape,
-    long Version);
+    long Version,
+    bool CompactOnly = true,
+    bool AllowUdp = true,
+    bool AllowIPv6 = true,
+    int? StrictnessProfileOverride = null,
+    int? CompatibilityModeOverride = null,
+    string? ModerationState = null,
+    bool MaintenanceFlag = false,
+    bool TemporaryRestriction = false);
 
 public sealed record PasskeyAdminDto(
     string PasskeyMask,
@@ -156,3 +164,59 @@ public sealed record BulkBanOperationItemDto(
     string? ErrorCode,
     string? ErrorMessage,
     BanRuleAdminDto? Snapshot);
+
+// ─── Governance Diagnostics ─────────────────────────────────────────────────
+
+public sealed record GovernanceStateDto(
+    bool AnnounceDisabled,
+    bool ScrapeDisabled,
+    bool GlobalMaintenanceMode,
+    bool ReadOnlyMode,
+    bool EmergencyAbuseMitigation,
+    bool UdpDisabled,
+    bool IPv6Frozen,
+    bool PolicyFreezeMode,
+    string CompatibilityMode,
+    string StrictnessProfile);
+
+public sealed record GovernanceUpdateRequest(
+    bool? AnnounceDisabled = null,
+    bool? ScrapeDisabled = null,
+    bool? GlobalMaintenanceMode = null,
+    bool? ReadOnlyMode = null,
+    bool? EmergencyAbuseMitigation = null,
+    bool? UdpDisabled = null,
+    bool? IPv6Frozen = null,
+    bool? PolicyFreezeMode = null,
+    string? CompatibilityMode = null,
+    string? StrictnessProfile = null);
+
+public sealed record AbuseDiagnosticsDto(
+    int TrackedIps,
+    int TrackedPasskeys,
+    int WarnedCount,
+    int SoftRestrictedCount,
+    int HardBlockedCount,
+    IReadOnlyCollection<AbuseDiagnosticsEntryDto> TopOffenders);
+
+public sealed record AbuseDiagnosticsEntryDto(
+    string Key,
+    string KeyType,
+    int MalformedRequestCount,
+    int DeniedPolicyCount,
+    int PeerIdAnomalyCount,
+    int SuspiciousPatternCount,
+    int ScrapeAmplificationCount,
+    int TotalScore,
+    string RestrictionLevel);
+
+public sealed record ConfigValidationDto(
+    bool IsValid,
+    IReadOnlyCollection<string> Errors,
+    IReadOnlyCollection<string> Warnings);
+
+public sealed record RuntimeDiagnosticsDto(
+    GovernanceStateDto Governance,
+    AbuseDiagnosticsDto AbuseSummary,
+    ConfigValidationDto ConfigValidation,
+    TrackerOverviewDto TrackerOverview);

@@ -65,12 +65,41 @@ builder.Services.AddOptions<ForwardedHeadersOptions>()
     }
 });
 
+builder.Services.AddOptions<TrackerCompatibilityOptions>()
+    .Bind(builder.Configuration.GetSection(TrackerCompatibilityOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddOptions<TrackerGovernanceOptions>()
+    .Bind(builder.Configuration.GetSection(TrackerGovernanceOptions.SectionName));
+
 builder.Services.AddSwarmcoreInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
 builder.Services.AddGatewayRuntime(builder.Configuration);
 builder.Services.AddGatewayInfrastructure();
 builder.Services.AddGatewayClusterInfrastructure();
 builder.Services.AddGatewayObservabilityServices();
 builder.Services.AddUdpTracker(builder.Configuration);
+
+// ── Startup configuration validation ──
+{
+    var securityOpts = builder.Configuration.GetSection(TrackerSecurityOptions.SectionName).Get<TrackerSecurityOptions>() ?? new TrackerSecurityOptions();
+    var compatOpts = builder.Configuration.GetSection(TrackerCompatibilityOptions.SectionName).Get<TrackerCompatibilityOptions>() ?? new TrackerCompatibilityOptions();
+    var govOpts = builder.Configuration.GetSection(TrackerGovernanceOptions.SectionName).Get<TrackerGovernanceOptions>() ?? new TrackerGovernanceOptions();
+    var abuseOpts = builder.Configuration.GetSection(TrackerAbuseProtectionOptions.SectionName).Get<TrackerAbuseProtectionOptions>() ?? new TrackerAbuseProtectionOptions();
+    var runtimeOpts = builder.Configuration.GetSection(GatewayRuntimeOptions.SectionName).Get<GatewayRuntimeOptions>() ?? new GatewayRuntimeOptions();
+    var validation = StartupConfigurationValidator.Validate(securityOpts, compatOpts, govOpts, abuseOpts, runtimeOpts);
+    var startupLogger = LoggerFactory.Create(static b => b.AddConsole()).CreateLogger("Swarmcore.Startup");
+    foreach (var warning in validation.Warnings)
+    {
+        startupLogger.LogWarning("Config validation warning: {Warning}", warning);
+    }
+    foreach (var error in validation.Errors)
+    {
+        startupLogger.LogError("Config validation error: {Error}", error);
+    }
+    if (!validation.IsValid)
+    {
+        throw new InvalidOperationException("Startup configuration validation failed. See logged errors above.");
+    }
+}
 
 var app = builder.Build();
 
@@ -154,6 +183,7 @@ app.MapGet("/announce/{passkey?}", async Task (
     [FromServices] IAnnounceRequestParser parser,
     [FromServices] IAnnounceRequestValidator validator,
     [FromServices] IAnnounceAbuseGuard abuseGuard,
+    [FromServices] AdvancedAbuseGuard advancedAbuseGuard,
     [FromServices] IAnnounceService announceService,
     [FromServices] IBencodeResponseWriter bencodeResponseWriter,
     CancellationToken cancellationToken) =>
@@ -163,6 +193,8 @@ app.MapGet("/announce/{passkey?}", async Task (
     if (!parser.TryParse(httpContext, passkey, out var request, out var parseError))
     {
         TrackerDiagnostics.RequestParseFailed.Add(1, new KeyValuePair<string, object?>("endpoint", "announce"));
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        advancedAbuseGuard.RecordMalformedRequest(ip, passkey);
         await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, parseError.StatusCode, parseError.FailureReason, cancellationToken);
         return;
     }
@@ -171,8 +203,32 @@ app.MapGet("/announce/{passkey?}", async Task (
     if (!validation.IsValid)
     {
         TrackerDiagnostics.RequestValidationFailed.Add(1, new KeyValuePair<string, object?>("endpoint", "announce"));
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        advancedAbuseGuard.RecordMalformedRequest(ip, request.Passkey);
         await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, validation.Error.StatusCode, validation.Error.FailureReason, cancellationToken);
         return;
+    }
+
+    // Advanced abuse intelligence check
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var restriction = advancedAbuseGuard.EvaluateIp(ip);
+        if (restriction == AbuseRestrictionLevel.HardBlock)
+        {
+            TrackerDiagnostics.AbuseIntelHardBlock.Add(1);
+            await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, StatusCodes.Status403Forbidden, "access denied", cancellationToken);
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(request.Passkey))
+        {
+            var combinedRestriction = advancedAbuseGuard.EvaluateCombined(ip, request.Passkey);
+            if (combinedRestriction == AbuseRestrictionLevel.HardBlock)
+            {
+                TrackerDiagnostics.AbuseIntelHardBlock.Add(1);
+                await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, StatusCodes.Status403Forbidden, "access denied", cancellationToken);
+                return;
+            }
+        }
     }
 
     if (abuseGuard.Evaluate(httpContext, request) is { } abuseError)
@@ -186,6 +242,8 @@ app.MapGet("/announce/{passkey?}", async Task (
     if (error is { } announceError)
     {
         TrackerDiagnostics.AnnounceDenied.Add(1, new KeyValuePair<string, object?>("reason", announceError.FailureReason));
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        advancedAbuseGuard.RecordDeniedPolicy(ip, request.Passkey);
         await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, announceError.StatusCode, announceError.FailureReason, cancellationToken);
         return;
     }
@@ -210,6 +268,7 @@ app.MapGet("/scrape/{passkey?}", async Task (
     [FromServices] IScrapeRequestParser parser,
     [FromServices] IScrapeRequestValidator validator,
     [FromServices] IScrapeAbuseGuard scrapeAbuseGuard,
+    [FromServices] AdvancedAbuseGuard advancedAbuseGuard,
     [FromServices] IScrapeService scrapeService,
     [FromServices] IBencodeResponseWriter bencodeResponseWriter,
     CancellationToken cancellationToken) =>
@@ -219,6 +278,8 @@ app.MapGet("/scrape/{passkey?}", async Task (
     if (!parser.TryParse(httpContext, passkey, out var request, out var parseError))
     {
         TrackerDiagnostics.RequestParseFailed.Add(1, new KeyValuePair<string, object?>("endpoint", "scrape"));
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        advancedAbuseGuard.RecordMalformedRequest(ip, passkey);
         await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, parseError.StatusCode, parseError.FailureReason, cancellationToken);
         return;
     }
@@ -229,6 +290,25 @@ app.MapGet("/scrape/{passkey?}", async Task (
         TrackerDiagnostics.RequestValidationFailed.Add(1, new KeyValuePair<string, object?>("endpoint", "scrape"));
         await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, validation.Error.StatusCode, validation.Error.FailureReason, cancellationToken);
         return;
+    }
+
+    // Scrape amplification detection
+    if (request.InfoHashes.Length > 40)
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        advancedAbuseGuard.RecordScrapeAmplification(ip);
+    }
+
+    // Advanced abuse intelligence check
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var restriction = advancedAbuseGuard.EvaluateIp(ip);
+        if (restriction == AbuseRestrictionLevel.HardBlock)
+        {
+            TrackerDiagnostics.AbuseIntelHardBlock.Add(1);
+            await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, StatusCodes.Status403Forbidden, "access denied", cancellationToken);
+            return;
+        }
     }
 
     if (scrapeAbuseGuard.Evaluate(httpContext) is { } scrapeAbuseError)
@@ -389,6 +469,130 @@ app.MapPost("/admin/nodes/{nodeId}/activate", async Task (
     var state = new NodeOperationalStateDto(nodeId, NodeOperationalState.Active, DateTimeOffset.UtcNow);
     await nodeStateStore.SetStateAsync(state, cancellationToken);
     return Results.Ok(state);
+});
+
+// ─── Runtime Governance Controls ──────────────────────────────────────────────
+
+app.MapGet("/admin/governance", (IRuntimeGovernanceState governanceState) =>
+{
+    var snapshot = governanceState.GetSnapshot();
+    return Results.Ok(new GovernanceStateDto(
+        snapshot.AnnounceDisabled, snapshot.ScrapeDisabled,
+        snapshot.GlobalMaintenanceMode, snapshot.ReadOnlyMode,
+        snapshot.EmergencyAbuseMitigation, snapshot.UdpDisabled,
+        snapshot.IPv6Frozen, snapshot.PolicyFreezeMode,
+        snapshot.CompatibilityMode.ToString(), snapshot.StrictnessProfile.ToString()));
+});
+
+app.MapPost("/admin/governance", (
+    GovernanceUpdateRequest request,
+    IRuntimeGovernanceState governanceState) =>
+{
+    ClientCompatibilityMode? compatMode = null;
+    if (request.CompatibilityMode is not null &&
+        Enum.TryParse<ClientCompatibilityMode>(request.CompatibilityMode, ignoreCase: true, out var parsedMode))
+    {
+        compatMode = parsedMode;
+    }
+
+    ProtocolStrictnessProfile? strictnessProfile = null;
+    if (request.StrictnessProfile is not null &&
+        Enum.TryParse<ProtocolStrictnessProfile>(request.StrictnessProfile, ignoreCase: true, out var parsedProfile))
+    {
+        strictnessProfile = parsedProfile;
+    }
+
+    governanceState.Apply(new RuntimeGovernanceUpdate(
+        request.AnnounceDisabled, request.ScrapeDisabled,
+        request.GlobalMaintenanceMode, request.ReadOnlyMode,
+        request.EmergencyAbuseMitigation, request.UdpDisabled,
+        request.IPv6Frozen, request.PolicyFreezeMode,
+        compatMode, strictnessProfile));
+
+    TrackerDiagnostics.GovernanceStateChanges.Add(1);
+
+    var snapshot = governanceState.GetSnapshot();
+    return Results.Ok(new GovernanceStateDto(
+        snapshot.AnnounceDisabled, snapshot.ScrapeDisabled,
+        snapshot.GlobalMaintenanceMode, snapshot.ReadOnlyMode,
+        snapshot.EmergencyAbuseMitigation, snapshot.UdpDisabled,
+        snapshot.IPv6Frozen, snapshot.PolicyFreezeMode,
+        snapshot.CompatibilityMode.ToString(), snapshot.StrictnessProfile.ToString()));
+});
+
+// ─── Abuse Intelligence Diagnostics ──────────────────────────────────────────
+
+app.MapGet("/admin/abuse/diagnostics", (AdvancedAbuseGuard abuseGuard) =>
+{
+    var summary = abuseGuard.GetSummary();
+    var topOffenders = abuseGuard.GetDiagnostics(50);
+    return Results.Ok(new AbuseDiagnosticsDto(
+        summary.TrackedIps, summary.TrackedPasskeys,
+        summary.WarnedCount, summary.SoftRestrictedCount, summary.HardBlockedCount,
+        topOffenders.Select(static e => new AbuseDiagnosticsEntryDto(
+            e.Key, e.KeyType, e.MalformedRequestCount, e.DeniedPolicyCount,
+            e.PeerIdAnomalyCount, e.SuspiciousPatternCount,
+            e.ScrapeAmplificationCount, e.TotalScore, e.RestrictionLevel)).ToArray()));
+});
+
+// ─── Runtime Diagnostics ─────────────────────────────────────────────────────
+
+app.MapGet("/admin/diagnostics", (
+    IRuntimeGovernanceState governanceState,
+    AdvancedAbuseGuard abuseGuard,
+    IAnnounceTelemetryWriter telemetryWriter,
+    IRuntimeSwarmStore runtimeSwarmStore,
+    IOptions<TrackerNodeOptions> nodeOptions,
+    IOptions<TrackerSecurityOptions> securityOptions,
+    IOptions<TrackerCompatibilityOptions> compatibilityOptions,
+    IOptions<TrackerGovernanceOptions> governanceOptions,
+    IOptions<TrackerAbuseProtectionOptions> abuseProtectionOptions,
+    IOptions<GatewayRuntimeOptions> gatewayRuntimeOptions) =>
+{
+    var govSnapshot = governanceState.GetSnapshot();
+    var govDto = new GovernanceStateDto(
+        govSnapshot.AnnounceDisabled, govSnapshot.ScrapeDisabled,
+        govSnapshot.GlobalMaintenanceMode, govSnapshot.ReadOnlyMode,
+        govSnapshot.EmergencyAbuseMitigation, govSnapshot.UdpDisabled,
+        govSnapshot.IPv6Frozen, govSnapshot.PolicyFreezeMode,
+        govSnapshot.CompatibilityMode.ToString(), govSnapshot.StrictnessProfile.ToString());
+
+    var abuseSummary = abuseGuard.GetSummary();
+    var abuseDto = new AbuseDiagnosticsDto(
+        abuseSummary.TrackedIps, abuseSummary.TrackedPasskeys,
+        abuseSummary.WarnedCount, abuseSummary.SoftRestrictedCount, abuseSummary.HardBlockedCount,
+        Array.Empty<AbuseDiagnosticsEntryDto>());
+
+    var configValidation = StartupConfigurationValidator.Validate(
+        securityOptions.Value, compatibilityOptions.Value,
+        governanceOptions.Value, abuseProtectionOptions.Value, gatewayRuntimeOptions.Value);
+    var configDto = new ConfigValidationDto(configValidation.IsValid, configValidation.Errors, configValidation.Warnings);
+
+    var store = (PartitionedRuntimeSwarmStore)runtimeSwarmStore;
+    var overview = new TrackerOverviewDto(
+        nodeOptions.Value.NodeId,
+        (int)store.GetTotalSwarmCount(),
+        (int)store.GetTotalPeerCount(),
+        telemetryWriter.QueueLength,
+        [new CacheStatusDto("L1", "access", true), new CacheStatusDto("L2", "access", true)]);
+
+    return Results.Ok(new RuntimeDiagnosticsDto(govDto, abuseDto, configDto, overview));
+});
+
+// ─── Config Validation Endpoint ──────────────────────────────────────────────
+
+app.MapGet("/admin/config/validate", (
+    IOptions<TrackerSecurityOptions> securityOptions,
+    IOptions<TrackerCompatibilityOptions> compatibilityOptions,
+    IOptions<TrackerGovernanceOptions> governanceOptions,
+    IOptions<TrackerAbuseProtectionOptions> abuseProtectionOptions,
+    IOptions<GatewayRuntimeOptions> gatewayRuntimeOptions) =>
+{
+    var validation = StartupConfigurationValidator.Validate(
+        securityOptions.Value, compatibilityOptions.Value,
+        governanceOptions.Value, abuseProtectionOptions.Value, gatewayRuntimeOptions.Value);
+
+    return Results.Ok(new ConfigValidationDto(validation.IsValid, validation.Errors, validation.Warnings));
 });
 
 if (app.Environment.IsDevelopment())
