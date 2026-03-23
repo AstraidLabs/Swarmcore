@@ -16,6 +16,9 @@ using Tracker.AdminService.Application;
 using Tracker.AdminService.Api;
 using Tracker.AdminService.Api.Hubs;
 using Tracker.AdminService.Infrastructure;
+using Audit.Infrastructure;
+using Notification.Infrastructure;
+using Identity.SelfService.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -59,6 +62,12 @@ builder.Services.AddAdminApplication();
 builder.Services.AddAdminInfrastructure(builder.Configuration);
 builder.Services.AddAdminAuthInfrastructure(builder.Configuration);
 builder.Services.AddAdminApiAuthentication(builder.Configuration);
+builder.Services.AddAuditInfrastructure(builder.Configuration);
+builder.Services.AddNotificationInfrastructure(builder.Configuration);
+builder.Services.AddSelfServiceInfrastructure();
+builder.Services.AddMediatR(
+    typeof(Identity.SelfService.Application.RegisterAdminCommand).Assembly,
+    typeof(Audit.Application.AuditEventNotification).Assembly);
 builder.Services.AddSignalR();
 builder.Services.AddHostedService<LiveStatsPublisher>();
 builder.Services.AddHostedService<AdminStartupService>();
@@ -103,6 +112,8 @@ app.MapGet("/admin-ui/config", (HttpContext httpContext, IOptions<AdminIdentityO
         $"openid profile roles {options.AdminApiScope}",
         "code"));
 });
+
+app.MapSelfServiceEndpoints();
 
 var adminApi = app.MapGroup("/api/admin");
 
@@ -496,6 +507,9 @@ sealed class AdminStartupService(IServiceProvider serviceProvider, IReadinessSta
 
         using var scope = serviceProvider.CreateScope();
         await StartupBootstrap.MigrateDbContextAsync<AdminIdentityDbContext>(scope.ServiceProvider, cancellationToken);
+        await StartupBootstrap.MigrateDbContextAsync<Audit.Infrastructure.AuditDbContext>(scope.ServiceProvider, cancellationToken);
+        await StartupBootstrap.MigrateDbContextAsync<Notification.Infrastructure.NotificationDbContext>(scope.ServiceProvider, cancellationToken);
+        await StartupBootstrap.MigrateDbContextAsync<Identity.SelfService.Infrastructure.SelfServiceDbContext>(scope.ServiceProvider, cancellationToken);
         await scope.ServiceProvider.GetRequiredService<AdminIdentitySeedService>().SeedAsync(cancellationToken);
         readinessState.MarkReady();
     }

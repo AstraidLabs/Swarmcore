@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Identity.SelfService.Application\Identity.SelfService.Application.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Infrastructure\Swarmcore.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Swarmcore.Persistence.Postgres\Swarmcore.Persistence.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.5" />
+  </ItemGroup>
+
+</Project>

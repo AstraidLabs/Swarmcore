@@ -13,6 +13,7 @@
   <Folder Name="/src/Contracts/">
     <Project Path="src/Contracts/Swarmcore.Contracts.Admin/Swarmcore.Contracts.Admin.csproj" />
     <Project Path="src/Contracts/Swarmcore.Contracts.Configuration/Swarmcore.Contracts.Configuration.csproj" />
+    <Project Path="src/Contracts/Swarmcore.Contracts.Identity/Swarmcore.Contracts.Identity.csproj" />
     <Project Path="src/Contracts/Swarmcore.Contracts.Runtime/Swarmcore.Contracts.Runtime.csproj" />
     <Project Path="src/Contracts/Swarmcore.Contracts.Telemetry/Swarmcore.Contracts.Telemetry.csproj" />
   </Folder>
@@ -48,6 +49,21 @@
     <Project Path="src/Services/Tracker.TelemetryIngest/Tracker.TelemetryIngest.Domain/Tracker.TelemetryIngest.Domain.csproj" />
     <Project Path="src/Services/Tracker.TelemetryIngest/Tracker.TelemetryIngest.Infrastructure/Tracker.TelemetryIngest.Infrastructure.csproj" />
     <Project Path="src/Services/Tracker.TelemetryIngest/Tracker.TelemetryIngest.Worker/Tracker.TelemetryIngest.Worker.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Audit/">
+    <Project Path="src/Services/Audit/Audit.Domain/Audit.Domain.csproj" />
+    <Project Path="src/Services/Audit/Audit.Application/Audit.Application.csproj" />
+    <Project Path="src/Services/Audit/Audit.Infrastructure/Audit.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Notification/">
+    <Project Path="src/Services/Notification/Notification.Domain/Notification.Domain.csproj" />
+    <Project Path="src/Services/Notification/Notification.Application/Notification.Application.csproj" />
+    <Project Path="src/Services/Notification/Notification.Infrastructure/Notification.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Identity.SelfService/">
+    <Project Path="src/Services/Identity.SelfService/Identity.SelfService.Domain/Identity.SelfService.Domain.csproj" />
+    <Project Path="src/Services/Identity.SelfService/Identity.SelfService.Application/Identity.SelfService.Application.csproj" />
+    <Project Path="src/Services/Identity.SelfService/Identity.SelfService.Infrastructure/Identity.SelfService.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Shared/">
     <Project Path="src/Shared/Swarmcore.Caching.Redis/Swarmcore.Caching.Redis.csproj" />

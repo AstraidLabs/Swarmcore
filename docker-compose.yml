@@ -79,6 +79,15 @@ services:
       swarmcore:
         ipv4_address: 172.29.0.11
 
+  smtp4dev:
+    image: rnwood/smtp4dev:3
+    ports:
+      - "5000:80"
+      - "2525:25"
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.4
+
   admin-service:
     build:
       context: .
@@ -97,9 +106,17 @@ services:
       Swarmcore__PublicEndpoint__BaseDomain: ${BASE_DOMAIN:-example.com}
       Swarmcore__PublicEndpoint__AdminBaseUrl: https://${ADMIN_DOMAIN:-admin.example.com}
       Swarmcore__PublicEndpoint__ForceHttps: "true"
+      Swarmcore__Smtp__Host: smtp4dev
+      Swarmcore__Smtp__Port: "25"
+      Swarmcore__Smtp__UseSsl: "false"
+      Swarmcore__Smtp__UseStartTls: "false"
+      Swarmcore__Smtp__RequireAuthentication: "false"
+      Swarmcore__Smtp__SenderAddress: noreply@swarmcore.local
+      Swarmcore__Smtp__SenderDisplayName: Swarmcore
     depends_on:
       - postgres
       - redis
+      - smtp4dev
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/health/ready || exit 1"]
       interval: 10s

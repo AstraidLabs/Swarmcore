@@ -15,6 +15,11 @@
     <ProjectReference Include="..\Tracker.AdminService.Application\Tracker.AdminService.Application.csproj" />
     <ProjectReference Include="..\Tracker.AdminService.Infrastructure\Tracker.AdminService.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Identity\Swarmcore.Contracts.Identity.csproj" />
+    <ProjectReference Include="..\..\Audit\Audit.Infrastructure\Audit.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Notification\Notification.Infrastructure\Notification.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Identity.SelfService\Identity.SelfService.Application\Identity.SelfService.Application.csproj" />
+    <ProjectReference Include="..\..\Identity.SelfService\Identity.SelfService.Infrastructure\Identity.SelfService.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
