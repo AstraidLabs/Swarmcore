@@ -48,9 +48,13 @@ internal static class AdminSecurityServiceCollectionExtensions
         {
             options.HeaderName = "X-CSRF-TOKEN";
             options.Cookie.Name = "swarmcore_admin_csrf";
+            // HttpOnly = false so the SPA JavaScript can read and submit the CSRF token.
             options.Cookie.HttpOnly = false;
             options.Cookie.SameSite = SameSiteMode.Strict;
-            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            // Always — the admin surface is served over HTTPS (via Nginx).
+            // SameAsRequest would mark the cookie as non-Secure when ASP.NET Core
+            // receives the request over plain HTTP from the reverse proxy.
+            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
         });
 
         services.AddAuthorization(options =>

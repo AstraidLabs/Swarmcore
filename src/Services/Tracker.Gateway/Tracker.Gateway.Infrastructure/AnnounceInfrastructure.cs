@@ -862,6 +862,7 @@ public static class GatewayInfrastructureServiceCollectionExtensions
     {
         services.AddMemoryCache();
         services.AddSingleton<IPasskeyRedactor, TrackerPasskeyRedactor>();
+        services.AddSingleton<ITrackerUrlBuilder, TrackerUrlBuilder>();
         services.AddSingleton<IAnnounceRequestParser, AnnounceRequestParser>();
         services.AddSingleton<IAnnounceRequestValidator, AnnounceRequestValidator>();
         services.AddSingleton<IScrapeRequestParser, ScrapeRequestParser>();

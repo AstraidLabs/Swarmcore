@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using System.ComponentModel.DataAnnotations;
 using System.Net;
 using Swarmcore.Contracts.Admin;
 using Swarmcore.Contracts.Runtime;
@@ -18,11 +19,25 @@ using Tracker.UdpTracker.Service;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
+builder.Services.AddOptions<TrackerPublicEndpointOptions>()
+    .Bind(builder.Configuration.GetSection(TrackerPublicEndpointOptions.SectionName))
+    .Validate(static options =>
+    {
+        var results = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+        return System.ComponentModel.DataAnnotations.Validator.TryValidateObject(
+            options,
+            new System.ComponentModel.DataAnnotations.ValidationContext(options),
+            results,
+            validateAllProperties: true);
+    }, "TrackerPublicEndpointOptions validation failed — check Swarmcore:PublicEndpoint configuration.")
+    .ValidateOnStart();
+
 builder.Services.AddOptions<ForwardedHeadersOptions>()
     .Configure<IOptions<TrustedProxyOptions>>((options, trustedProxyOptionsAccessor) =>
 {
     var trustedProxyOptions = trustedProxyOptionsAccessor.Value;
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Include X-Forwarded-Host so Request.Host reflects the public hostname after proxy.
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
     options.ForwardLimit = trustedProxyOptions.ForwardLimit;
     options.KnownProxies.Clear();
     options.KnownIPNetworks.Clear();
@@ -59,7 +74,25 @@ builder.Services.AddUdpTracker(builder.Configuration);
 
 var app = builder.Build();
 
+// ForwardedHeaders MUST be the first middleware so that all subsequent middleware
+// (HSTS, routing, auth) sees the correct scheme/host/IP from the proxy.
 app.UseForwardedHeaders();
+
+// HSTS — opt-in via config. Nginx is the recommended place to emit this header.
+// Enable here only when the application is directly internet-facing.
+var publicEndpointOptions = app.Services.GetRequiredService<IOptions<TrackerPublicEndpointOptions>>().Value;
+if (publicEndpointOptions.EnableHsts)
+{
+    app.UseHsts();
+}
+
+// HTTPS redirect — opt-in via config. Keep disabled (default) when Nginx handles it.
+// Enabling inside a reverse-proxy without careful ForwardedHeaders setup causes redirect loops.
+if (publicEndpointOptions.EnableHttpsRedirection)
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseMiddleware<TrackerProtocolExceptionMiddleware>();
 app.UseMiddleware<TrackerRequestGuardMiddleware>();
 

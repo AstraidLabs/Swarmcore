@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Tracker.Gateway.Application.Announce;
 
 namespace Tracker.Gateway.Infrastructure;
 
 public sealed class TrackerProtocolExceptionMiddleware(
     RequestDelegate next,
+    IPasskeyRedactor passkeyRedactor,
     ILogger<TrackerProtocolExceptionMiddleware> logger)
 {
     public async Task InvokeAsync(HttpContext httpContext, IBencodeResponseWriter bencodeResponseWriter)
@@ -19,7 +21,9 @@ public sealed class TrackerProtocolExceptionMiddleware(
         }
         catch (Exception exception) when (IsTrackerProtocolRequest(httpContext.Request.Path))
         {
-            logger.LogError(exception, "Unhandled tracker protocol exception for {Path}.", httpContext.Request.Path);
+            // Redact passkey from path before logging — passkeys are sensitive credentials.
+            var redactedPath = RedactPath(httpContext.Request.Path, passkeyRedactor);
+            logger.LogError(exception, "Unhandled tracker protocol exception for {Path}.", redactedPath);
 
             if (httpContext.Response.HasStarted)
             {
@@ -37,7 +41,7 @@ public sealed class TrackerProtocolExceptionMiddleware(
             }
             catch (Exception writeException)
             {
-                logger.LogError(writeException, "Failed to write error response for {Path}.", httpContext.Request.Path);
+                logger.LogError(writeException, "Failed to write error response for {Path}.", redactedPath);
             }
         }
     }
@@ -46,5 +50,27 @@ public sealed class TrackerProtocolExceptionMiddleware(
     {
         return path.StartsWithSegments("/announce", StringComparison.OrdinalIgnoreCase)
             || path.StartsWithSegments("/scrape", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Redacts the passkey segment from tracker paths.
+    /// /announce/abcdef1234 → /announce/abc***def
+    /// </summary>
+    private static string RedactPath(PathString path, IPasskeyRedactor passkeyRedactor)
+    {
+        var value = path.Value;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "/";
+        }
+
+        var lastSlash = value.LastIndexOf('/');
+        if (lastSlash <= 0 || lastSlash == value.Length - 1)
+        {
+            return value;
+        }
+
+        var candidate = value[(lastSlash + 1)..];
+        return $"{value[..(lastSlash + 1)]}{passkeyRedactor.Redact(candidate)}";
     }
 }
