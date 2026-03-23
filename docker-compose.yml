@@ -87,7 +87,7 @@ services:
       Swarmcore__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
       Swarmcore__StartupBootstrap__MaxAttempts: 30
       Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
-      Swarmcore__AdminIdentity__DisableTransportSecurityRequirement: "true"
+      Swarmcore__AdminIdentity__DisableTransportSecurityRequirement: "false"
     depends_on:
       - postgres
       - redis
@@ -137,17 +137,42 @@ services:
     depends_on:
       - tracker-gateway
       - admin-service
+    environment:
+      TRACKER_DOMAIN: ${TRACKER_DOMAIN:-tracker.example.com}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-admin.example.com}
     ports:
       - "80:80"
       - "81:81"
+      - "443:443"
+      - "8443:8443"
     volumes:
-      - ./deploy/nginx/tracker.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      - certbot-conf:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
     networks:
       swarmcore:
         ipv4_address: 172.29.0.20
 
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+        while :; do
+          certbot renew --quiet;
+          sleep 12h & wait $${!};
+        done"
+    networks:
+      swarmcore:
+        ipv4_address: 172.29.0.21
+
 volumes:
   postgres-data:
+  certbot-conf:
+  certbot-www:
 
 networks:
   swarmcore:
