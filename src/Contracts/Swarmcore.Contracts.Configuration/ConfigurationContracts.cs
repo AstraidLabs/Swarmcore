@@ -20,7 +20,15 @@ public sealed record TorrentPolicyDto(
     int MaxNumWant,
     bool AllowScrape,
     long Version,
-    string? WarningMessage = null);
+    string? WarningMessage = null,
+    bool CompactOnly = true,
+    bool AllowUdp = true,
+    bool AllowIPv6 = true,
+    int? StrictnessProfileOverride = null,
+    int? CompatibilityModeOverride = null,
+    string? ModerationState = null,
+    bool MaintenanceFlag = false,
+    bool TemporaryRestriction = false);
 
 public sealed record TorrentPolicyMutationPreviewDto(
     bool CanApply,
@@ -61,7 +69,15 @@ public sealed record TorrentPolicyUpsertRequest(
     int MaxNumWant,
     bool AllowScrape,
     string? WarningMessage = null,
-    long? ExpectedVersion = null);
+    long? ExpectedVersion = null,
+    bool CompactOnly = true,
+    bool AllowUdp = true,
+    bool AllowIPv6 = true,
+    int? StrictnessProfileOverride = null,
+    int? CompatibilityModeOverride = null,
+    string? ModerationState = null,
+    bool MaintenanceFlag = false,
+    bool TemporaryRestriction = false);
 
 public sealed record TorrentActivationRequest(
     long? ExpectedVersion = null);
@@ -80,7 +96,15 @@ public sealed record BulkTorrentPolicyUpsertItem(
     int MaxNumWant,
     bool AllowScrape,
     string? WarningMessage = null,
-    long? ExpectedVersion = null);
+    long? ExpectedVersion = null,
+    bool CompactOnly = true,
+    bool AllowUdp = true,
+    bool AllowIPv6 = true,
+    int? StrictnessProfileOverride = null,
+    int? CompatibilityModeOverride = null,
+    string? ModerationState = null,
+    bool MaintenanceFlag = false,
+    bool TemporaryRestriction = false);
 
 public sealed record PasskeyUpsertRequest(
     Guid UserId,

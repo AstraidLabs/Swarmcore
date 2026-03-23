@@ -170,11 +170,15 @@ public sealed class AnnounceRequestValidatorTests
 
     private static AnnounceRequestValidator CreateValidator(int hardMaxNumWant = 200, bool requireCompact = false)
     {
-        return new AnnounceRequestValidator(Options.Create(new TrackerSecurityOptions
-        {
-            HardMaxNumWant = hardMaxNumWant,
-            RequireCompactResponses = requireCompact
-        }));
+        return new AnnounceRequestValidator(
+            Options.Create(new TrackerSecurityOptions
+            {
+                HardMaxNumWant = hardMaxNumWant,
+                RequireCompactResponses = requireCompact
+            }),
+            new RuntimeGovernanceStateService(
+                Options.Create(new TrackerGovernanceOptions()),
+                Options.Create(new TrackerCompatibilityOptions())));
     }
 
     private static AnnounceRequest CreateRequest(int numwant)

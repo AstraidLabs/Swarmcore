@@ -55,6 +55,34 @@ public static class TrackerDiagnostics
     /// <summary>Number of ownership lease refresh failures (node failed to extend its lease).</summary>
     public static readonly Counter<long> ClusterOwnershipRefreshFailures = Meter.CreateCounter<long>("tracker.cluster.ownership_refresh_failures");
 
+    // ─── Governance ──────────────────────────────────────────────────────────
+    public static readonly Counter<long> GovernanceAnnounceRejected = Meter.CreateCounter<long>("tracker.governance.announce_rejected");
+    public static readonly Counter<long> GovernanceScrapeRejected = Meter.CreateCounter<long>("tracker.governance.scrape_rejected");
+    public static readonly Counter<long> GovernanceMaintenanceRejected = Meter.CreateCounter<long>("tracker.governance.maintenance_rejected");
+    public static readonly Counter<long> GovernanceReadOnlySkipped = Meter.CreateCounter<long>("tracker.governance.readonly_skipped");
+    public static readonly Counter<long> GovernanceUdpRejected = Meter.CreateCounter<long>("tracker.governance.udp_rejected");
+    public static readonly Counter<long> GovernanceStateChanges = Meter.CreateCounter<long>("tracker.governance.state_changes");
+
+    // ─── Compatibility ───────────────────────────────────────────────────────
+    public static readonly Counter<long> CompatibilityFallback = Meter.CreateCounter<long>("tracker.compatibility.fallback");
+    public static readonly Counter<long> CompatibilityWarningIssued = Meter.CreateCounter<long>("tracker.compatibility.warning_issued");
+    public static readonly Counter<long> StrictnessRejected = Meter.CreateCounter<long>("tracker.strictness.rejected");
+    public static readonly Counter<long> StrictnessClamped = Meter.CreateCounter<long>("tracker.strictness.clamped");
+
+    // ─── Advanced Abuse Intelligence ─────────────────────────────────────────
+    public static readonly Counter<long> AbuseIntelMalformed = Meter.CreateCounter<long>("tracker.abuse_intel.malformed");
+    public static readonly Counter<long> AbuseIntelDenied = Meter.CreateCounter<long>("tracker.abuse_intel.denied");
+    public static readonly Counter<long> AbuseIntelPeerIdAnomaly = Meter.CreateCounter<long>("tracker.abuse_intel.peer_id_anomaly");
+    public static readonly Counter<long> AbuseIntelSuspicious = Meter.CreateCounter<long>("tracker.abuse_intel.suspicious");
+    public static readonly Counter<long> AbuseIntelScrapeAmplification = Meter.CreateCounter<long>("tracker.abuse_intel.scrape_amplification");
+    public static readonly Counter<long> AbuseIntelSoftRestrict = Meter.CreateCounter<long>("tracker.abuse_intel.soft_restrict");
+    public static readonly Counter<long> AbuseIntelHardBlock = Meter.CreateCounter<long>("tracker.abuse_intel.hard_block");
+
+    // ─── Per-Torrent Override Usage ──────────────────────────────────────────
+    public static readonly Counter<long> TorrentOverrideApplied = Meter.CreateCounter<long>("tracker.torrent_override.applied");
+    public static readonly Counter<long> TorrentMaintenanceRejected = Meter.CreateCounter<long>("tracker.torrent.maintenance_rejected");
+    public static readonly Counter<long> TorrentTemporaryRestrictionRejected = Meter.CreateCounter<long>("tracker.torrent.temporary_restriction_rejected");
+
     public static void RegisterSwarmStoreGauges(Func<long> peersCallback, Func<long> swarmsCallback)
     {
         Meter.CreateObservableGauge("tracker.peers.active", peersCallback);

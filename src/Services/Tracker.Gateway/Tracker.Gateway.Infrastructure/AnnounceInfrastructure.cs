@@ -179,7 +179,9 @@ public sealed class AnnounceRequestParser(IOptions<TrackerSecurityOptions> secur
     }
 }
 
-public sealed class AnnounceRequestValidator(IOptions<TrackerSecurityOptions> securityOptions) : IAnnounceRequestValidator
+public sealed class AnnounceRequestValidator(
+    IOptions<TrackerSecurityOptions> securityOptions,
+    IRuntimeGovernanceState governanceState) : IAnnounceRequestValidator
 {
     public AnnounceValidationResult Validate(in AnnounceRequest request)
     {
@@ -188,24 +190,56 @@ public sealed class AnnounceRequestValidator(IOptions<TrackerSecurityOptions> se
             return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "invalid endpoint");
         }
 
+        var profile = new EffectiveProtocolProfile(
+            governanceState.EffectiveCompatibilityMode,
+            governanceState.EffectiveStrictnessProfile);
+
         if (request.Uploaded < 0 || request.Downloaded < 0 || request.Left < 0)
         {
-            return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "negative counters are not allowed");
+            if (profile.StrictnessProfile == ProtocolStrictnessProfile.Permissive)
+            {
+                TrackerDiagnostics.StrictnessClamped.Add(1, new KeyValuePair<string, object?>("field", "counters"));
+            }
+            else
+            {
+                return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "negative counters are not allowed");
+            }
         }
 
         if (request.RequestedPeers < -1)
         {
-            return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "invalid numwant");
+            if (profile.StrictnessProfile == ProtocolStrictnessProfile.Permissive)
+            {
+                TrackerDiagnostics.StrictnessClamped.Add(1, new KeyValuePair<string, object?>("field", "numwant"));
+            }
+            else
+            {
+                return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "invalid numwant");
+            }
         }
 
         if (request.RequestedPeers > securityOptions.Value.HardMaxNumWant)
         {
-            return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "numwant exceeds hard limit");
+            if (profile.StrictnessProfile == ProtocolStrictnessProfile.Permissive)
+            {
+                TrackerDiagnostics.StrictnessClamped.Add(1, new KeyValuePair<string, object?>("field", "numwant_cap"));
+            }
+            else
+            {
+                return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "numwant exceeds hard limit");
+            }
         }
 
         if (securityOptions.Value.RequireCompactResponses && !request.Compact)
         {
-            return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "only compact responses are supported");
+            if (profile.CompatibilityMode == ClientCompatibilityMode.Compatibility)
+            {
+                TrackerDiagnostics.CompatibilityFallback.Add(1, new KeyValuePair<string, object?>("field", "compact"));
+            }
+            else
+            {
+                return AnnounceValidationResult.Fail(StatusCodes.Status400BadRequest, "only compact responses are supported");
+            }
         }
 
         return AnnounceValidationResult.Success();
@@ -880,6 +914,9 @@ public static class GatewayInfrastructureServiceCollectionExtensions
         services.AddSingleton<IBencodeResponseWriter, AnnounceBencodeResponseWriter>();
         services.AddSingleton<ChannelAnnounceTelemetryWriter>();
         services.AddSingleton<IAnnounceTelemetryWriter>(static serviceProvider => serviceProvider.GetRequiredService<ChannelAnnounceTelemetryWriter>());
+        services.AddSingleton<RuntimeGovernanceStateService>();
+        services.AddSingleton<IRuntimeGovernanceState>(static sp => sp.GetRequiredService<RuntimeGovernanceStateService>());
+        services.AddSingleton<AdvancedAbuseGuard>();
         services.AddSingleton<IAnnounceService, AnnounceService>();
         services.AddSingleton<IScrapeService, ScrapeService>();
         services.AddHostedService<AccessSnapshotHydrationService>();
