@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Notification.Domain\Notification.Domain.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Abstractions\Swarmcore.BuildingBlocks.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

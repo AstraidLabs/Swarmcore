@@ -115,4 +115,26 @@ public static class TrackerDiagnostics
             () => callback().Select(static x =>
                 new Measurement<double>(x.AgeSeconds, new KeyValuePair<string, object?>("node_id", x.NodeId))));
     }
+
+    // ─── Identity / Self-Service Observability ──────────────────────────────
+
+    public static readonly Counter<long> IdentityRegistrationTotal = Meter.CreateCounter<long>("identity.registration.total");
+    public static readonly Counter<long> IdentityActivationTotal = Meter.CreateCounter<long>("identity.activation.total");
+    public static readonly Counter<long> IdentityActivationFailed = Meter.CreateCounter<long>("identity.activation.failed");
+    public static readonly Counter<long> IdentityReactivationTotal = Meter.CreateCounter<long>("identity.reactivation.total");
+    public static readonly Counter<long> IdentityPasswordResetTotal = Meter.CreateCounter<long>("identity.password_reset.total");
+    public static readonly Counter<long> IdentityPasswordChangeTotal = Meter.CreateCounter<long>("identity.password_change.total");
+    public static readonly Counter<long> IdentityPasswordChangeFailed = Meter.CreateCounter<long>("identity.password_change.failed");
+
+    // ─── Notification / Email Observability ──────────────────────────────────
+
+    public static readonly Counter<long> EmailEnqueuedTotal = Meter.CreateCounter<long>("notification.email.enqueued");
+    public static readonly Counter<long> EmailSentTotal = Meter.CreateCounter<long>("notification.email.sent");
+    public static readonly Counter<long> EmailSendFailed = Meter.CreateCounter<long>("notification.email.send_failed");
+    public static readonly Counter<long> SmtpDispatchAttemptTotal = Meter.CreateCounter<long>("notification.smtp.dispatch_attempt");
+
+    // ─── Audit Observability ────────────────────────────────────────────────
+
+    public static readonly Counter<long> AuditRecordsWritten = Meter.CreateCounter<long>("audit.records.written");
+    public static readonly Counter<long> AuditChannelDropped = Meter.CreateCounter<long>("audit.channel.dropped");
 }

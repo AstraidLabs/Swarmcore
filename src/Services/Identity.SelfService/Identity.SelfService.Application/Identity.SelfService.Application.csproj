@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Identity.SelfService.Domain\Identity.SelfService.Domain.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Abstractions\Swarmcore.BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Identity\Swarmcore.Contracts.Identity.csproj" />
+    <ProjectReference Include="..\..\Audit\Audit.Application\Audit.Application.csproj" />
+    <ProjectReference Include="..\..\Notification\Notification.Application\Notification.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediatR" Version="11.1.0" />
+    <PackageReference Include="MediatR.Extensions.Microsoft.DependencyInjection" Version="11.1.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.5" />
+  </ItemGroup>
+
+</Project>
