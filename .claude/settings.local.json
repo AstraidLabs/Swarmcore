@@ -27,7 +27,8 @@
       "Bash(docker compose:*)",
       "Bash(docker run:*)",
       "Bash(docker exec:*)",
-      "Bash(docker volume:*)"
+      "Bash(docker volume:*)",
+      "Bash(for proj:*)"
     ]
   }
 }

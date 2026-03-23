@@ -73,8 +73,14 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ArchitectureTests/ArchitectureTests.csproj" />
+    <Project Path="tests/Audit.UnitTests/Audit.UnitTests.csproj" />
+    <Project Path="tests/BEncoding.UnitTests/BEncoding.UnitTests.csproj" />
+    <Project Path="tests/Identity.SelfService.UnitTests/Identity.SelfService.UnitTests.csproj" />
+    <Project Path="tests/Notification.UnitTests/Notification.UnitTests.csproj" />
+    <Project Path="tests/Swarmcore.SmokeTests/Swarmcore.SmokeTests.csproj" />
     <Project Path="tests/Tracker.AdminService.IntegrationTests/Tracker.AdminService.IntegrationTests.csproj" />
     <Project Path="tests/Tracker.Cluster.UnitTests/Tracker.Cluster.UnitTests.csproj" />
+    <Project Path="tests/Tracker.ConfigurationService.UnitTests/Tracker.ConfigurationService.UnitTests.csproj" />
     <Project Path="tests/Tracker.Gateway.IntegrationTests/Tracker.Gateway.IntegrationTests.csproj" />
     <Project Path="tests/Tracker.Gateway.UnitTests/Tracker.Gateway.UnitTests.csproj" />
     <Project Path="tests/Tracker.UdpTracker.UnitTests/Tracker.UdpTracker.UnitTests.csproj" />

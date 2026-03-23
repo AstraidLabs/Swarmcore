@@ -55,13 +55,17 @@ public sealed class ShardRoutingTests
         var router = CreateRouter(shardCount: 8);
         var seen = new HashSet<int>();
 
+        // Use fully randomized 20-byte hashes to ensure realistic distribution
+        var rng = new Random(42); // fixed seed for determinism
         for (var i = 0; i < 256; i++)
         {
-            var hash = MakeHash((byte)i);
+            var bytes = new byte[20];
+            rng.NextBytes(bytes);
+            var hash = InfoHashKey.FromBytes(bytes);
             seen.Add(router.GetClusterShard(hash));
         }
 
-        // With 256 distinct inputs and 8 shards, all shards should be covered
+        // With 256 distinct random inputs and 8 shards, all shards should be covered
         Assert.Equal(8, seen.Count);
     }
 
