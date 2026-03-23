@@ -20,6 +20,9 @@ using Tracker.AdminService.Infrastructure;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
+builder.Services.AddOptions<TrackerPublicEndpointOptions>()
+    .Bind(builder.Configuration.GetSection(TrackerPublicEndpointOptions.SectionName))
+    .ValidateOnStart();
 builder.Services.AddOptions<ForwardedHeadersOptions>()
     .Configure<IOptions<TrustedProxyOptions>>((options, trustedProxyOptionsAccessor) =>
 {
@@ -63,6 +66,8 @@ builder.Services.AddHostedService<AdminStartupService>();
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+app.UseMiddleware<Swarmcore.Hosting.HostValidationMiddleware>();
+app.UseMiddleware<Swarmcore.Hosting.PasskeyLogSanitizationMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthentication();
@@ -85,24 +90,10 @@ app.MapPost("/connect/token", (Delegate)AdminTokenEndpoint.HandleAsync);
 app.MapGet("/admin-ui/config", (HttpContext httpContext, IOptions<AdminIdentityOptions> adminIdentityOptionsAccessor) =>
 {
     var options = adminIdentityOptionsAccessor.Value;
-    var scheme = httpContext.Request.Headers["X-Forwarded-Proto"].ToString();
-    if (string.IsNullOrWhiteSpace(scheme))
-    {
-        scheme = httpContext.Request.Scheme;
-    }
-
-    var forwardedHost = httpContext.Request.Headers["X-Forwarded-Host"].ToString();
-    var host = string.IsNullOrWhiteSpace(forwardedHost)
-        ? httpContext.Request.Host.Value
-        : forwardedHost;
-    host ??= string.Empty;
-
-    var port = httpContext.Request.Headers["X-Forwarded-Port"].ToString();
-    if (!string.IsNullOrWhiteSpace(port) && !host.Contains(':', StringComparison.Ordinal))
-    {
-        host = $"{host}:{port}";
-    }
-
+    // After UseForwardedHeaders(), Request.Scheme and Request.Host already reflect
+    // the proxy headers (X-Forwarded-Proto, X-Forwarded-Host). No need to read raw headers.
+    var scheme = httpContext.Request.Scheme;
+    var host = httpContext.Request.Host.Value ?? string.Empty;
     var origin = $"{scheme}://{host}";
     return Results.Ok(new AdminUiClientConfigurationResponse(
         origin,
