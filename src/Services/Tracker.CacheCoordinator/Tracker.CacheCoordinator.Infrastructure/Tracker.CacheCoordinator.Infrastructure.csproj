@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Infrastructure\Swarmcore.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Observability\Swarmcore.BuildingBlocks.Observability.csproj" />
     <ProjectReference Include="..\Tracker.CacheCoordinator.Application\Tracker.CacheCoordinator.Application.csproj" />
     <ProjectReference Include="..\..\..\Shared\Swarmcore.Caching.Redis\Swarmcore.Caching.Redis.csproj" />
     <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Runtime\Swarmcore.Contracts.Runtime.csproj" />

@@ -78,6 +78,42 @@ public interface IClusterOverviewReader
     Task<ClusterOverviewDto> GetAsync(CancellationToken cancellationToken);
 }
 
+// ─── Cluster Shard / Node State Admin Readers ─────────────────────────────────
+
+/// <summary>
+/// Reads full cluster shard ownership diagnostics from the coordination layer.
+/// </summary>
+public interface IClusterShardDiagnosticsReader
+{
+    Task<ClusterShardDiagnosticsDto> GetShardDiagnosticsAsync(int totalShardCount, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Reads node cluster state (heartbeat + operational state) for all known nodes.
+/// </summary>
+public interface IClusterNodeStateReader
+{
+    Task<IReadOnlyCollection<ClusterNodeStateDto>> GetAllNodeStatesAsync(CancellationToken cancellationToken);
+    Task<ClusterNodeStateDto?> GetNodeStateAsync(string nodeId, CancellationToken cancellationToken);
+}
+
+public sealed record GetClusterShardDiagnosticsQuery(int TotalShardCount = 256) : IRequest<ClusterShardDiagnosticsDto>;
+public sealed record GetClusterNodeStatesQuery() : IRequest<IReadOnlyCollection<ClusterNodeStateDto>>;
+
+internal sealed class GetClusterShardDiagnosticsQueryHandler(IClusterShardDiagnosticsReader reader)
+    : IRequestHandler<GetClusterShardDiagnosticsQuery, ClusterShardDiagnosticsDto>
+{
+    public Task<ClusterShardDiagnosticsDto> Handle(GetClusterShardDiagnosticsQuery request, CancellationToken cancellationToken)
+        => reader.GetShardDiagnosticsAsync(request.TotalShardCount, cancellationToken);
+}
+
+internal sealed class GetClusterNodeStatesQueryHandler(IClusterNodeStateReader reader)
+    : IRequestHandler<GetClusterNodeStatesQuery, IReadOnlyCollection<ClusterNodeStateDto>>
+{
+    public Task<IReadOnlyCollection<ClusterNodeStateDto>> Handle(GetClusterNodeStatesQuery request, CancellationToken cancellationToken)
+        => reader.GetAllNodeStatesAsync(cancellationToken);
+}
+
 public interface IAuditRecordReader
 {
     Task<IReadOnlyCollection<AuditRecordDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken);

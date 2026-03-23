@@ -13,6 +13,180 @@ using Tracker.ConfigurationService.Infrastructure;
 
 namespace Tracker.AdminService.Infrastructure;
 
+// ─── Cluster Shard Diagnostics Reader ────────────────────────────────────────
+
+public sealed class RedisClusterShardDiagnosticsReader(
+    IRedisCacheClient redisCacheClient) : IClusterShardDiagnosticsReader
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public async Task<ClusterShardDiagnosticsDto> GetShardDiagnosticsAsync(
+        int totalShardCount, CancellationToken cancellationToken)
+    {
+        var shards = new ClusterShardOwnershipDto[totalShardCount];
+
+        for (var shardId = 0; shardId < totalShardCount; shardId++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var key = $"cluster:shard:{shardId}:owner";
+            var value = await redisCacheClient.Database.StringGetAsync(key);
+
+            string? ownerNodeId = null;
+            DateTimeOffset? leaseExpiresAt = null;
+
+            if (value.HasValue)
+            {
+                var record = JsonSerializer.Deserialize<ShardOwnershipRecord>(value.ToString(), JsonOptions);
+                if (record is not null)
+                {
+                    ownerNodeId = record.OwnerNodeId;
+                    leaseExpiresAt = record.LeaseExpiresAtUtc;
+                }
+            }
+
+            shards[shardId] = new ClusterShardOwnershipDto(shardId, ownerNodeId, LocallyOwned: false, leaseExpiresAt);
+        }
+
+        var owned = shards.Count(static s => s.OwnerNodeId is not null);
+
+        return new ClusterShardDiagnosticsDto(
+            DateTimeOffset.UtcNow,
+            totalShardCount,
+            owned,
+            totalShardCount - owned,
+            shards);
+    }
+}
+
+// ─── Cluster Node State Reader ────────────────────────────────────────────────
+
+public sealed class RedisClusterNodeStateReader(
+    IRedisCacheClient redisCacheClient,
+    IConnectionMultiplexer connectionMultiplexer) : IClusterNodeStateReader
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly string[] HeartbeatKeyPatterns = ["nodes:heartbeat:*", "tracker:nodes:heartbeat:*"];
+    private static readonly TimeSpan FreshHeartbeatThreshold = TimeSpan.FromSeconds(45);
+
+    public async Task<IReadOnlyCollection<ClusterNodeStateDto>> GetAllNodeStatesAsync(CancellationToken cancellationToken)
+    {
+        // Collect heartbeats
+        var heartbeats = new Dictionary<string, NodeHeartbeatDto>(StringComparer.Ordinal);
+        var endpoints = connectionMultiplexer.GetEndPoints();
+
+        foreach (var endpoint in endpoints)
+        {
+            var server = connectionMultiplexer.GetServer(endpoint);
+            if (!server.IsConnected)
+            {
+                continue;
+            }
+
+            foreach (var pattern in HeartbeatKeyPatterns)
+            {
+                foreach (var key in server.Keys(pattern: pattern))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var value = await redisCacheClient.Database.StringGetAsync(key);
+                    if (!value.HasValue)
+                    {
+                        continue;
+                    }
+
+                    var hb = JsonSerializer.Deserialize<NodeHeartbeatDto>(value.ToString(), JsonOptions);
+                    if (hb is not null && !heartbeats.ContainsKey(hb.NodeId))
+                    {
+                        heartbeats[hb.NodeId] = hb;
+                    }
+                }
+            }
+        }
+
+        // Collect operational states
+        var opStates = new Dictionary<string, NodeOperationalStateDto>(StringComparer.Ordinal);
+        foreach (var endpoint in endpoints)
+        {
+            var server = connectionMultiplexer.GetServer(endpoint);
+            if (!server.IsConnected)
+            {
+                continue;
+            }
+
+            foreach (var key in server.Keys(pattern: "cluster:node:state:*"))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var value = await redisCacheClient.Database.StringGetAsync(key);
+                if (!value.HasValue)
+                {
+                    continue;
+                }
+
+                var state = JsonSerializer.Deserialize<NodeOperationalStateDto>(value.ToString(), JsonOptions);
+                if (state is not null && !opStates.ContainsKey(state.NodeId))
+                {
+                    opStates[state.NodeId] = state;
+                }
+            }
+        }
+
+        // Collect owned shard counts per node
+        var shardCountsPerNode = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var endpoint in endpoints)
+        {
+            var server = connectionMultiplexer.GetServer(endpoint);
+            if (!server.IsConnected)
+            {
+                continue;
+            }
+
+            foreach (var key in server.Keys(pattern: "cluster:shard:*:owner"))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var value = await redisCacheClient.Database.StringGetAsync(key);
+                if (!value.HasValue)
+                {
+                    continue;
+                }
+
+                var record = JsonSerializer.Deserialize<ShardOwnershipRecord>(value.ToString(), JsonOptions);
+                if (record is not null)
+                {
+                    shardCountsPerNode[record.OwnerNodeId] = shardCountsPerNode.GetValueOrDefault(record.OwnerNodeId) + 1;
+                }
+            }
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var result = new List<ClusterNodeStateDto>(heartbeats.Count);
+
+        foreach (var (nodeId, hb) in heartbeats)
+        {
+            opStates.TryGetValue(nodeId, out var opState);
+            var opStateEnum = opState?.State ?? NodeOperationalState.Active;
+            var ownedShards = shardCountsPerNode.GetValueOrDefault(nodeId);
+            var heartbeatAge = now - hb.ObservedAtUtc;
+            var fresh = heartbeatAge <= FreshHeartbeatThreshold;
+
+            result.Add(new ClusterNodeStateDto(
+                nodeId,
+                hb.Region,
+                opStateEnum.ToString(),
+                ownedShards,
+                hb.ObservedAtUtc,
+                fresh));
+        }
+
+        return result.OrderBy(static n => n.NodeId, StringComparer.Ordinal).ToArray();
+    }
+
+    public async Task<ClusterNodeStateDto?> GetNodeStateAsync(string nodeId, CancellationToken cancellationToken)
+    {
+        var all = await GetAllNodeStatesAsync(cancellationToken);
+        return all.FirstOrDefault(n => n.NodeId.Equals(nodeId, StringComparison.Ordinal));
+    }
+}
+
 public sealed class RedisClusterOverviewReader(IRedisCacheClient redisCacheClient, IConnectionMultiplexer connectionMultiplexer) : IClusterOverviewReader
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -809,6 +983,8 @@ public static class AdminInfrastructureServiceCollectionExtensions
     {
         services.AddConfigurationInfrastructure(configuration);
         services.AddScoped<IClusterOverviewReader, RedisClusterOverviewReader>();
+        services.AddScoped<IClusterShardDiagnosticsReader, RedisClusterShardDiagnosticsReader>();
+        services.AddScoped<IClusterNodeStateReader, RedisClusterNodeStateReader>();
         services.AddScoped<IAuditRecordReader, EfAuditRecordReader>();
         services.AddScoped<IMaintenanceRunReader, EfMaintenanceRunReader>();
         services.AddScoped<ITorrentAdminReader, EfTorrentAdminReader>();
