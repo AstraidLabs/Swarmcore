@@ -64,6 +64,23 @@ public static class HostingServiceCollectionExtensions
             .Bind(configuration.GetSection(DependencyDegradationOptions.SectionName))
             .ValidateOnStart();
 
+        services.AddOptions<SecurityHardeningOptions>()
+            .Bind(configuration.GetSection(SecurityHardeningOptions.SectionName))
+            .Validate(static options => options.MaxActivePasskeysPerUser >= 0, "MaxActivePasskeysPerUser cannot be negative.")
+            .Validate(static options => options.PasskeyRevocationGracePeriodSeconds >= 0, "PasskeyRevocationGracePeriodSeconds cannot be negative.")
+            .Validate(static options => options.DefaultPasskeyExpirationDays >= 0, "DefaultPasskeyExpirationDays cannot be negative.")
+            .ValidateOnStart();
+
+        services.AddOptions<ResilienceOptions>()
+            .Bind(configuration.GetSection(ResilienceOptions.SectionName))
+            .Validate(static options => options.RedisFailureThreshold > 0, "RedisFailureThreshold must be positive.")
+            .Validate(static options => options.PostgresFailureThreshold > 0, "PostgresFailureThreshold must be positive.")
+            .Validate(static options => options.DependencyRecoveryRetrySeconds > 0, "DependencyRecoveryRetrySeconds must be positive.")
+            .Validate(static options => options.MaxCacheWarmupEntries > 0, "MaxCacheWarmupEntries must be positive.")
+            .Validate(static options => options.CacheWarmupTimeoutSeconds > 0, "CacheWarmupTimeoutSeconds must be positive.")
+            .Validate(static options => options.CoordinationStalenessThresholdSeconds > 0, "CoordinationStalenessThresholdSeconds must be positive.")
+            .ValidateOnStart();
+
         services.AddOptions<StartupBootstrapOptions>()
             .Bind(configuration.GetSection(StartupBootstrapOptions.SectionName))
             .Validate(static options => options.MaxAttempts > 0, "Bootstrap max attempts must be positive.")

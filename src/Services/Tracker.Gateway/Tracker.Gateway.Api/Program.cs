@@ -251,21 +251,67 @@ app.MapGet("/scrape/{passkey?}", async Task (
     TrackerDiagnostics.ScrapeDuration.Record(Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds);
 }).ExcludeFromDescription();
 
+// ─── Degraded Mode Diagnostics ────────────────────────────────────────────────
+
+app.MapGet("/admin/degraded-mode", (
+    IDegradedModeState degradedModeState,
+    IGatewayDependencyState dependencyState,
+    IOptions<ResilienceOptions> resilienceOptions,
+    IOptions<TrackerNodeOptions> nodeOptions) =>
+{
+    var snapshot = degradedModeState.Snapshot;
+    var depSnapshot = dependencyState.Snapshot;
+    return Results.Ok(new
+    {
+        nodeId = nodeOptions.Value.NodeId,
+        isFullyOperational = snapshot.IsFullyOperational,
+        isDegraded = snapshot.IsDegraded,
+        dependencies = new
+        {
+            redis = new { available = snapshot.IsRedisAvailable, consecutiveFailures = snapshot.ConsecutiveRedisFailures, unavailableSince = snapshot.RedisUnavailableSince, healthCheck = depSnapshot.Redis },
+            postgres = new { available = snapshot.IsPostgresAvailable, consecutiveFailures = snapshot.ConsecutivePostgresFailures, unavailableSince = snapshot.PostgresUnavailableSince, healthCheck = depSnapshot.Postgres },
+            telemetry = new { healthy = snapshot.IsTelemetryHealthy, impairedSince = snapshot.TelemetryImpairedSince },
+            coordination = new { fresh = snapshot.IsCoordinationFresh, staleSince = snapshot.CoordinationStaleSince }
+        },
+        resilienceConfig = new
+        {
+            allowAnnounceWithoutRedis = resilienceOptions.Value.AllowAnnounceWithoutRedis,
+            allowAnnounceWithoutPostgres = resilienceOptions.Value.AllowAnnounceWithoutPostgres,
+            allowAnnounceWithoutTelemetry = resilienceOptions.Value.AllowAnnounceWithoutTelemetry,
+            redisFailureThreshold = resilienceOptions.Value.RedisFailureThreshold,
+            postgresFailureThreshold = resilienceOptions.Value.PostgresFailureThreshold
+        }
+    });
+});
+
+// ─── Configuration Export (Backup Readiness) ──────────────────────────────────
+
+app.MapGet("/admin/config/export", async (
+    Swarmcore.Persistence.Postgres.IPostgresConnectionFactory postgresConnectionFactory,
+    IOptions<TrackerNodeOptions> nodeOptions,
+    CancellationToken cancellationToken) =>
+{
+    var snapshot = await Tracker.Gateway.Infrastructure.ConfigurationStateExporter.ExportAsync(postgresConnectionFactory, cancellationToken);
+    return Results.Ok(snapshot);
+});
+
 // ─── Node Runtime Overview ────────────────────────────────────────────────────
 
 app.MapGet("/admin/overview", (
     IAnnounceTelemetryWriter telemetryWriter,
     IRuntimeSwarmStore runtimeSwarmStore,
     IShardRouter shardRouter,
+    IDegradedModeState degradedModeState,
     IOptions<TrackerNodeOptions> nodeOptions) =>
 {
     var store = (PartitionedRuntimeSwarmStore)runtimeSwarmStore;
+    var degraded = degradedModeState.Snapshot;
     var overview = new TrackerOverviewDto(
         nodeOptions.Value.NodeId,
         (int)store.GetTotalSwarmCount(),
         (int)store.GetTotalPeerCount(),
         telemetryWriter.QueueLength,
-        [new CacheStatusDto("L1", "access", true), new CacheStatusDto("L2", "access", true)]);
+        [new CacheStatusDto("L1", "access", true), new CacheStatusDto("L2", "access", degraded.IsRedisAvailable)]);
 
     return Results.Ok(overview);
 });
@@ -357,10 +403,23 @@ app.MapPost("/admin/nodes/{nodeId}/drain", async Task (
     string nodeId,
     INodeOperationalStateStore nodeStateStore,
     IOptions<TrackerNodeOptions> nodeOptions,
+    IOptions<SecurityHardeningOptions> securityHardeningOptions,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
+    var previousState = await nodeStateStore.GetStateAsync(nodeId, cancellationToken);
     var state = new NodeOperationalStateDto(nodeId, NodeOperationalState.Draining, DateTimeOffset.UtcNow);
     await nodeStateStore.SetStateAsync(state, cancellationToken);
+
+    if (securityHardeningOptions.Value.AuditNodeStateTransitions)
+    {
+        logger.LogInformation(
+            "Node state transition: {NodeId} {PreviousState} -> Draining",
+            nodeId,
+            previousState?.State.ToString() ?? "Active");
+    }
+
+    TrackerDiagnostics.ClusterNodeStateChanges.Add(1, new KeyValuePair<string, object?>("transition", "drain"));
     return Results.Ok(state);
 });
 
@@ -371,10 +430,23 @@ app.MapPost("/admin/nodes/{nodeId}/drain", async Task (
 app.MapPost("/admin/nodes/{nodeId}/maintenance", async Task (
     string nodeId,
     INodeOperationalStateStore nodeStateStore,
+    IOptions<SecurityHardeningOptions> securityHardeningOptions,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
+    var previousState = await nodeStateStore.GetStateAsync(nodeId, cancellationToken);
     var state = new NodeOperationalStateDto(nodeId, NodeOperationalState.Maintenance, DateTimeOffset.UtcNow);
     await nodeStateStore.SetStateAsync(state, cancellationToken);
+
+    if (securityHardeningOptions.Value.AuditNodeStateTransitions)
+    {
+        logger.LogInformation(
+            "Node state transition: {NodeId} {PreviousState} -> Maintenance",
+            nodeId,
+            previousState?.State.ToString() ?? "Active");
+    }
+
+    TrackerDiagnostics.ClusterNodeStateChanges.Add(1, new KeyValuePair<string, object?>("transition", "maintenance"));
     return Results.Ok(state);
 });
 
@@ -384,10 +456,24 @@ app.MapPost("/admin/nodes/{nodeId}/maintenance", async Task (
 app.MapPost("/admin/nodes/{nodeId}/activate", async Task (
     string nodeId,
     INodeOperationalStateStore nodeStateStore,
+    IOptions<SecurityHardeningOptions> securityHardeningOptions,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
+    var previousState = await nodeStateStore.GetStateAsync(nodeId, cancellationToken);
     var state = new NodeOperationalStateDto(nodeId, NodeOperationalState.Active, DateTimeOffset.UtcNow);
     await nodeStateStore.SetStateAsync(state, cancellationToken);
+
+    if (securityHardeningOptions.Value.AuditNodeStateTransitions)
+    {
+        logger.LogInformation(
+            "Node state transition: {NodeId} {PreviousState} -> Active",
+            nodeId,
+            previousState?.State.ToString() ?? "Unknown");
+    }
+
+    TrackerDiagnostics.ClusterNodeStateChanges.Add(1, new KeyValuePair<string, object?>("transition", "activate"));
+    TrackerDiagnostics.NodeRejoinEvents.Add(1);
     return Results.Ok(state);
 });
 

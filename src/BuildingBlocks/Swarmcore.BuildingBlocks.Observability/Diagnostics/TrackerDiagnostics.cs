@@ -55,6 +55,70 @@ public static class TrackerDiagnostics
     /// <summary>Number of ownership lease refresh failures (node failed to extend its lease).</summary>
     public static readonly Counter<long> ClusterOwnershipRefreshFailures = Meter.CreateCounter<long>("tracker.cluster.ownership_refresh_failures");
 
+    // ─── Security & Compliance ───────────────────────────────────────────────
+
+    /// <summary>Number of passkey denials due to revocation.</summary>
+    public static readonly Counter<long> PasskeyDeniedRevoked = Meter.CreateCounter<long>("tracker.security.passkey_denied_revoked");
+
+    /// <summary>Number of passkey denials due to expiration.</summary>
+    public static readonly Counter<long> PasskeyDeniedExpired = Meter.CreateCounter<long>("tracker.security.passkey_denied_expired");
+
+    /// <summary>Number of passkey rotation events.</summary>
+    public static readonly Counter<long> PasskeyRotated = Meter.CreateCounter<long>("tracker.security.passkey_rotated");
+
+    /// <summary>Number of passkey revocation events.</summary>
+    public static readonly Counter<long> PasskeyRevoked = Meter.CreateCounter<long>("tracker.security.passkey_revoked");
+
+    /// <summary>Number of unauthorized admin access attempts.</summary>
+    public static readonly Counter<long> AdminAccessDenied = Meter.CreateCounter<long>("tracker.security.admin_access_denied");
+
+    /// <summary>Number of unsafe configuration rejections on startup.</summary>
+    public static readonly Counter<long> ConfigValidationRejected = Meter.CreateCounter<long>("tracker.security.config_validation_rejected");
+
+    /// <summary>Number of audit records generated for critical actions.</summary>
+    public static readonly Counter<long> AuditRecordsGenerated = Meter.CreateCounter<long>("tracker.audit.records_generated");
+
+    /// <summary>Number of audit records dropped due to buffer overflow.</summary>
+    public static readonly Counter<long> AuditRecordsDropped = Meter.CreateCounter<long>("tracker.audit.records_dropped");
+
+    // ─── Resilience & Degraded Mode ──────────────────────────────────────────
+
+    /// <summary>Number of times the system entered degraded mode.</summary>
+    public static readonly Counter<long> DegradedModeEntered = Meter.CreateCounter<long>("tracker.resilience.degraded_mode_entered");
+
+    /// <summary>Number of times the system recovered from degraded mode.</summary>
+    public static readonly Counter<long> DegradedModeExited = Meter.CreateCounter<long>("tracker.resilience.degraded_mode_exited");
+
+    /// <summary>Number of Redis connection failures detected.</summary>
+    public static readonly Counter<long> RedisFailures = Meter.CreateCounter<long>("tracker.resilience.redis_failures");
+
+    /// <summary>Number of PostgreSQL connection failures detected.</summary>
+    public static readonly Counter<long> PostgresFailures = Meter.CreateCounter<long>("tracker.resilience.postgres_failures");
+
+    /// <summary>Number of requests served in degraded mode (cache-only).</summary>
+    public static readonly Counter<long> DegradedModeRequestsServed = Meter.CreateCounter<long>("tracker.resilience.degraded_mode_requests_served");
+
+    /// <summary>Number of cache warmup operations completed.</summary>
+    public static readonly Counter<long> CacheWarmupCompleted = Meter.CreateCounter<long>("tracker.resilience.cache_warmup_completed");
+
+    /// <summary>Number of cache warmup operations that failed or timed out.</summary>
+    public static readonly Counter<long> CacheWarmupFailed = Meter.CreateCounter<long>("tracker.resilience.cache_warmup_failed");
+
+    /// <summary>Number of worker recovery events after failure.</summary>
+    public static readonly Counter<long> WorkerRecoveryEvents = Meter.CreateCounter<long>("tracker.resilience.worker_recovery");
+
+    /// <summary>Number of partial startup recovery events.</summary>
+    public static readonly Counter<long> PartialStartupRecovery = Meter.CreateCounter<long>("tracker.resilience.partial_startup_recovery");
+
+    /// <summary>Number of node rejoin events after restart.</summary>
+    public static readonly Counter<long> NodeRejoinEvents = Meter.CreateCounter<long>("tracker.resilience.node_rejoin");
+
+    /// <summary>Number of configuration backup/export operations.</summary>
+    public static readonly Counter<long> ConfigExportOperations = Meter.CreateCounter<long>("tracker.resilience.config_export");
+
+    /// <summary>Number of configuration restore/import operations.</summary>
+    public static readonly Counter<long> ConfigRestoreOperations = Meter.CreateCounter<long>("tracker.resilience.config_restore");
+
     public static void RegisterSwarmStoreGauges(Func<long> peersCallback, Func<long> swarmsCallback)
     {
         Meter.CreateObservableGauge("tracker.peers.active", peersCallback);

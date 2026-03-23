@@ -840,16 +840,31 @@ public sealed class AnnounceTelemetryBackgroundService(
 public sealed class GatewayWarmupService(
     IServiceProvider serviceProvider,
     IReadinessState readinessState,
-    IGatewayDependencyState dependencyState) : IHostedService
+    IGatewayDependencyState dependencyState,
+    ILogger<GatewayWarmupService> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        // Phase 1: Security validation — reject unsafe configurations before going live
+        try
+        {
+            StartupSecurityValidator.Validate(serviceProvider, "tracker-gateway");
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogCritical(ex, "Gateway startup aborted due to security validation failure.");
+            throw;
+        }
+
+        // Phase 2: Wait for dependencies
         await StartupBootstrap.WaitForPostgresAsync(serviceProvider, "tracker-gateway", cancellationToken);
         dependencyState.UpdatePostgres(true, DateTimeOffset.UtcNow);
 
         await StartupBootstrap.WaitForRedisAsync(serviceProvider, "tracker-gateway", cancellationToken);
         dependencyState.UpdateRedis(true, DateTimeOffset.UtcNow);
 
+        // Phase 3: Mark ready
+        logger.LogInformation("Gateway warmup complete. Marking ready.");
         readinessState.MarkReady();
     }
 
@@ -870,11 +885,13 @@ public static class GatewayInfrastructureServiceCollectionExtensions
         services.AddSingleton<IAnnounceAbuseGuard, AnnounceAbuseGuard>();
         services.AddSingleton<IScrapeAbuseGuard, ScrapeAbuseGuard>();
         services.AddSingleton<IGatewayDependencyState, GatewayDependencyState>();
+        services.AddSingleton<IDegradedModeState, DegradedModeState>();
         services.AddSingleton<AccessRefreshQueue>();
         services.AddSingleton<IAccessSnapshotStore, RedisPostgresAccessSnapshotStore>();
         services.AddSingleton<HybridAccessSnapshotProvider>();
         services.AddSingleton<IAccessSnapshotProvider>(static serviceProvider => serviceProvider.GetRequiredService<HybridAccessSnapshotProvider>());
         services.AddSingleton<IAccessInvalidationPublisher, RedisAccessInvalidationPublisher>();
+        services.AddSingleton<PasskeyLifecycleGuard>();
         services.AddSingleton<IAccessPolicyResolver, CachedAccessPolicyResolver>();
         services.AddSingleton<IScrapeAccessPolicyResolver, CachedScrapeAccessPolicyResolver>();
         services.AddSingleton<IBencodeResponseWriter, AnnounceBencodeResponseWriter>();
@@ -884,7 +901,7 @@ public static class GatewayInfrastructureServiceCollectionExtensions
         services.AddSingleton<IScrapeService, ScrapeService>();
         services.AddHostedService<AccessSnapshotHydrationService>();
         services.AddHostedService<AccessInvalidationSubscriberService>();
-        services.AddHostedService<GatewayDependencyMonitorService>();
+        services.AddHostedService<ResilientDependencyMonitorService>();
         services.AddHostedService<AnnounceTelemetryBackgroundService>();
         services.AddHostedService<GatewayWarmupService>();
         return services;
