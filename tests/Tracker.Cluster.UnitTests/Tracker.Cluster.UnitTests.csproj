@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Services\Tracker.Gateway\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.Gateway\Tracker.Gateway.Runtime\Tracker.Gateway.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.CacheCoordinator\Tracker.CacheCoordinator.Application\Tracker.CacheCoordinator.Application.csproj" />
+    <ProjectReference Include="..\..\src\Services\Tracker.CacheCoordinator\Tracker.CacheCoordinator.Infrastructure\Tracker.CacheCoordinator.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

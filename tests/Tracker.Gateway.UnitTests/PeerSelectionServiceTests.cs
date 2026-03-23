@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Tracker.Gateway.Application.Announce;
+using Tracker.Gateway.Application.Cluster;
 using Tracker.Gateway.Runtime;
 
 namespace Tracker.Gateway.UnitTests;
@@ -18,7 +19,7 @@ public sealed class PeerSelectionServiceTests
         }));
 
         var mutationService = new PeerMutationService(runtimeStore);
-        var selectionService = new PeerSelectionService(runtimeStore);
+        var selectionService = new PeerSelectionService(runtimeStore, new StubShardRouter());
         var now = DateTimeOffset.UtcNow;
         var infoHash = InfoHashKey.FromBytes(Convert.FromHexString("0102030405060708090A0B0C0D0E0F1011121314"));
 
@@ -100,7 +101,7 @@ public sealed class PeerSelectionServiceTests
         }));
 
         var mutationService = new PeerMutationService(runtimeStore);
-        var selectionService = new PeerSelectionService(runtimeStore);
+        var selectionService = new PeerSelectionService(runtimeStore, new StubShardRouter());
         var now = DateTimeOffset.UtcNow;
         var infoHash = InfoHashKey.FromBytes(Convert.FromHexString("2222222222222222222222222222222222222222"));
         var caller = CreateRequest(infoHash, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", PeerEndpoint.FromIPv6(Convert.FromHexString("20010DB8000000000000000000000001"), 5006), 10);
@@ -136,5 +137,15 @@ public sealed class PeerSelectionServiceTests
             true,
             trackerEvent,
             null);
+    }
+
+    private sealed class StubShardRouter : IShardRouter
+    {
+        public int GetClusterShard(in InfoHashKey infoHash) => 0;
+        public string? GetOwnerNodeId(int clusterShardId) => "local-node";
+        public bool IsLocallyOwned(int clusterShardId) => true;
+        public bool IsLocallyOwned(in InfoHashKey infoHash) => true;
+        public IReadOnlyDictionary<int, string> GetOwnershipSnapshot() => new Dictionary<int, string>();
+        public int LocallyOwnedShardCount => 1;
     }
 }

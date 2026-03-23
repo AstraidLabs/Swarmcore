@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Swarmcore.BuildingBlocks.Abstractions.Options;
 using Swarmcore.Contracts.Runtime;
 using Tracker.CacheCoordinator.Application;
+using Tracker.CacheCoordinator.Infrastructure;
 
 namespace Tracker.Cluster.UnitTests;
 

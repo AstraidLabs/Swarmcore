@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Swarmcore.BuildingBlocks.Abstractions.Options;
 using Swarmcore.BuildingBlocks.Observability.Diagnostics;
+using StackExchange.Redis;
 using Swarmcore.Caching.Redis;
 using Swarmcore.Contracts.Runtime;
 using Tracker.CacheCoordinator.Application;
@@ -74,7 +75,7 @@ public sealed class RedisShardOwnershipRegistry(
             nodeId,
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow.Add(leaseDuration),
-            epoch: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            Epoch: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
 
         var json = JsonSerializer.Serialize(record, JsonOptions);
 
