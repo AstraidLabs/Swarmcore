@@ -2,6 +2,7 @@ using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Options;
 using System.Buffers.Binary;
 using Tracker.Gateway.Application.Announce;
+using Tracker.Gateway.Application.Cluster;
 using Tracker.Gateway.Runtime;
 
 namespace Tracker.Gateway.Benchmarks;
@@ -29,7 +30,7 @@ public class PeerSelectionBenchmarks
         }));
 
         var mutation = new PeerMutationService(_store);
-        _selectionService = new PeerSelectionService(_store);
+        _selectionService = new PeerSelectionService(_store, new BenchmarkShardRouter());
         _now = DateTimeOffset.UtcNow;
         var infoHash = InfoHashKey.FromBytes(Convert.FromHexString("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
 
@@ -64,4 +65,14 @@ public class PeerSelectionBenchmarks
 
     private static AnnounceRequest CreateRequest(InfoHashKey infoHash, string peerIdHex, uint ip, ushort port, int requestedPeers)
         => new(infoHash, PeerIdKey.FromBytes(Convert.FromHexString(peerIdHex)), PeerEndpoint.FromIPv4(ip, port), 0, 0, 1, requestedPeers, true, TrackerEvent.Started, null);
+
+    private sealed class BenchmarkShardRouter : IShardRouter
+    {
+        public int GetClusterShard(in InfoHashKey infoHash) => 0;
+        public string? GetOwnerNodeId(int clusterShardId) => "local-node";
+        public bool IsLocallyOwned(int clusterShardId) => true;
+        public bool IsLocallyOwned(in InfoHashKey infoHash) => true;
+        public IReadOnlyDictionary<int, string> GetOwnershipSnapshot() => new Dictionary<int, string>();
+        public int LocallyOwnedShardCount => 1;
+    }
 }

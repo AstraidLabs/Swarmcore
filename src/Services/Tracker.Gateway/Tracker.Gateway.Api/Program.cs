@@ -134,7 +134,7 @@ app.MapGet("/health/startup", (IReadinessState readiness) =>
         ? Results.Ok(new { status = "started" })
         : Results.StatusCode(StatusCodes.Status503ServiceUnavailable));
 
-app.MapGet("/health/ready", async Task (
+app.MapGet("/health/ready", async Task<IResult> (
     IReadinessState readiness,
     IGatewayDependencyState dependencyState,
     INodeOperationalStateStore nodeStateStore,
@@ -414,7 +414,7 @@ app.MapGet("/admin/cluster/shards/{shardId:int}", (
 /// Returns the current operational state of the specified node.
 /// Used by operators and automation to check drain/maintenance status.
 /// </summary>
-app.MapGet("/admin/nodes/{nodeId}/state", async Task (
+app.MapGet("/admin/nodes/{nodeId}/state", async Task<IResult> (
     string nodeId,
     INodeOperationalStateStore nodeStateStore,
     CancellationToken cancellationToken) =>
@@ -433,7 +433,7 @@ app.MapGet("/admin/nodes/{nodeId}/state", async Task (
 /// The node's readiness probe will start failing, removing it from the load balancer pool.
 /// Owned shards will be released on graceful shutdown.
 /// </summary>
-app.MapPost("/admin/nodes/{nodeId}/drain", async Task (
+app.MapPost("/admin/nodes/{nodeId}/drain", async Task<IResult> (
     string nodeId,
     INodeOperationalStateStore nodeStateStore,
     IOptions<TrackerNodeOptions> nodeOptions,
@@ -448,7 +448,7 @@ app.MapPost("/admin/nodes/{nodeId}/drain", async Task (
 /// Transitions the specified node to Maintenance state.
 /// Similar to Drain but signals a planned extended outage.
 /// </summary>
-app.MapPost("/admin/nodes/{nodeId}/maintenance", async Task (
+app.MapPost("/admin/nodes/{nodeId}/maintenance", async Task<IResult> (
     string nodeId,
     INodeOperationalStateStore nodeStateStore,
     CancellationToken cancellationToken) =>
@@ -461,7 +461,7 @@ app.MapPost("/admin/nodes/{nodeId}/maintenance", async Task (
 /// <summary>
 /// Returns the specified node to Active state, re-enabling readiness and ownership claims.
 /// </summary>
-app.MapPost("/admin/nodes/{nodeId}/activate", async Task (
+app.MapPost("/admin/nodes/{nodeId}/activate", async Task<IResult> (
     string nodeId,
     INodeOperationalStateStore nodeStateStore,
     CancellationToken cancellationToken) =>
