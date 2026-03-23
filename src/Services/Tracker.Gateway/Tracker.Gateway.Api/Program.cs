@@ -93,6 +93,8 @@ if (publicEndpointOptions.EnableHttpsRedirection)
     app.UseHttpsRedirection();
 }
 
+app.UseMiddleware<Swarmcore.Hosting.HostValidationMiddleware>();
+app.UseMiddleware<Swarmcore.Hosting.PasskeyLogSanitizationMiddleware>();
 app.UseMiddleware<TrackerProtocolExceptionMiddleware>();
 app.UseMiddleware<TrackerRequestGuardMiddleware>();
 

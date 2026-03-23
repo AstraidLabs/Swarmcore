@@ -41,6 +41,11 @@ services:
       Swarmcore__StartupBootstrap__MaxAttempts: 30
       Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
       Swarmcore__UdpTracker__Enabled: "true"
+      Swarmcore__PublicEndpoint__BaseUrl: https://${TRACKER_DOMAIN:-tracker.example.com}
+      Swarmcore__PublicEndpoint__BaseDomain: ${BASE_DOMAIN:-example.com}
+      Swarmcore__PublicEndpoint__AnnounceBaseUrl: https://${ANNOUNCE_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
+      Swarmcore__PublicEndpoint__ScrapeBaseUrl: https://${SCRAPE_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
+      Swarmcore__PublicEndpoint__ForceHttps: "true"
     ports:
       - "6969:6969/udp"
     depends_on:
@@ -88,6 +93,10 @@ services:
       Swarmcore__StartupBootstrap__MaxAttempts: 30
       Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
       Swarmcore__AdminIdentity__DisableTransportSecurityRequirement: "false"
+      Swarmcore__PublicEndpoint__BaseUrl: https://${ADMIN_DOMAIN:-admin.example.com}
+      Swarmcore__PublicEndpoint__BaseDomain: ${BASE_DOMAIN:-example.com}
+      Swarmcore__PublicEndpoint__AdminBaseUrl: https://${ADMIN_DOMAIN:-admin.example.com}
+      Swarmcore__PublicEndpoint__ForceHttps: "true"
     depends_on:
       - postgres
       - redis
@@ -140,6 +149,9 @@ services:
     environment:
       TRACKER_DOMAIN: ${TRACKER_DOMAIN:-tracker.example.com}
       ADMIN_DOMAIN: ${ADMIN_DOMAIN:-admin.example.com}
+      ANNOUNCE_DOMAIN: ${ANNOUNCE_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
+      SCRAPE_DOMAIN: ${SCRAPE_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
+      API_DOMAIN: ${API_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
     ports:
       - "80:80"
       - "81:81"

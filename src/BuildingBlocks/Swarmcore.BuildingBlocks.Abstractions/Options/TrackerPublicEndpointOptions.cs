@@ -41,6 +41,52 @@ public sealed class TrackerPublicEndpointOptions : IValidatableObject
     /// </summary>
     public bool EnableHttpsRedirection { get; init; } = false;
 
+    // ── Subdomain and multi-host support ─────────────────────────────────────
+
+    /// <summary>
+    /// Root domain for subdomain resolution. Required when subdomain validation is active.
+    /// Example: example.com
+    /// </summary>
+    public string BaseDomain { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Optional per-surface base URLs. Falls back to <see cref="BaseUrl"/> when empty.
+    /// </summary>
+    public string AnnounceBaseUrl { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Public base URL for scrape surface. Falls back to <see cref="BaseUrl"/> when empty.
+    /// </summary>
+    public string ScrapeBaseUrl { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Public base URL for the admin UI surface.
+    /// </summary>
+    public string AdminBaseUrl { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Public base URL for the API surface.
+    /// </summary>
+    public string ApiBaseUrl { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Explicit list of allowed Host header values. Requests with a Host not in this list
+    /// are rejected by <c>HostValidationMiddleware</c>. Empty list disables host validation.
+    /// </summary>
+    public string[] AllowedHosts { get; init; } = [];
+
+    /// <summary>
+    /// Allowed subdomain prefixes (e.g. "announce", "admin").
+    /// Used together with <see cref="BaseDomain"/> for subdomain validation.
+    /// </summary>
+    public string[] AllowedSubdomains { get; init; } = [];
+
+    /// <summary>
+    /// When true, any subdomain of <see cref="BaseDomain"/> is accepted.
+    /// When false, only subdomains listed in <see cref="AllowedSubdomains"/> are accepted.
+    /// </summary>
+    public bool EnableWildcardSubdomains { get; init; } = false;
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (string.IsNullOrWhiteSpace(BaseUrl))
@@ -64,6 +110,44 @@ public sealed class TrackerPublicEndpointOptions : IValidatableObject
             yield return new ValidationResult(
                 $"PublicEndpoint.BaseUrl must use the https scheme when ForceHttps is true. Got: '{uri.Scheme}'.",
                 [nameof(BaseUrl), nameof(ForceHttps)]);
+        }
+
+        // Validate per-surface URLs when provided.
+        foreach (var (url, name) in new[]
+        {
+            (AnnounceBaseUrl, nameof(AnnounceBaseUrl)),
+            (ScrapeBaseUrl, nameof(ScrapeBaseUrl)),
+            (AdminBaseUrl, nameof(AdminBaseUrl)),
+            (ApiBaseUrl, nameof(ApiBaseUrl)),
+        })
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                continue;
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var surfaceUri))
+            {
+                yield return new ValidationResult(
+                    $"PublicEndpoint.{name} '{url}' is not a valid absolute URI.",
+                    [name]);
+                continue;
+            }
+
+            if (ForceHttps && !string.Equals(surfaceUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return new ValidationResult(
+                    $"PublicEndpoint.{name} must use the https scheme when ForceHttps is true. Got: '{surfaceUri.Scheme}'.",
+                    [name, nameof(ForceHttps)]);
+            }
+        }
+
+        // BaseDomain is required when subdomain lists are configured.
+        if ((AllowedSubdomains.Length > 0 || EnableWildcardSubdomains) && string.IsNullOrWhiteSpace(BaseDomain))
+        {
+            yield return new ValidationResult(
+                "PublicEndpoint.BaseDomain must be set when AllowedSubdomains or EnableWildcardSubdomains is active.",
+                [nameof(BaseDomain)]);
         }
     }
 }

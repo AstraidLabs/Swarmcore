@@ -244,6 +244,12 @@ public static class AdminAuthInfrastructureServiceCollectionExtensions
         {
             options.LoginPath = "/account/login";
             options.Cookie.Name = "swarmcore_admin_auth";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            // Always — the admin surface is served over HTTPS (via Nginx).
+            // SameAsRequest would mark the cookie as non-Secure when ASP.NET Core
+            // receives the request over plain HTTP from the reverse proxy.
+            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
             options.ExpireTimeSpan = TimeSpan.FromMinutes(adminIdentityOptions.SessionIdleTimeoutMinutes);
             options.SlidingExpiration = true;
         });

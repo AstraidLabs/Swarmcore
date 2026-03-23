@@ -21,6 +21,7 @@ public static class HostingServiceCollectionExtensions
     {
         services.AddSingleton<IReadinessState, ReadinessState>();
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IHostValidationService, HostValidationService>();
 
         services.AddOptions<TrackerNodeOptions>()
             .Bind(configuration.GetSection(TrackerNodeOptions.SectionName))
