@@ -161,6 +161,105 @@ public sealed class BencodeResponseWriterTests
         Assert.DoesNotContain("warning message", text);
     }
 
+    [Fact]
+    public async Task WriteAnnounceSuccessAsync_NonCompact_NoPeerIdTrue_OmitsPeerIdKey()
+    {
+        var httpContext = new DefaultHttpContext();
+        await using var body = new MemoryStream();
+        httpContext.Response.Body = body;
+
+        var peerId = PeerIdKey.FromBytes(Convert.FromHexString("4142434445464748494A4B4C4D4E4F5051525354"));
+        var peers = new[] { new SelectedPeer(PeerEndpoint.FromIPv4(0x0A000001, 6881), peerId) };
+        using var pooled = new PeerSelectionResult(peers, 1);
+        var writer = new AnnounceBencodeResponseWriter();
+
+        await writer.WriteAnnounceSuccessAsync(
+            httpContext.Response,
+            new AnnounceSuccess(1800, 2, 1, new AnnouncePeerSelection(pooled, default), Compact: false, NoPeerId: true),
+            CancellationToken.None);
+
+        var text = System.Text.Encoding.ASCII.GetString(body.ToArray());
+        Assert.Contains("2:ip", text);
+        Assert.DoesNotContain("7:peer id", text);
+        Assert.Contains("4:port", text);
+    }
+
+    [Fact]
+    public async Task WriteAnnounceSuccessAsync_NonCompact_NoPeerIdFalse_IncludesPeerIdKey()
+    {
+        var httpContext = new DefaultHttpContext();
+        await using var body = new MemoryStream();
+        httpContext.Response.Body = body;
+
+        var peerId = PeerIdKey.FromBytes(Convert.FromHexString("4142434445464748494A4B4C4D4E4F5051525354"));
+        var peers = new[] { new SelectedPeer(PeerEndpoint.FromIPv4(0x0A000001, 6881), peerId) };
+        using var pooled = new PeerSelectionResult(peers, 1);
+        var writer = new AnnounceBencodeResponseWriter();
+
+        await writer.WriteAnnounceSuccessAsync(
+            httpContext.Response,
+            new AnnounceSuccess(1800, 2, 1, new AnnouncePeerSelection(pooled, default), Compact: false, NoPeerId: false),
+            CancellationToken.None);
+
+        var text = System.Text.Encoding.ASCII.GetString(body.ToArray());
+        Assert.Contains("7:peer id", text);
+    }
+
+    [Fact]
+    public async Task WriteAnnounceSuccessAsync_TrackerIdSet_EmitsTrackerIdKey()
+    {
+        var httpContext = new DefaultHttpContext();
+        await using var body = new MemoryStream();
+        httpContext.Response.Body = body;
+
+        var writer = new AnnounceBencodeResponseWriter();
+
+        await writer.WriteAnnounceSuccessAsync(
+            httpContext.Response,
+            new AnnounceSuccess(1800, 0, 0, default, TrackerId: "ABCDEF1234ABCDEF1234"),
+            CancellationToken.None);
+
+        var text = System.Text.Encoding.ASCII.GetString(body.ToArray());
+        Assert.Contains("10:tracker id", text);
+        Assert.Contains("20:ABCDEF1234ABCDEF1234", text);
+    }
+
+    [Fact]
+    public async Task WriteAnnounceSuccessAsync_TrackerIdNull_OmitsTrackerIdKey()
+    {
+        var httpContext = new DefaultHttpContext();
+        await using var body = new MemoryStream();
+        httpContext.Response.Body = body;
+
+        var writer = new AnnounceBencodeResponseWriter();
+
+        await writer.WriteAnnounceSuccessAsync(
+            httpContext.Response,
+            new AnnounceSuccess(1800, 0, 0, default, TrackerId: null),
+            CancellationToken.None);
+
+        var text = System.Text.Encoding.ASCII.GetString(body.ToArray());
+        Assert.DoesNotContain("tracker id", text);
+    }
+
+    [Fact]
+    public async Task WriteAnnounceSuccessAsync_MinInterval_EmitsMinIntervalKey()
+    {
+        var httpContext = new DefaultHttpContext();
+        await using var body = new MemoryStream();
+        httpContext.Response.Body = body;
+
+        var writer = new AnnounceBencodeResponseWriter();
+
+        await writer.WriteAnnounceSuccessAsync(
+            httpContext.Response,
+            new AnnounceSuccess(1800, 0, 0, default, MinIntervalSeconds: 900),
+            CancellationToken.None);
+
+        var text = System.Text.Encoding.ASCII.GetString(body.ToArray());
+        Assert.Contains("12:min intervali900e", text);
+    }
+
     private static bool ContainsSubsequence(ReadOnlySpan<byte> source, ReadOnlySpan<byte> value)
     {
         return source.IndexOf(value) >= 0;

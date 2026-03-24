@@ -280,7 +280,8 @@ public readonly record struct AnnounceSuccess(
     string? WarningMessage = null,
     bool Compact = true,
     bool NoPeerId = false,
-    string? TrackerId = null);
+    string? TrackerId = null,
+    int MinIntervalSeconds = 0);
 
 public readonly record struct AnnounceTelemetryRecord(
     string NodeId,

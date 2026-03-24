@@ -1,6 +1,7 @@
 using System.Buffers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Swarmcore.BuildingBlocks.Observability.Diagnostics;
 using Tracker.Gateway.Application.Announce;
 
 namespace Tracker.Gateway.Runtime;
@@ -79,6 +80,15 @@ public sealed class PartitionedRuntimeSwarmStore : IRuntimeSwarmStore
             if (swarm.IndexByPeerId.TryGetValue(request.PeerId, out var existingIndex))
             {
                 var existing = swarm.Peers[existingIndex];
+
+                // BEP 7: Reject mutation if the peer has a stored key and the request key doesn't match.
+                // This prevents a different client from hijacking a peer slot by reusing peer_id.
+                if (existing.Key is not null && !string.Equals(existing.Key, request.Key, StringComparison.Ordinal))
+                {
+                    TrackerDiagnostics.PeerKeyMismatch.Add(1);
+                    return new SwarmCounts(swarm.SeederCount, swarm.LeecherCount, swarm.DownloadedCount);
+                }
+
                 if (ShouldRecordCompleted(existing, request))
                 {
                     swarm.DownloadedCount++;
