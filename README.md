@@ -1,10 +1,9 @@
 <div align="center">
 <p align="center">
   <a href="https://github.com/AstraidLabs/BeeTracker">
-    <img src="./logo.png" alt="Logo projektu" width="180">
+    <img src="./logo.png" alt="Logo projektu" width="300">
   </a>
 </p>
-# BeeTracker
 
 **The BitTorrent tracker that gets out of the way — and lets your swarm fly.**
 
