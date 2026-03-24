@@ -1455,6 +1455,7 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
                 {
                     [$"{PostgresOptions.SectionName}:ConnectionString"] = postgresConnectionString,
                     [$"{RedisOptions.SectionName}:Configuration"] = redisConnectionString,
+                    [$"{TrackerPublicEndpointOptions.SectionName}:AllowedHosts:0"] = "localhost",
                     [$"{TrackerNodeOptions.SectionName}:NodeId"] = "admin-integration-node",
                     [$"{TrackerNodeOptions.SectionName}:Region"] = "integration",
                     [$"{AdminIdentityOptions.SectionName}:AdminApiScope"] = AdminApiScope,
