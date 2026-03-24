@@ -4,7 +4,7 @@ using Audit.Domain;
 using Identity.SelfService.Application;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Swarmcore.Contracts.Identity;
+using BeeTracker.Contracts.Identity;
 
 namespace Tracker.AdminService.Api;
 

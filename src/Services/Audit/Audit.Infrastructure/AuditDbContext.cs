@@ -92,8 +92,8 @@ public sealed class AuditDbContextFactory : IDesignTimeDbContextFactory<AuditDbC
     {
         var optionsBuilder = new DbContextOptionsBuilder<AuditDbContext>();
         optionsBuilder.UseNpgsql(
-            Environment.GetEnvironmentVariable("SWARMCORE_POSTGRES_CONNECTION")
-            ?? "Host=localhost;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore",
+            Environment.GetEnvironmentVariable("BEETRACKER_POSTGRES_CONNECTION")
+            ?? "Host=localhost;Port=5432;Database=beetracker;Username=beetracker;Password=beetracker",
             npgsqlOptions => npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", AuditDbContext.SchemaName));
         return new AuditDbContext(optionsBuilder.Options);
     }

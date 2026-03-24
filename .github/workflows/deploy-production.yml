@@ -14,7 +14,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository_owner }}/swarmcore
+  IMAGE_PREFIX: ${{ github.repository_owner }}/beetracker
   ENVIRONMENT: production
 
 permissions:
@@ -38,7 +38,7 @@ jobs:
 
       - name: Verify images exist
         run: |
-          services=(swarmcore tracker-gateway admin-service configuration-service cache-coordinator telemetry-ingest)
+          services=(beetracker tracker-gateway admin-service configuration-service cache-coordinator telemetry-ingest)
           tag="${{ inputs.image_tag }}"
           for svc in "${services[@]}"; do
             image="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${svc}:${tag}"

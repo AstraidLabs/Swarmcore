@@ -1,12 +1,12 @@
 <div align="center">
 
-# Swarmcore
+# BeeTracker
 
 **High-performance BitTorrent tracker built on .NET 10**
 
-[![Build](https://github.com/AstraidLabs/Swarmcore/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/Swarmcore/actions/workflows/ci.yml)
-[![Unit Tests](https://github.com/AstraidLabs/Swarmcore/actions/workflows/unit-tests.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/Swarmcore/actions/workflows/unit-tests.yml)
-[![Integration Tests](https://github.com/AstraidLabs/Swarmcore/actions/workflows/integration-tests.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/Swarmcore/actions/workflows/integration-tests.yml)
+[![Build](https://github.com/AstraidLabs/BeeTracker/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/BeeTracker/actions/workflows/ci.yml)
+[![Unit Tests](https://github.com/AstraidLabs/BeeTracker/actions/workflows/unit-tests.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/BeeTracker/actions/workflows/unit-tests.yml)
+[![Integration Tests](https://github.com/AstraidLabs/BeeTracker/actions/workflows/integration-tests.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/BeeTracker/actions/workflows/integration-tests.yml)
 
 
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
@@ -16,7 +16,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](LICENSE.txt)
 
-> Swarmcore is a production-grade, microservice-based BitTorrent tracker engineered for maximum throughput, minimal latency, and operational reliability.
+> BeeTracker is a production-grade, microservice-based BitTorrent tracker engineered for maximum throughput, minimal latency, and operational reliability.
 
 </div>
 
@@ -24,9 +24,9 @@
 
 ## Overview
 
-Swarmcore implements the **BitTorrent tracker protocol** (HTTP + UDP/BEP15) as a set of independently deployable services. Runtime peer state lives in a sharded in-memory store, keeping the announce/scrape hot path completely free of database I/O. PostgreSQL owns configuration and audit data; Redis serves as an L2 cache and cross-node coordination layer.
+BeeTracker implements the **BitTorrent tracker protocol** (HTTP + UDP/BEP15) as a set of independently deployable services. Runtime peer state lives in a sharded in-memory store, keeping the announce/scrape hot path completely free of database I/O. PostgreSQL owns configuration and audit data; Redis serves as an L2 cache and cross-node coordination layer.
 
-**Five things that make Swarmcore fast and reliable:**
+**Five things that make BeeTracker fast and reliable:**
 
 - **Zero database latency on the hot path** — announce/scrape never touches PostgreSQL
 - **64-shard in-memory peer store** — lock contention scales linearly with cores, not with load
@@ -118,8 +118,8 @@ Admin Service hosts both the BFF API and the compiled React 19 UI. All writes go
 ### Run locally
 
 ```bash
-git clone https://github.com/AstraidLabs/Swarmcore.git
-cd Swarmcore
+git clone https://github.com/AstraidLabs/BeeTracker.git
+cd BeeTracker
 docker compose up --build
 ```
 
@@ -133,7 +133,7 @@ docker compose up --build
 
 ```
 Username: admin
-Password: Swarmcore123!
+Password: BeeTracker123!
 ```
 
 > ⚠️ Change the default credentials before any production deployment.
@@ -173,10 +173,10 @@ For full production deployment guidance see [`DEPLOYMENT.md`](DEPLOYMENT.md). Ke
 dotnet test
 
 # Unit tests only
-dotnet test Swarmcore.slnx --filter "FullyQualifiedName~UnitTests|FullyQualifiedName~ArchitectureTests"
+dotnet test BeeTracker.slnx --filter "FullyQualifiedName~UnitTests|FullyQualifiedName~ArchitectureTests"
 
 # Integration tests (requires Docker)
-dotnet test Swarmcore.slnx --filter "FullyQualifiedName~IntegrationTests|FullyQualifiedName~SmokeTests"
+dotnet test BeeTracker.slnx --filter "FullyQualifiedName~IntegrationTests|FullyQualifiedName~SmokeTests"
 
 # Single test project
 dotnet test tests/Tracker.Gateway.UnitTests
@@ -188,7 +188,7 @@ dotnet run -c Release --project benchmarks/Tracker.Gateway.Benchmarks
 ### Project structure
 
 ```
-Swarmcore/
+BeeTracker/
 ├── src/
 │   ├── BuildingBlocks/          # Shared abstractions & infrastructure
 │   ├── Contracts/               # Service boundary contracts
@@ -213,7 +213,7 @@ Swarmcore/
 
 ## FAQ
 
-**Do I need the .NET SDK to run Swarmcore?**
+**Do I need the .NET SDK to run BeeTracker?**
 No — Docker is sufficient for production. The .NET SDK is only needed for local development and running tests directly.
 
 **Can I run multiple Tracker Gateway instances?**
@@ -223,7 +223,7 @@ Yes. Runtime peer state is intentionally node-local. Peers connected to differen
 PostgreSQL is the single source of truth for configuration, users, audit logs, and telemetry. Redis is strictly an L2 cache — it accelerates policy reads and coordinates cache invalidation between nodes. They serve different roles, not duplicate ones.
 
 **Is UDP tracker (BEP15) fully supported?**
-Yes. Swarmcore implements the complete UDP tracker protocol as defined in BEP15, alongside HTTP.
+Yes. BeeTracker implements the complete UDP tracker protocol as defined in BEP15, alongside HTTP.
 
 **How does passkey access control work?**
 Each client authenticates via a passkey embedded in the announce URL. The associated access policy is cached at three levels — L1 (local process memory), L2 (Redis), L3 (PostgreSQL) — so that repeated announces incur near-zero lookup overhead.

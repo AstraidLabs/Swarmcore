@@ -2,7 +2,7 @@ namespace Tracker.UdpTracker.Service;
 
 public sealed class UdpTrackerOptions
 {
-    public const string SectionName = "Swarmcore:UdpTracker";
+    public const string SectionName = "BeeTracker:UdpTracker";
 
     public bool Enabled { get; init; } = false;
     public int Port { get; init; } = 6969;

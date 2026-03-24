@@ -1,15 +1,15 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.Mvc;
-using Swarmcore.BuildingBlocks.Abstractions.Hosting;
-using Swarmcore.Contracts.Configuration;
-using Swarmcore.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Hosting;
+using BeeTracker.Contracts.Configuration;
+using BeeTracker.Hosting;
 using Tracker.ConfigurationService.Application;
 using Tracker.ConfigurationService.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
-builder.Services.AddSwarmcoreInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
+builder.Services.AddBeeTrackerInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
 builder.Services.AddConfigurationInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<ConfigurationStartupService>();
 

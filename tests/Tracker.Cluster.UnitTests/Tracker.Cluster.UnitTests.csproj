@@ -19,8 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\BuildingBlocks\Swarmcore.BuildingBlocks.Abstractions\Swarmcore.BuildingBlocks.Abstractions.csproj" />
-    <ProjectReference Include="..\..\src\Contracts\Swarmcore.Contracts.Runtime\Swarmcore.Contracts.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\BeeTracker.BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Contracts\BeeTracker.Contracts.Runtime\BeeTracker.Contracts.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.Gateway\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.Gateway\Tracker.Gateway.Runtime\Tracker.Gateway.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.CacheCoordinator\Tracker.CacheCoordinator.Application\Tracker.CacheCoordinator.Application.csproj" />

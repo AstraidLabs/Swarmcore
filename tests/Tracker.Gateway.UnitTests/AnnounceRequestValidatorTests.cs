@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
 using Tracker.Gateway.Application.Announce;
 using Tracker.Gateway.Infrastructure;
 

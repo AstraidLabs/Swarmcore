@@ -1,4 +1,4 @@
-using Swarmcore.Contracts.Telemetry;
+using BeeTracker.Contracts.Telemetry;
 
 namespace Tracker.TelemetryIngest.Application;
 

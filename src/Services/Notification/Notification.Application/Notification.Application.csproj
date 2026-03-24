@@ -2,7 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Notification.Domain\Notification.Domain.csproj" />
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Abstractions\Swarmcore.BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\BeeTracker.BuildingBlocks.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

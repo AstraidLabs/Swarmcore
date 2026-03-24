@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Abstractions\Swarmcore.BuildingBlocks.Abstractions.csproj" />
-    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Runtime\Swarmcore.Contracts.Runtime.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\BeeTracker.BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Runtime\BeeTracker.Contracts.Runtime.csproj" />
     <ProjectReference Include="..\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
   </ItemGroup>
 

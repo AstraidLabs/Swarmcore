@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.Contracts.Configuration;
 using Tracker.ConfigurationService.Application;
 
 namespace Tracker.ConfigurationService.Infrastructure;
@@ -627,7 +627,7 @@ internal sealed class EfConfigurationMutationService(
 
 internal sealed class EfConfigurationMaintenanceService(
     TrackerConfigurationDbContext dbContext,
-    Swarmcore.Caching.Redis.IRedisCacheClient redisCacheClient,
+    BeeTracker.Caching.Redis.IRedisCacheClient redisCacheClient,
     IAuditBuffer auditBuffer) : IConfigurationMaintenanceService
 {
     private const string RefreshChannelName = "tracker:config-refresh";

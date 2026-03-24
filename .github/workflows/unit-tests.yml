@@ -30,11 +30,11 @@ jobs:
           dotnet-quality: ${{ env.DOTNET_QUALITY }}
 
       - name: Restore dependencies
-        run: dotnet restore Swarmcore.slnx
+        run: dotnet restore BeeTracker.slnx
 
       - name: Run unit tests
         run: >
-          dotnet test Swarmcore.slnx
+          dotnet test BeeTracker.slnx
           --no-restore
           -c Release
           --filter "FullyQualifiedName~UnitTests|FullyQualifiedName~ArchitectureTests"

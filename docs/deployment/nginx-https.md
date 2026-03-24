@@ -3,7 +3,7 @@
 ## Production model
 
 ```
-Internet → Nginx (port 443, TLS) → Swarmcore (plain HTTP, port 8080)
+Internet → Nginx (port 443, TLS) → BeeTracker (plain HTTP, port 8080)
 ```
 
 Nginx terminates TLS. The ASP.NET Core application runs on **plain HTTP internally** and
@@ -20,7 +20,7 @@ multiple hostnames (e.g. `announce.example.com`, `admin.example.com`).
 
 ```json
 {
-  "Swarmcore": {
+  "BeeTracker": {
     "PublicEndpoint": {
       "BaseUrl": "https://tracker.example.com",
       "ForceHttps": true,
@@ -61,9 +61,9 @@ multiple hostnames (e.g. `announce.example.com`, `admin.example.com`).
 
 Equivalent via environment variables:
 ```
-Swarmcore__PublicEndpoint__BaseUrl=https://tracker.example.com
-Swarmcore__PublicEndpoint__BaseDomain=example.com
-Swarmcore__PublicEndpoint__AnnounceBaseUrl=https://announce.example.com
+BeeTracker__PublicEndpoint__BaseUrl=https://tracker.example.com
+BeeTracker__PublicEndpoint__BaseDomain=example.com
+BeeTracker__PublicEndpoint__AnnounceBaseUrl=https://announce.example.com
 ```
 
 The app validates all URLs at startup; a misconfigured value prevents boot.
@@ -72,7 +72,7 @@ The app validates all URLs at startup; a misconfigured value prevents boot.
 
 ## Forwarded headers
 
-Nginx forwards three headers. Swarmcore reads them via `UseForwardedHeaders()`:
+Nginx forwards three headers. BeeTracker reads them via `UseForwardedHeaders()`:
 
 | Nginx header | What it tells the app |
 |---|---|
@@ -144,7 +144,7 @@ server {
     add_header Strict-Transport-Security "max-age=63072000" always;
 
     location / {
-        proxy_pass         http://swarmcore:8080;
+        proxy_pass         http://beetracker:8080;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto https;
@@ -193,7 +193,7 @@ CERTBOT_EMAIL=admin@example.com
 
 ### Network architecture
 
-All containers share the `swarmcore` bridge network (subnet `172.29.0.0/24`).
+All containers share the `beetracker` bridge network (subnet `172.29.0.0/24`).
 Nginx routes to services by Docker DNS name (`tracker-gateway`, `admin-service`).
 
 ```
@@ -218,7 +218,7 @@ Docker containers communicate over `172.29.0.0/24`. This network is configured a
 `KnownNetworks` so forwarded headers from Nginx are trusted:
 
 ```yaml
-Swarmcore__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
+BeeTracker__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
 ```
 
 ---
@@ -258,8 +258,8 @@ passkey-in-query-string mode is ever enabled.
 
 ## Admin security
 
-- Auth cookie (`swarmcore_admin_auth`): `Secure=Always`, `HttpOnly=true`, `SameSite=Lax`
-- CSRF cookie (`swarmcore_admin_csrf`): `Secure=Always`, `HttpOnly=false` (SPA needs to read it), `SameSite=Strict`
+- Auth cookie (`beetracker_admin_auth`): `Secure=Always`, `HttpOnly=true`, `SameSite=Lax`
+- CSRF cookie (`beetracker_admin_csrf`): `Secure=Always`, `HttpOnly=false` (SPA needs to read it), `SameSite=Strict`
 - Admin and tracker surfaces use separate cookies — tracker subdomains never receive admin cookies.
 - `DisableTransportSecurityRequirement: false` in production ensures OpenIddict requires HTTPS.
 
@@ -267,7 +267,7 @@ passkey-in-query-string mode is ever enabled.
 
 ## Startup verification checklist
 
-- [ ] `Swarmcore:PublicEndpoint:BaseUrl` is set to the public `https://` URL
+- [ ] `BeeTracker:PublicEndpoint:BaseUrl` is set to the public `https://` URL
 - [ ] Per-surface URLs (`AnnounceBaseUrl`, `AdminBaseUrl`, etc.) are correct
 - [ ] `BaseDomain` matches your root domain
 - [ ] `AllowedHosts` or `AllowedSubdomains` includes all production hostnames
@@ -280,5 +280,5 @@ passkey-in-query-string mode is ever enabled.
 - [ ] Admin auth cookie has `Secure` and `HttpOnly` flags set
 - [ ] `X-Forwarded-Proto: https` reaches the app: `Request.Scheme` is `https`
 - [ ] Request with invalid Host header returns 400
-- [ ] Docker containers communicate over the `swarmcore` network
+- [ ] Docker containers communicate over the `beetracker` network
 - [ ] Nginx resolves `tracker-gateway` and `admin-service` by Docker DNS

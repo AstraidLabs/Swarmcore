@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Configuration;
 using Tracker.Gateway.Infrastructure;
 
 namespace Tracker.Gateway.UnitTests;

@@ -4,7 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Tracker.Gateway.Application.Announce;
@@ -15,9 +15,9 @@ namespace Tracker.Gateway.IntegrationTests;
 public sealed class AnnounceEndpointIntegrationTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder("postgres:17")
-        .WithDatabase("swarmcore")
-        .WithUsername("swarmcore")
-        .WithPassword("swarmcore")
+        .WithDatabase("beetracker")
+        .WithUsername("beetracker")
+        .WithPassword("beetracker")
         .Build();
 
     private readonly RedisContainer _redisContainer = new RedisBuilder("redis:7.4")

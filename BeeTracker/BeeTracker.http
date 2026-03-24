@@ -1,0 +1,11 @@
+@BeeTracker_HostAddress = http://localhost:5021
+
+GET {{BeeTracker_HostAddress}}/todos/
+Accept: application/json
+
+###
+
+GET {{BeeTracker_HostAddress}}/todos/1
+Accept: application/json
+
+###

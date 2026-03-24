@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Http;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.Contracts.Configuration;
 
 namespace Tracker.Gateway.Application.Announce;
 

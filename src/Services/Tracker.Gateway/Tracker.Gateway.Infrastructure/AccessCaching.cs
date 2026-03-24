@@ -7,11 +7,11 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using StackExchange.Redis;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.BuildingBlocks.Observability.Diagnostics;
-using Swarmcore.Caching.Redis;
-using Swarmcore.Contracts.Configuration;
-using Swarmcore.Persistence.Postgres;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.Caching.Redis;
+using BeeTracker.Contracts.Configuration;
+using BeeTracker.Persistence.Postgres;
 using Tracker.Gateway.Application.Announce;
 
 namespace Tracker.Gateway.Infrastructure;

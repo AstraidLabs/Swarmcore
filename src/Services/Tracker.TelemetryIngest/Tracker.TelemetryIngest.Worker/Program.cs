@@ -1,17 +1,17 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Hosting;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.BuildingBlocks.Observability.Diagnostics;
-using Swarmcore.Contracts.Telemetry;
-using Swarmcore.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.Contracts.Telemetry;
+using BeeTracker.Hosting;
 using Tracker.TelemetryIngest.Application;
 using Tracker.TelemetryIngest.Infrastructure;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddSwarmcoreInfrastructure(builder.Configuration, usePostgres: true, useRedis: false);
+builder.Services.AddBeeTrackerInfrastructure(builder.Configuration, usePostgres: true, useRedis: false);
 builder.Services.AddTelemetryInfrastructure();
 builder.Services.AddHostedService<TelemetryStartupService>();
 builder.Services.AddHostedService<TelemetryIngestWorker>();

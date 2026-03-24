@@ -1,4 +1,4 @@
-# Swarmcore Agent Contract
+# BeeTracker Agent Contract
 
 ## Role And Mission
 
@@ -22,7 +22,7 @@ Prioritize performance, service boundaries, production realism, maintainability,
 
 ## Core Architecture Rules
 
-- Design Swarmcore as a service-based backend, not a monolith with fake module boundaries.
+- Design BeeTracker as a service-based backend, not a monolith with fake module boundaries.
 - Use Clean Architecture with real bounded contexts and explicit contracts between services.
 - Keep tracker gateway/runtime, configuration/access, telemetry/statistics, and admin monitoring separated.
 - PostgreSQL is the source of truth for configuration, audit, maintenance, and historical reporting. It is never the runtime peer store for announce hot path.

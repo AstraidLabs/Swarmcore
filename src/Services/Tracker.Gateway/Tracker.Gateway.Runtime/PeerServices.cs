@@ -3,9 +3,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Configuration;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Time;
-using Swarmcore.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Abstractions.Time;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using Tracker.Gateway.Application.Announce;
 using Tracker.Gateway.Application.Cluster;
 

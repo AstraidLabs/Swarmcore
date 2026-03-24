@@ -208,7 +208,7 @@ type NavigationBannerState = {
   tone: "good" | "warn";
 };
 
-const bulkTorrentPolicySelectionStorageKey = "swarmcore.admin.bulkPolicySelection";
+const bulkTorrentPolicySelectionStorageKey = "beetracker.admin.bulkPolicySelection";
 
 function toTitleCase(value: string): string {
   return value
@@ -2710,7 +2710,7 @@ function Shell({
         <aside className="app-surface overflow-hidden">
           <div className="border-b border-slate-200 px-6 py-6">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel/60">Swarmcore</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-steel/60">BeeTracker</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight text-ink">{dictionary.landing.eyebrow}</h1>
             <p className="mt-3 text-sm leading-6 text-steel">
               {dictionary.landing.capabilitiesIntro}
@@ -2879,7 +2879,7 @@ function SignInScreen({ onSignin, error }: { onSignin: (fresh?: boolean) => Prom
             <div className="border-b border-slate-200 px-8 py-7 lg:px-10">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.28em] text-steel/55">Swarmcore</p>
+                  <p className="text-xs uppercase tracking-[0.28em] text-steel/55">BeeTracker</p>
                   <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-steel/70">{landing.eyebrow}</p>
                 </div>
                 <div className="flex items-center gap-2">

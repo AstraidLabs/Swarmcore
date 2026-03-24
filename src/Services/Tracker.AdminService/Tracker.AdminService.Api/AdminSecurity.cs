@@ -11,8 +11,8 @@ using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Configuration;
 using Tracker.AdminService.Application;
 using Tracker.AdminService.Infrastructure;
 
@@ -47,7 +47,7 @@ internal static class AdminSecurityServiceCollectionExtensions
         services.AddAntiforgery(options =>
         {
             options.HeaderName = "X-CSRF-TOKEN";
-            options.Cookie.Name = "swarmcore_admin_csrf";
+            options.Cookie.Name = "beetracker_admin_csrf";
             // HttpOnly = false so the SPA JavaScript can read and submit the CSRF token.
             options.Cookie.HttpOnly = false;
             options.Cookie.SameSite = SameSiteMode.Strict;
@@ -473,7 +473,7 @@ internal static class AdminTokenEndpoint
               <main class="page">
                 <section class="card">
                   <div class="card-head">
-                    <p class="card-kicker">Swarmcore</p>
+                    <p class="card-kicker">BeeTracker</p>
                     <h1 class="title">{{encodedTitle}}</h1>
                     <p class="subtitle">{{encodedSubtitle}}</p>
                   </div>
@@ -526,35 +526,35 @@ internal static class AdminTokenEndpoint
     private static LoginPageCopy GetLoginPageCopy(string locale, bool requiresReauthentication) => locale switch
     {
         "cs" => new(
-            "Přihlášení do Swarmcore",
+            "Přihlášení do BeeTracker",
             "Přihlaste se",
             "Uživatelské jméno",
             "Heslo",
             "Pokračovat",
             "Pro tuto akci je potřeba nové ověření. Přihlaste se znovu a pokračujte."),
         "de" => new(
-            "Swarmcore-Anmeldung",
+            "BeeTracker-Anmeldung",
             "Melden Sie sich an",
             "Benutzername",
             "Passwort",
             "Weiter",
             "Für diese Aktion ist eine erneute Anmeldung erforderlich. Melden Sie sich erneut an und fahren Sie fort."),
         "es" => new(
-            "Acceso a Swarmcore",
+            "Acceso a BeeTracker",
             "Inicia sesión",
             "Usuario",
             "Contraseña",
             "Continuar",
             "Esta acción requiere una autenticación reciente. Vuelve a iniciar sesión para continuar."),
         "fr" => new(
-            "Connexion à Swarmcore",
+            "Connexion à BeeTracker",
             "Connectez-vous",
             "Nom d’utilisateur",
             "Mot de passe",
             "Continuer",
             "Cette action nécessite une authentification récente. Reconnectez-vous pour continuer."),
         _ => new(
-            "Sign in to Swarmcore",
+            "Sign in to BeeTracker",
             "Sign in",
             "Username",
             "Password",

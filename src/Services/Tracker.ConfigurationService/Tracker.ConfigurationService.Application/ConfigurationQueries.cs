@@ -1,4 +1,4 @@
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.Contracts.Configuration;
 
 namespace Tracker.ConfigurationService.Application;
 

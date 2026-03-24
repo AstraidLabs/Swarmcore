@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
-using Swarmcore.BuildingBlocks.Abstractions.Hosting;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.Contracts.Configuration;
-using Swarmcore.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Configuration;
+using BeeTracker.Hosting;
 using Tracker.ConfigurationService.Application;
 using Tracker.AdminService.Application;
 using Tracker.AdminService.Api;
@@ -57,7 +57,7 @@ builder.Services.AddOptions<ForwardedHeadersOptions>()
         }
     }
 });
-builder.Services.AddSwarmcoreInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
+builder.Services.AddBeeTrackerInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
 builder.Services.AddAdminApplication();
 builder.Services.AddAdminInfrastructure(builder.Configuration);
 builder.Services.AddAdminAuthInfrastructure(builder.Configuration);
@@ -75,8 +75,8 @@ builder.Services.AddHostedService<AdminStartupService>();
 var app = builder.Build();
 
 app.UseForwardedHeaders();
-app.UseMiddleware<Swarmcore.Hosting.HostValidationMiddleware>();
-app.UseMiddleware<Swarmcore.Hosting.PasskeyLogSanitizationMiddleware>();
+app.UseMiddleware<BeeTracker.Hosting.HostValidationMiddleware>();
+app.UseMiddleware<BeeTracker.Hosting.PasskeyLogSanitizationMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthentication();

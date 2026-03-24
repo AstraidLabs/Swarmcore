@@ -1,10 +1,10 @@
-# Swarmcore Deployment Bootstrap
+# BeeTracker Deployment Bootstrap
 
 ## Scope
 
-This document defines the supported local/staging bootstrap flow for Swarmcore and the locked production deployment pattern for the current phase.
+This document defines the supported local/staging bootstrap flow for BeeTracker and the locked production deployment pattern for the current phase.
 
-Swarmcore deployment is split into:
+BeeTracker deployment is split into:
 
 - `tracker-gateway` for tracker protocol traffic
 - `admin-service` for admin BFF/auth and admin API
@@ -46,7 +46,7 @@ These are intentionally not exposed on host ports in the default stack.
 Local bootstrap admin credentials come from `Tracker.AdminService.Api/appsettings.json`:
 
 - User name: `admin`
-- Password: `Swarmcore123!`
+- Password: `BeeTracker123!`
 
 Login path:
 

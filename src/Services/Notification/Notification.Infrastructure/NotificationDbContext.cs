@@ -95,8 +95,8 @@ public sealed class NotificationDbContextFactory : IDesignTimeDbContextFactory<N
     {
         var optionsBuilder = new DbContextOptionsBuilder<NotificationDbContext>();
         optionsBuilder.UseNpgsql(
-            Environment.GetEnvironmentVariable("SWARMCORE_POSTGRES_CONNECTION")
-            ?? "Host=localhost;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore");
+            Environment.GetEnvironmentVariable("BEETRACKER_POSTGRES_CONNECTION")
+            ?? "Host=localhost;Port=5432;Database=beetracker;Username=beetracker;Password=beetracker");
         return new NotificationDbContext(optionsBuilder.Options);
     }
 }

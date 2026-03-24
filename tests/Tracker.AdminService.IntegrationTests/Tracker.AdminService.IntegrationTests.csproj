@@ -26,7 +26,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Services\Tracker.AdminService\Tracker.AdminService.Api\Tracker.AdminService.Api.csproj" Aliases="adminapi" />
     <ProjectReference Include="..\..\src\Services\Tracker.ConfigurationService\Tracker.ConfigurationService.Api\Tracker.ConfigurationService.Api.csproj" Aliases="configapi" />
-    <ProjectReference Include="..\..\src\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Shared\BeeTracker.Hosting\BeeTracker.Hosting.csproj" />
   </ItemGroup>
 
 </Project>

@@ -13,7 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Tracker.ConfigurationService.Application\Tracker.ConfigurationService.Application.csproj" />
     <ProjectReference Include="..\Tracker.ConfigurationService.Infrastructure\Tracker.ConfigurationService.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\..\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\Shared\BeeTracker.Hosting\BeeTracker.Hosting.csproj" />
   </ItemGroup>
 
 </Project>

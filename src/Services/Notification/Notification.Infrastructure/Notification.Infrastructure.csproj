@@ -6,8 +6,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Notification.Application\Notification.Application.csproj" />
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Infrastructure\Swarmcore.BuildingBlocks.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\..\Shared\Swarmcore.Persistence.Postgres\Swarmcore.Persistence.Postgres.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Infrastructure\BeeTracker.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Shared\BeeTracker.Persistence.Postgres\BeeTracker.Persistence.Postgres.csproj" />
   </ItemGroup>
 
   <ItemGroup>

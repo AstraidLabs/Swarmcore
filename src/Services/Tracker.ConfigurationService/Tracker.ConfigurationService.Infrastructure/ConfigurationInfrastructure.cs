@@ -3,8 +3,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
-using Swarmcore.Caching.Redis;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.Caching.Redis;
+using BeeTracker.Contracts.Configuration;
 using Tracker.ConfigurationService.Application;
 
 namespace Tracker.ConfigurationService.Infrastructure;
@@ -253,7 +253,7 @@ public static class ConfigurationInfrastructureServiceCollectionExtensions
     {
         services.AddDbContext<TrackerConfigurationDbContext>((serviceProvider, options) =>
         {
-            var postgresOptions = serviceProvider.GetRequiredService<IOptions<Swarmcore.BuildingBlocks.Abstractions.Options.PostgresOptions>>().Value;
+            var postgresOptions = serviceProvider.GetRequiredService<IOptions<BeeTracker.BuildingBlocks.Abstractions.Options.PostgresOptions>>().Value;
             options.UseNpgsql(postgresOptions.ConnectionString);
         });
 

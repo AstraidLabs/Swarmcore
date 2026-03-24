@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Infrastructure\Swarmcore.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Infrastructure\BeeTracker.BuildingBlocks.Infrastructure.csproj" />
     <ProjectReference Include="..\Tracker.TelemetryIngest.Application\Tracker.TelemetryIngest.Application.csproj" />
     <ProjectReference Include="..\Tracker.TelemetryIngest.Domain\Tracker.TelemetryIngest.Domain.csproj" />
-    <ProjectReference Include="..\..\..\Shared\Swarmcore.Persistence.Postgres\Swarmcore.Persistence.Postgres.csproj" />
-    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Telemetry\Swarmcore.Contracts.Telemetry.csproj" />
+    <ProjectReference Include="..\..\..\Shared\BeeTracker.Persistence.Postgres\BeeTracker.Persistence.Postgres.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Telemetry\BeeTracker.Contracts.Telemetry.csproj" />
   </ItemGroup>
 
   <ItemGroup>

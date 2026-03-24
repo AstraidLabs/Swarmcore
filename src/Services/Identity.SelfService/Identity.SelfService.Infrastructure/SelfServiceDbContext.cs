@@ -71,7 +71,7 @@ public sealed class SelfServiceDbContextFactory : IDesignTimeDbContextFactory<Se
     public SelfServiceDbContext CreateDbContext(string[] args)
     {
         var connectionString = Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING")
-            ?? "Host=localhost;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore";
+            ?? "Host=localhost;Port=5432;Database=beetracker;Username=beetracker;Password=beetracker";
 
         var optionsBuilder = new DbContextOptionsBuilder<SelfServiceDbContext>();
         optionsBuilder.UseNpgsql(connectionString, npgsql =>

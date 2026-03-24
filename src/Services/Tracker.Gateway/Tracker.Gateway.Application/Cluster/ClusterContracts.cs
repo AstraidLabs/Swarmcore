@@ -1,4 +1,4 @@
-using Swarmcore.Contracts.Runtime;
+using BeeTracker.Contracts.Runtime;
 using Tracker.Gateway.Application.Announce;
 
 namespace Tracker.Gateway.Application.Cluster;

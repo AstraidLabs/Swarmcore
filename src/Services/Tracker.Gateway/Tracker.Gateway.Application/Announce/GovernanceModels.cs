@@ -1,4 +1,4 @@
-using Swarmcore.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
 
 namespace Tracker.Gateway.Application.Announce;
 
@@ -58,7 +58,7 @@ public readonly record struct EffectiveProtocolProfile(
 {
     public static EffectiveProtocolProfile Resolve(
         IRuntimeGovernanceState governance,
-        Swarmcore.Contracts.Configuration.TorrentPolicyDto? policy)
+        BeeTracker.Contracts.Configuration.TorrentPolicyDto? policy)
     {
         var mode = governance.EffectiveCompatibilityMode;
         var strictness = governance.EffectiveStrictnessProfile;

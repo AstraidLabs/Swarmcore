@@ -3,13 +3,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using System.ComponentModel.DataAnnotations;
 using System.Net;
-using Swarmcore.Contracts.Admin;
-using Swarmcore.Contracts.Runtime;
-using Swarmcore.BuildingBlocks.Abstractions.Hosting;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Admin;
+using BeeTracker.Contracts.Runtime;
+using BeeTracker.BuildingBlocks.Abstractions.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
 using System.Diagnostics;
-using Swarmcore.BuildingBlocks.Observability.Diagnostics;
-using Swarmcore.Hosting;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.Hosting;
 using Tracker.Gateway.Application.Announce;
 using Tracker.Gateway.Application.Cluster;
 using Tracker.Gateway.Infrastructure;
@@ -29,7 +29,7 @@ builder.Services.AddOptions<TrackerPublicEndpointOptions>()
             new System.ComponentModel.DataAnnotations.ValidationContext(options),
             results,
             validateAllProperties: true);
-    }, "TrackerPublicEndpointOptions validation failed — check Swarmcore:PublicEndpoint configuration.")
+    }, "TrackerPublicEndpointOptions validation failed — check BeeTracker:PublicEndpoint configuration.")
     .ValidateOnStart();
 
 builder.Services.AddOptions<ForwardedHeadersOptions>()
@@ -71,7 +71,7 @@ builder.Services.AddOptions<TrackerCompatibilityOptions>()
 builder.Services.AddOptions<TrackerGovernanceOptions>()
     .Bind(builder.Configuration.GetSection(TrackerGovernanceOptions.SectionName));
 
-builder.Services.AddSwarmcoreInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
+builder.Services.AddBeeTrackerInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
 builder.Services.AddGatewayRuntime(builder.Configuration);
 builder.Services.AddGatewayInfrastructure();
 builder.Services.AddGatewayClusterInfrastructure();
@@ -86,7 +86,7 @@ builder.Services.AddUdpTracker(builder.Configuration);
     var abuseOpts = builder.Configuration.GetSection(TrackerAbuseProtectionOptions.SectionName).Get<TrackerAbuseProtectionOptions>() ?? new TrackerAbuseProtectionOptions();
     var runtimeOpts = builder.Configuration.GetSection(GatewayRuntimeOptions.SectionName).Get<GatewayRuntimeOptions>() ?? new GatewayRuntimeOptions();
     var validation = StartupConfigurationValidator.Validate(securityOpts, compatOpts, govOpts, abuseOpts, runtimeOpts);
-    var startupLogger = LoggerFactory.Create(static b => b.AddConsole()).CreateLogger("Swarmcore.Startup");
+    var startupLogger = LoggerFactory.Create(static b => b.AddConsole()).CreateLogger("BeeTracker.Startup");
     foreach (var warning in validation.Warnings)
     {
         startupLogger.LogWarning("Config validation warning: {Warning}", warning);
@@ -122,8 +122,8 @@ if (publicEndpointOptions.EnableHttpsRedirection)
     app.UseHttpsRedirection();
 }
 
-app.UseMiddleware<Swarmcore.Hosting.HostValidationMiddleware>();
-app.UseMiddleware<Swarmcore.Hosting.PasskeyLogSanitizationMiddleware>();
+app.UseMiddleware<BeeTracker.Hosting.HostValidationMiddleware>();
+app.UseMiddleware<BeeTracker.Hosting.PasskeyLogSanitizationMiddleware>();
 app.UseMiddleware<TrackerProtocolExceptionMiddleware>();
 app.UseMiddleware<TrackerRequestGuardMiddleware>();
 

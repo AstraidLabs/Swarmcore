@@ -21,7 +21,7 @@ public sealed class EmailTemplateRendererTests
 
         var result = await _renderer.RenderAsync(EmailTemplateName.AdminRegistration, model, CancellationToken.None);
 
-        Assert.Contains("Swarmcore", result.Subject);
+        Assert.Contains("BeeTracker", result.Subject);
         Assert.Contains("admin", result.HtmlBody);
         Assert.Contains("tok-abc-123", result.HtmlBody);
         Assert.Contains("24", result.HtmlBody);
@@ -37,7 +37,7 @@ public sealed class EmailTemplateRendererTests
 
         var result = await _renderer.RenderAsync(EmailTemplateName.AdminRegistration, model, CancellationToken.None);
 
-        Assert.Equal("Welcome to Swarmcore - Activate Your Account", result.Subject);
+        Assert.Equal("Welcome to BeeTracker - Activate Your Account", result.Subject);
     }
 
     // ─── Admin Activation template ───────────────────────────────────────────────

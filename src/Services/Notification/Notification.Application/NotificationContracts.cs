@@ -44,7 +44,7 @@ public static class EmailTemplateName
 
 public sealed class SmtpOptions
 {
-    public const string SectionName = "Swarmcore:Smtp";
+    public const string SectionName = "BeeTracker:Smtp";
 
     public string Host { get; set; } = "localhost";
     public int Port { get; set; } = 25;
@@ -54,5 +54,5 @@ public sealed class SmtpOptions
     public string UserName { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string SenderAddress { get; set; } = string.Empty;
-    public string SenderDisplayName { get; set; } = "Swarmcore";
+    public string SenderDisplayName { get; set; } = "BeeTracker";
 }

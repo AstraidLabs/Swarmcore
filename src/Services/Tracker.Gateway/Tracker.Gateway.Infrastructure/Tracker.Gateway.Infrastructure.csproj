@@ -1,15 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Infrastructure\Swarmcore.BuildingBlocks.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Configuration\Swarmcore.Contracts.Configuration.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Infrastructure\BeeTracker.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Configuration\BeeTracker.Contracts.Configuration.csproj" />
     <ProjectReference Include="..\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
     <ProjectReference Include="..\Tracker.Gateway.Runtime\Tracker.Gateway.Runtime.csproj" />
-    <ProjectReference Include="..\..\..\Shared\Swarmcore.Caching.Redis\Swarmcore.Caching.Redis.csproj" />
-    <ProjectReference Include="..\..\..\Shared\Swarmcore.Serialization.BEncoding\Swarmcore.Serialization.BEncoding.csproj" />
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Observability\Swarmcore.BuildingBlocks.Observability.csproj" />
-    <ProjectReference Include="..\..\..\Shared\Swarmcore.Persistence.Postgres\Swarmcore.Persistence.Postgres.csproj" />
-    <ProjectReference Include="..\..\..\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\Shared\BeeTracker.Caching.Redis\BeeTracker.Caching.Redis.csproj" />
+    <ProjectReference Include="..\..\..\Shared\BeeTracker.Serialization.BEncoding\BeeTracker.Serialization.BEncoding.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Observability\BeeTracker.BuildingBlocks.Observability.csproj" />
+    <ProjectReference Include="..\..\..\Shared\BeeTracker.Persistence.Postgres\BeeTracker.Persistence.Postgres.csproj" />
+    <ProjectReference Include="..\..\..\Shared\BeeTracker.Hosting\BeeTracker.Hosting.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
