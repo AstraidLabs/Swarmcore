@@ -28,6 +28,13 @@ internal sealed class PeerState
     public long ExpiresAtUnixSeconds { get; set; }
     public bool IsSeeder { get; set; }
     public bool CompletionRecorded { get; set; }
+
+    /// <summary>
+    /// Client-generated key (BEP 7). Used to allow a peer to update its endpoint
+    /// (e.g. after an IP change) without being treated as a different peer.
+    /// Null when the client did not provide a key.
+    /// </summary>
+    public string? Key { get; set; }
 }
 
 internal sealed class SwarmShard
@@ -98,6 +105,10 @@ public sealed class PartitionedRuntimeSwarmStore : IRuntimeSwarmStore
                 existing.Left = request.Left;
                 existing.ExpiresAtUnixSeconds = expiresAt;
                 existing.IsSeeder = isSeeder;
+                if (request.Key is not null)
+                {
+                    existing.Key = request.Key;
+                }
             }
             else
             {
@@ -117,7 +128,8 @@ public sealed class PartitionedRuntimeSwarmStore : IRuntimeSwarmStore
                     Left = request.Left,
                     ExpiresAtUnixSeconds = expiresAt,
                     IsSeeder = isSeeder,
-                    CompletionRecorded = completionRecorded
+                    CompletionRecorded = completionRecorded,
+                    Key = request.Key
                 });
 
                 if (isSeeder)

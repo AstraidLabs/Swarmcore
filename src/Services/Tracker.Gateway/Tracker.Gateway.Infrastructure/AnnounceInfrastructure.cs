@@ -50,11 +50,15 @@ public sealed class AnnounceRequestParser(IOptions<TrackerSecurityOptions> secur
         var left = 0L;
         var numWant = 50;
         var compact = true;
+        var noPeerId = false;
         var trackerEvent = TrackerEvent.None;
         var infoHashFound = false;
         var peerIdFound = false;
         var portOverride = endpoint.Port;
         var queryPasskey = passkey;
+        string? clientKey = null;
+        string? trackerId = null;
+        string? ipOverride = null;
 
         var query = rawQuery.AsSpan();
         if (query.Length > 0 && query[0] == '?')
@@ -129,9 +133,25 @@ public sealed class AnnounceRequestParser(IOptions<TrackerSecurityOptions> secur
             {
                 compact = !value.SequenceEqual("0");
             }
+            else if (key.SequenceEqual("no_peer_id"))
+            {
+                noPeerId = !value.SequenceEqual("0");
+            }
             else if (key.SequenceEqual("event"))
             {
                 trackerEvent = TrackerRequestParsing.ParseEvent(value);
+            }
+            else if (key.SequenceEqual("key"))
+            {
+                clientKey = value.ToString();
+            }
+            else if (key.SequenceEqual("trackerid"))
+            {
+                trackerId = value.ToString();
+            }
+            else if (key.SequenceEqual("ip"))
+            {
+                ipOverride = value.ToString();
             }
             else if (key.SequenceEqual("passkey") && string.IsNullOrWhiteSpace(queryPasskey))
             {
@@ -157,23 +177,54 @@ public sealed class AnnounceRequestParser(IOptions<TrackerSecurityOptions> secur
             return false;
         }
 
+        // Apply client-specified IP override if allowed by security policy.
+        // Per BEP 7, this is only honored when the tracker is configured to allow it.
+        var effectiveEndpoint = new PeerEndpoint(
+            endpoint.AddressFamily,
+            endpoint.AddressPart0NetworkOrder,
+            endpoint.AddressPart1NetworkOrder,
+            endpoint.AddressPart2NetworkOrder,
+            endpoint.AddressPart3NetworkOrder,
+            portOverride);
+
+        if (ipOverride is not null && securityOptions.Value.AllowClientIpOverride
+            && IPAddress.TryParse(ipOverride, out var overrideAddress))
+        {
+            var mapped = overrideAddress.IsIPv4MappedToIPv6 ? overrideAddress.MapToIPv4() : overrideAddress;
+            if (mapped.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                Span<byte> ipBytes = stackalloc byte[4];
+                if (mapped.TryWriteBytes(ipBytes, out _))
+                {
+                    effectiveEndpoint = PeerEndpoint.FromIPv4(
+                        BinaryPrimitives.ReadUInt32BigEndian(ipBytes), portOverride);
+                }
+            }
+            else if (securityOptions.Value.AllowIPv6Peers
+                && mapped.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                Span<byte> ipv6Bytes = stackalloc byte[16];
+                if (mapped.TryWriteBytes(ipv6Bytes, out _))
+                {
+                    effectiveEndpoint = PeerEndpoint.FromIPv6(ipv6Bytes, portOverride);
+                }
+            }
+        }
+
         request = new AnnounceRequest(
             InfoHashKey.FromBytes(infoHashBytes),
             PeerIdKey.FromBytes(peerIdBytes),
-            new PeerEndpoint(
-                endpoint.AddressFamily,
-                endpoint.AddressPart0NetworkOrder,
-                endpoint.AddressPart1NetworkOrder,
-                endpoint.AddressPart2NetworkOrder,
-                endpoint.AddressPart3NetworkOrder,
-                portOverride),
+            effectiveEndpoint,
             uploaded,
             downloaded,
             left,
             numWant,
             compact,
+            noPeerId,
             trackerEvent,
-            queryPasskey);
+            queryPasskey,
+            clientKey,
+            trackerId);
 
         return true;
     }
@@ -630,6 +681,8 @@ public sealed class AnnounceBencodeResponseWriter : IBencodeResponseWriter
     private static ReadOnlySpan<byte> Peers6Key => "6:peers6"u8;
     private static ReadOnlySpan<byte> WarningMessageKey => "15:warning message"u8;
 
+    private static ReadOnlySpan<byte> TrackerIdKey => "10:tracker id"u8;
+
     private static ReadOnlySpan<byte> IpKey => "2:ip"u8;
     private static ReadOnlySpan<byte> PeerIdDictKey => "7:peer id"u8;
     private static ReadOnlySpan<byte> PortKey => "4:port"u8;
@@ -681,13 +734,19 @@ public sealed class AnnounceBencodeResponseWriter : IBencodeResponseWriter
         else
         {
             writer.Write(PeersKey);
-            WritePeerDictionaryList(writer, success.PeerSelection.Peers.AsSpan());
+            WritePeerDictionaryList(writer, success.PeerSelection.Peers.AsSpan(), success.NoPeerId);
 
             if (success.PeerSelection.Peers6.Count > 0)
             {
                 writer.Write(Peers6Key);
-                WritePeerDictionaryList(writer, success.PeerSelection.Peers6.AsSpan());
+                WritePeerDictionaryList(writer, success.PeerSelection.Peers6.AsSpan(), success.NoPeerId);
             }
+        }
+
+        if (success.TrackerId is not null)
+        {
+            writer.Write(TrackerIdKey);
+            BencodePipeWriter.WriteAsciiString(writer, success.TrackerId);
         }
 
         if (success.WarningMessage is not null)
@@ -700,7 +759,7 @@ public sealed class AnnounceBencodeResponseWriter : IBencodeResponseWriter
         await writer.FlushAsync(cancellationToken);
     }
 
-    private static void WritePeerDictionaryList(System.IO.Pipelines.PipeWriter writer, ReadOnlySpan<SelectedPeer> peers)
+    private static void WritePeerDictionaryList(System.IO.Pipelines.PipeWriter writer, ReadOnlySpan<SelectedPeer> peers, bool noPeerId = false)
     {
         BencodePipeWriter.WriteListStart(writer);
 
@@ -712,9 +771,12 @@ public sealed class AnnounceBencodeResponseWriter : IBencodeResponseWriter
             writer.Write(IpKey);
             BencodePipeWriter.WriteAsciiString(writer, peer.Endpoint.ToIpString());
 
-            writer.Write(PeerIdDictKey);
-            peer.PeerId.WriteBytes(peerIdBytes);
-            BencodePipeWriter.WriteAsciiString(writer, peerIdBytes);
+            if (!noPeerId)
+            {
+                writer.Write(PeerIdDictKey);
+                peer.PeerId.WriteBytes(peerIdBytes);
+                BencodePipeWriter.WriteAsciiString(writer, peerIdBytes);
+            }
 
             writer.Write(PortKey);
             BencodePipeWriter.WriteInteger(writer, peer.Port);

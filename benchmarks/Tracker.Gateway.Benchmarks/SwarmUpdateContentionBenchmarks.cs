@@ -109,8 +109,9 @@ public class SwarmUpdateContentionBenchmarks
                 index % 5 == 0 ? 0 : 1,
                 50,
                 true,
+                false,
                 TrackerEvent.Started,
-                null);
+                null, null, null);
         }
 
         return requests;

@@ -25,7 +25,7 @@ public sealed class ClusterAwareSelectionTests
 
     private static AnnounceRequest MakeRequest(InfoHashKey infoHash, PeerEndpoint endpoint)
         => new(infoHash, PeerIdKey.FromBytes(new byte[20] { 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }),
-               endpoint, 0, 0, 100, 10, true, TrackerEvent.Started, null);
+               endpoint, 0, 0, 100, 10, true, false, TrackerEvent.Started, null, null, null);
 
     // ─── IShardRouter Stub ───────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ public sealed class ClusterAwareSelectionTests
         // Add a peer to the store
         store.ApplyMutation(
             new AnnounceRequest(Hash1, PeerIdKey.FromBytes(new byte[20]),
-                PeerEndpoint.FromIPv4(0x0A000002, 6882), 0, 0, 100, 10, true, TrackerEvent.Started, null),
+                PeerEndpoint.FromIPv4(0x0A000002, 6882), 0, 0, 100, 10, true, false, TrackerEvent.Started, null, null, null),
             TimeSpan.FromMinutes(30), now);
 
         using var result = selectionService.Select(request, 10, 50, now);
@@ -73,7 +73,7 @@ public sealed class ClusterAwareSelectionTests
         // Add a peer to the local store even though shard is "owned" by another node
         store.ApplyMutation(
             new AnnounceRequest(Hash1, PeerIdKey.FromBytes(new byte[20]),
-                PeerEndpoint.FromIPv4(0x0A000002, 6882), 0, 0, 100, 10, true, TrackerEvent.Started, null),
+                PeerEndpoint.FromIPv4(0x0A000002, 6882), 0, 0, 100, 10, true, false, TrackerEvent.Started, null, null, null),
             TimeSpan.FromMinutes(30), now);
 
         // Even non-locally-owned swarms are served from local store (local-first architecture)

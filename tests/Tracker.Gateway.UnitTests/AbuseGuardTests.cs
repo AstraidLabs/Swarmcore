@@ -145,6 +145,6 @@ public sealed class AbuseGuardTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            0, 0, 100, 50, true, TrackerEvent.Started, passkey);
+            0, 0, 100, 50, true, false, TrackerEvent.Started, passkey, null, null);
     }
 }

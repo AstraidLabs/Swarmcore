@@ -24,7 +24,7 @@ public sealed class RuntimeSwarmStoreTests
     {
         return new AnnounceRequest(
             infoHash, PeerIdKey.FromBytes(Convert.FromHexString(peerIdHex)),
-            endpoint, 0, 0, left, requestedPeers, true, evt, null);
+            endpoint, 0, 0, left, requestedPeers, true, false, evt, null, null, null);
     }
 
     private static InfoHashKey Hash1 => InfoHashKey.FromBytes(Convert.FromHexString("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));

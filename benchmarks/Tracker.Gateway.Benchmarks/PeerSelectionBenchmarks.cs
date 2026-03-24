@@ -51,8 +51,9 @@ public class PeerSelectionBenchmarks
                 1,
                 50,
                 true,
+                false,
                 TrackerEvent.Started,
-                null), 1800, _now);
+                null, null, null), 1800, _now);
         }
     }
 

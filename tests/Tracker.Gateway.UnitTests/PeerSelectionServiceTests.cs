@@ -135,7 +135,10 @@ public sealed class PeerSelectionServiceTests
             left,
             requestedPeers,
             true,
+            false,
             trackerEvent,
+            null,
+            null,
             null);
     }
 
