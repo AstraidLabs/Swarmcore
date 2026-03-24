@@ -65,7 +65,7 @@ public class PeerSelectionBenchmarks
     }
 
     private static AnnounceRequest CreateRequest(InfoHashKey infoHash, string peerIdHex, uint ip, ushort port, int requestedPeers)
-        => new(infoHash, PeerIdKey.FromBytes(Convert.FromHexString(peerIdHex)), PeerEndpoint.FromIPv4(ip, port), 0, 0, 1, requestedPeers, true, TrackerEvent.Started, null);
+        => new(infoHash, PeerIdKey.FromBytes(Convert.FromHexString(peerIdHex)), PeerEndpoint.FromIPv4(ip, port), 0, 0, 1, requestedPeers, true, false, TrackerEvent.Started, null, null, null);
 
     private sealed class BenchmarkShardRouter : IShardRouter
     {
