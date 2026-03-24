@@ -99,7 +99,7 @@ jobs:
           dotnet test Swarmcore.slnx
           --no-restore
           -c Release
-          --filter "FullyQualifiedName~IntegrationTests"
+          --filter "FullyQualifiedName~IntegrationTests|FullyQualifiedName~SmokeTests"
           --logger "trx;LogFileName=integration-tests.trx"
           --results-directory ./test-results
           --collect:"XPlat Code Coverage"
