@@ -40,6 +40,13 @@ public static class EmailTemplateName
     public const string AdminPasswordReset = "admin-password-reset";
     public const string AdminPasswordChanged = "admin-password-changed";
     public const string AdminSecurityAlert = "admin-security-alert";
+    public const string AdminEmailChanged = "admin-email-changed";
+    public const string AdminAccountLockedNotification = "admin-account-locked";
+    public const string AdminAccountUnlockedNotification = "admin-account-unlocked";
+    public const string AdminAccountActivatedByAdmin = "admin-account-activated-by-admin";
+    public const string AdminAccountDeactivatedByAdmin = "admin-account-deactivated-by-admin";
+    public const string AdminPasswordResetByAdmin = "admin-password-reset-by-admin";
+    public const string AdminUserCreatedNotification = "admin-user-created";
 }
 
 public sealed class SmtpOptions

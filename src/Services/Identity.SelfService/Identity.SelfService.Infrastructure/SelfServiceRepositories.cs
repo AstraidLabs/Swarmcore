@@ -186,6 +186,8 @@ public static class SelfServiceInfrastructureServiceCollectionExtensions
         services.AddScoped<IAdminAccountRepository, EfAdminAccountRepository>();
         services.AddScoped<IVerificationTokenRepository, EfVerificationTokenRepository>();
         services.AddSingleton<ITokenHasher, Sha256TokenHasher>();
+        services.AddScoped<IRbacService, RbacService>();
+        services.AddScoped<RbacSeedService>();
 
         return services;
     }

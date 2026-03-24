@@ -31,6 +31,21 @@ public static class AuditAction
     public const string AdminAccountSuspended = "admin.account.suspended";
     public const string AdminAccountDeactivated = "admin.account.deactivated";
     public const string AdminAccountReactivationConfirmed = "admin.account.reactivation_confirmed";
+    public const string AdminAccountUnlocked = "admin.account.unlocked";
+    public const string AdminAccountActivatedByAdmin = "admin.account.activated_by_admin";
+    public const string AdminAccountDeactivatedByAdmin = "admin.account.deactivated_by_admin";
+    public const string AdminEmailChanged = "admin.email.changed";
+    public const string AdminPasswordResetByAdmin = "admin.password_reset.by_admin";
+    public const string AdminUserCreated = "admin.user.created";
+    public const string AdminUserUpdated = "admin.user.updated";
+    public const string AdminRolesAssigned = "admin.roles.assigned";
+    public const string AdminRoleCreated = "admin.role.created";
+    public const string AdminRoleUpdated = "admin.role.updated";
+    public const string AdminRoleDeleted = "admin.role.deleted";
+    public const string AdminPermissionGroupCreated = "admin.permission_group.created";
+    public const string AdminPermissionGroupUpdated = "admin.permission_group.updated";
+    public const string AdminPermissionGroupDeleted = "admin.permission_group.deleted";
+    public const string AdminProfileUpdated = "admin.profile.updated";
 }
 
 public sealed class AuditRecord : Entity<Guid>
