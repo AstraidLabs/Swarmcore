@@ -27,7 +27,7 @@ public sealed class AnnounceRequestValidatorTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             default,
-            0, 0, 100, 50, true, TrackerEvent.Started, null);
+            0, 0, 100, 50, true, false, TrackerEvent.Started, null, null, null);
 
         var result = validator.Validate(request);
 
@@ -43,7 +43,7 @@ public sealed class AnnounceRequestValidatorTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            -1, 0, 100, 50, true, TrackerEvent.Started, null);
+            -1, 0, 100, 50, true, false, TrackerEvent.Started, null, null, null);
 
         var result = validator.Validate(request);
 
@@ -59,7 +59,7 @@ public sealed class AnnounceRequestValidatorTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            0, -1, 100, 50, true, TrackerEvent.Started, null);
+            0, -1, 100, 50, true, false, TrackerEvent.Started, null, null, null);
 
         var result = validator.Validate(request);
 
@@ -74,7 +74,7 @@ public sealed class AnnounceRequestValidatorTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            0, 0, -1, 50, true, TrackerEvent.Started, null);
+            0, 0, -1, 50, true, false, TrackerEvent.Started, null, null, null);
 
         var result = validator.Validate(request);
 
@@ -145,7 +145,7 @@ public sealed class AnnounceRequestValidatorTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            0, 0, 100, 50, false, TrackerEvent.Started, null);
+            0, 0, 100, 50, false, false, TrackerEvent.Started, null, null, null);
 
         var result = validator.Validate(request);
 
@@ -161,7 +161,7 @@ public sealed class AnnounceRequestValidatorTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            0, 0, 100, 50, false, TrackerEvent.Started, null);
+            0, 0, 100, 50, false, false, TrackerEvent.Started, null, null, null);
 
         var result = validator.Validate(request);
 
@@ -187,6 +187,6 @@ public sealed class AnnounceRequestValidatorTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            0, 0, 100, numwant, true, TrackerEvent.Started, null);
+            0, 0, 100, numwant, true, false, TrackerEvent.Started, null, null, null);
     }
 }

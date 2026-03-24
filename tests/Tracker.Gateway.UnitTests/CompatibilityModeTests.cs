@@ -33,7 +33,7 @@ public sealed class CompatibilityModeTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            -1, 0, 100, 50, true, TrackerEvent.Started, null);
+            -1, 0, 100, 50, true, false, TrackerEvent.Started, null, null, null);
 
         var result = validator.Validate(request);
         Assert.False(result.IsValid);
@@ -275,7 +275,7 @@ public sealed class CompatibilityModeTests
             InfoHashKey.FromBytes(new byte[20]),
             PeerIdKey.FromBytes(new byte[20]),
             PeerEndpoint.FromIPv4(0x7F000001, 6881),
-            0, 0, 100, numwant, compact, TrackerEvent.Started, null);
+            0, 0, 100, numwant, compact, false, TrackerEvent.Started, null, null, null);
     }
 
     private static TorrentPolicyDto CreatePolicy(

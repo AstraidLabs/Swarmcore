@@ -321,6 +321,12 @@ public static class StartupConfigurationValidator
             warnings.Add("Combination of passkey-in-querystring and non-compact responses creates risk of passkey leakage in non-compact peer dictionaries.");
         }
 
+        // Client IP override is a security-sensitive feature
+        if (security.AllowClientIpOverride)
+        {
+            warnings.Add("AllowClientIpOverride=true allows clients to specify their own IP address via the 'ip' query parameter. This is a security risk unless the tracker operates behind a trusted proxy that does not preserve client IPs.");
+        }
+
         return new ConfigValidationResult(errors.Count == 0, errors, warnings);
     }
 }

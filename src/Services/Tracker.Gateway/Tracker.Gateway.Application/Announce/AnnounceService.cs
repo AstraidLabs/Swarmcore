@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Swarmcore.BuildingBlocks.Abstractions.Options;
@@ -131,13 +133,46 @@ public sealed class AnnounceService(
         // but the policy requires compact-only.
         var effectiveCompact = request.Compact || policy.CompactOnly;
 
+        // Generate a deterministic tracker ID for the peer session.
+        // This allows the client to echo it back in subsequent announces for session continuity.
+        // Derived from node identity + info hash + peer ID so it is stable across announces
+        // from the same peer on the same node.
+        var trackerId = GenerateTrackerId(nodeOptions.Value.NodeId, request.InfoHash, request.PeerId);
+
         return (new AnnounceSuccess(
             policy.AnnounceIntervalSeconds,
             counts.SeederCount,
             counts.LeecherCount,
             selection,
             WarningMessage: warningMessage,
-            Compact: effectiveCompact), null);
+            Compact: effectiveCompact,
+            NoPeerId: request.NoPeerId,
+            TrackerId: trackerId), null);
+    }
+
+    private static string GenerateTrackerId(string nodeId, InfoHashKey infoHash, PeerIdKey peerId)
+    {
+        // Deterministic tracker ID: SHA256(nodeId + infoHash + peerId) truncated to 20 hex chars.
+        // Stable for the same peer on the same node, changes if the peer moves to a different node.
+        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
+        Span<byte> nodeIdBytes = stackalloc byte[Math.Min(Encoding.UTF8.GetMaxByteCount(nodeId.Length), 256)];
+        var nodeIdWritten = Encoding.UTF8.GetBytes(nodeId, nodeIdBytes);
+        hasher.AppendData(nodeIdBytes[..nodeIdWritten]);
+
+        Span<byte> keyBytes = stackalloc byte[20];
+        infoHash.WriteBytes(keyBytes);
+        hasher.AppendData(keyBytes);
+
+        peerId.WriteBytes(keyBytes);
+        hasher.AppendData(keyBytes);
+
+        Span<byte> hash = stackalloc byte[32];
+        hasher.GetHashAndReset(hash);
+
+        Span<char> hexChars = stackalloc char[20];
+        Convert.TryToHexString(hash[..10], hexChars, out _);
+        return new string(hexChars);
     }
 }
 

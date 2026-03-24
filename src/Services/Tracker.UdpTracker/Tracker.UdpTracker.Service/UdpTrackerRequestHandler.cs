@@ -118,7 +118,7 @@ public sealed class UdpTrackerRequestHandler
             infoHash, peerId, endpoint,
             udpRequest.Uploaded, udpRequest.Downloaded, udpRequest.Left,
             numWant,
-            true, trackerEvent, null);
+            true, false, trackerEvent, null, null, null);
 
         if (_governanceState.AnnounceDisabled)
         {

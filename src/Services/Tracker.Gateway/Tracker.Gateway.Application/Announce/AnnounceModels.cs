@@ -194,8 +194,11 @@ public readonly record struct AnnounceRequest(
     long Left,
     int RequestedPeers,
     bool Compact,
+    bool NoPeerId,
     TrackerEvent Event,
-    string? Passkey)
+    string? Passkey,
+    string? Key,
+    string? TrackerId)
 {
     public bool IsSeeder => Left == 0;
 }
@@ -275,7 +278,9 @@ public readonly record struct AnnounceSuccess(
     int LeecherCount,
     AnnouncePeerSelection PeerSelection,
     string? WarningMessage = null,
-    bool Compact = true);
+    bool Compact = true,
+    bool NoPeerId = false,
+    string? TrackerId = null);
 
 public readonly record struct AnnounceTelemetryRecord(
     string NodeId,
