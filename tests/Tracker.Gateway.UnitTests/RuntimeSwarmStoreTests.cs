@@ -20,11 +20,12 @@ public sealed class RuntimeSwarmStoreTests
         PeerEndpoint endpoint,
         TrackerEvent evt = TrackerEvent.Started,
         long left = 100,
-        int requestedPeers = 50)
+        int requestedPeers = 50,
+        string? key = null)
     {
         return new AnnounceRequest(
             infoHash, PeerIdKey.FromBytes(Convert.FromHexString(peerIdHex)),
-            endpoint, 0, 0, left, requestedPeers, true, false, evt, null, null, null);
+            endpoint, 0, 0, left, requestedPeers, true, false, evt, null, key, null);
     }
 
     private static InfoHashKey Hash1 => InfoHashKey.FromBytes(Convert.FromHexString("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
@@ -244,5 +245,68 @@ public sealed class RuntimeSwarmStoreTests
         using var selection = store.SelectPeers(req, 0, now);
         Assert.Equal(0, selection.Peers.Count);
         Assert.Equal(0, selection.Peers6.Count);
+    }
+
+    [Fact]
+    public void KeyValidation_SamePeerId_MatchingKey_DifferentIP_Allowed()
+    {
+        var store = CreateStore();
+        var now = DateTimeOffset.UtcNow;
+        var peerIdHex = "A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1";
+
+        var req1 = MakeRequest(Hash1, peerIdHex,
+            PeerEndpoint.FromIPv4(0x0A000001, 6881), key: "secret123");
+        store.ApplyMutation(req1, TimeSpan.FromMinutes(30), now);
+
+        // Same peer_id, matching key, different IP → should be allowed
+        var req2 = MakeRequest(Hash1, peerIdHex,
+            PeerEndpoint.FromIPv4(0x0A000002, 6882), evt: TrackerEvent.None, key: "secret123");
+        var counts = store.ApplyMutation(req2, TimeSpan.FromMinutes(30), now);
+
+        // Peer should still be there with updated endpoint
+        Assert.Equal(1, counts.SeederCount + counts.LeecherCount);
+    }
+
+    [Fact]
+    public void KeyValidation_SamePeerId_WrongKey_DifferentIP_Rejected()
+    {
+        var store = CreateStore();
+        var now = DateTimeOffset.UtcNow;
+        var peerIdHex = "B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2";
+
+        var req1 = MakeRequest(Hash1, peerIdHex,
+            PeerEndpoint.FromIPv4(0x0A000001, 6881), key: "correctkey");
+        store.ApplyMutation(req1, TimeSpan.FromMinutes(30), now);
+
+        var countsBefore = store.GetCounts(Hash1, now);
+
+        // Same peer_id, wrong key, different IP → should be rejected
+        var req2 = MakeRequest(Hash1, peerIdHex,
+            PeerEndpoint.FromIPv4(0x0A000002, 6882), evt: TrackerEvent.None, key: "wrongkey");
+        var countsAfter = store.ApplyMutation(req2, TimeSpan.FromMinutes(30), now);
+
+        // Counts should be unchanged — mutation was rejected
+        Assert.Equal(countsBefore.SeederCount, countsAfter.SeederCount);
+        Assert.Equal(countsBefore.LeecherCount, countsAfter.LeecherCount);
+    }
+
+    [Fact]
+    public void KeyValidation_SamePeerId_NullKey_DifferentIP_AllowedBackwardCompat()
+    {
+        var store = CreateStore();
+        var now = DateTimeOffset.UtcNow;
+        var peerIdHex = "C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3";
+
+        // First announce without key
+        var req1 = MakeRequest(Hash1, peerIdHex,
+            PeerEndpoint.FromIPv4(0x0A000001, 6881));
+        store.ApplyMutation(req1, TimeSpan.FromMinutes(30), now);
+
+        // Second announce without key, different IP → allowed (no key stored)
+        var req2 = MakeRequest(Hash1, peerIdHex,
+            PeerEndpoint.FromIPv4(0x0A000002, 6882), evt: TrackerEvent.None);
+        var counts = store.ApplyMutation(req2, TimeSpan.FromMinutes(30), now);
+
+        Assert.Equal(1, counts.SeederCount + counts.LeecherCount);
     }
 }

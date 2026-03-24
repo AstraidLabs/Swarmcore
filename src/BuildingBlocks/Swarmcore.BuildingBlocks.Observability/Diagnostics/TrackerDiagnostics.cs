@@ -78,6 +78,9 @@ public static class TrackerDiagnostics
     public static readonly Counter<long> AbuseIntelSoftRestrict = Meter.CreateCounter<long>("tracker.abuse_intel.soft_restrict");
     public static readonly Counter<long> AbuseIntelHardBlock = Meter.CreateCounter<long>("tracker.abuse_intel.hard_block");
 
+    // ─── Peer Key Validation ──────────────────────────────────────────────────
+    public static readonly Counter<long> PeerKeyMismatch = Meter.CreateCounter<long>("tracker.peer.key_mismatch");
+
     // ─── Per-Torrent Override Usage ──────────────────────────────────────────
     public static readonly Counter<long> TorrentOverrideApplied = Meter.CreateCounter<long>("tracker.torrent_override.applied");
     public static readonly Counter<long> TorrentMaintenanceRejected = Meter.CreateCounter<long>("tracker.torrent.maintenance_rejected");

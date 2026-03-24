@@ -42,6 +42,16 @@ public sealed class AnnounceService(
 
         var policy = accessResolution.Policy;
 
+        // ── Tracker ID soft validation ──
+        if (request.TrackerId is not null)
+        {
+            var expectedTrackerId = GenerateTrackerId(nodeOptions.Value.NodeId, request.InfoHash, request.PeerId);
+            if (!string.Equals(request.TrackerId, expectedTrackerId, StringComparison.Ordinal))
+            {
+                TrackerDiagnostics.CompatibilityWarningIssued.Add(1);
+            }
+        }
+
         // ── Per-torrent governance overrides ──
         if (policy.MaintenanceFlag)
         {
@@ -139,6 +149,8 @@ public sealed class AnnounceService(
         // from the same peer on the same node.
         var trackerId = GenerateTrackerId(nodeOptions.Value.NodeId, request.InfoHash, request.PeerId);
 
+        var minInterval = Math.Max(60, policy.AnnounceIntervalSeconds / 2);
+
         return (new AnnounceSuccess(
             policy.AnnounceIntervalSeconds,
             counts.SeederCount,
@@ -147,32 +159,24 @@ public sealed class AnnounceService(
             WarningMessage: warningMessage,
             Compact: effectiveCompact,
             NoPeerId: request.NoPeerId,
-            TrackerId: trackerId), null);
+            TrackerId: trackerId,
+            MinIntervalSeconds: minInterval), null);
     }
 
     private static string GenerateTrackerId(string nodeId, InfoHashKey infoHash, PeerIdKey peerId)
     {
         // Deterministic tracker ID: SHA256(nodeId + infoHash + peerId) truncated to 20 hex chars.
         // Stable for the same peer on the same node, changes if the peer moves to a different node.
-        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-
-        Span<byte> nodeIdBytes = stackalloc byte[Math.Min(Encoding.UTF8.GetMaxByteCount(nodeId.Length), 256)];
-        var nodeIdWritten = Encoding.UTF8.GetBytes(nodeId, nodeIdBytes);
-        hasher.AppendData(nodeIdBytes[..nodeIdWritten]);
-
-        Span<byte> keyBytes = stackalloc byte[20];
-        infoHash.WriteBytes(keyBytes);
-        hasher.AppendData(keyBytes);
-
-        peerId.WriteBytes(keyBytes);
-        hasher.AppendData(keyBytes);
-
+        // Uses SHA256.HashData with a single stackalloc to avoid IDisposable allocation on the hot path.
+        Span<byte> buffer = stackalloc byte[256 + 40];
+        var nodeLen = Encoding.UTF8.GetBytes(nodeId, buffer);
+        infoHash.WriteBytes(buffer.Slice(nodeLen, 20));
+        peerId.WriteBytes(buffer.Slice(nodeLen + 20, 20));
         Span<byte> hash = stackalloc byte[32];
-        hasher.GetHashAndReset(hash);
-
-        Span<char> hexChars = stackalloc char[20];
-        Convert.TryToHexString(hash[..10], hexChars, out _);
-        return new string(hexChars);
+        SHA256.HashData(buffer[..(nodeLen + 40)], hash);
+        Span<char> hex = stackalloc char[20];
+        Convert.TryToHexString(hash[..10], hex, out _);
+        return new string(hex);
     }
 }
 

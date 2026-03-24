@@ -677,6 +677,7 @@ public sealed class AnnounceBencodeResponseWriter : IBencodeResponseWriter
     private static ReadOnlySpan<byte> FilesKey => "5:files"u8;
     private static ReadOnlySpan<byte> IncompleteKey => "10:incomplete"u8;
     private static ReadOnlySpan<byte> IntervalKey => "8:interval"u8;
+    private static ReadOnlySpan<byte> MinIntervalKey => "12:min interval"u8;
     private static ReadOnlySpan<byte> PeersKey => "5:peers"u8;
     private static ReadOnlySpan<byte> Peers6Key => "6:peers6"u8;
     private static ReadOnlySpan<byte> WarningMessageKey => "15:warning message"u8;
@@ -703,6 +704,12 @@ public sealed class AnnounceBencodeResponseWriter : IBencodeResponseWriter
 
         writer.Write(IntervalKey);
         BencodePipeWriter.WriteInteger(writer, success.IntervalSeconds);
+
+        if (success.MinIntervalSeconds > 0)
+        {
+            writer.Write(MinIntervalKey);
+            BencodePipeWriter.WriteInteger(writer, success.MinIntervalSeconds);
+        }
 
         if (success.Compact)
         {
