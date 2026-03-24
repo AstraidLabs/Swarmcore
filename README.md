@@ -7,8 +7,7 @@
 [![Build](https://github.com/AstraidLabs/Swarmcore/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/Swarmcore/actions/workflows/ci.yml)
 [![Unit Tests](https://github.com/AstraidLabs/Swarmcore/actions/workflows/unit-tests.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/Swarmcore/actions/workflows/unit-tests.yml)
 [![Integration Tests](https://github.com/AstraidLabs/Swarmcore/actions/workflows/integration-tests.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/Swarmcore/actions/workflows/integration-tests.yml)
-[![Deploy Dev](https://github.com/AstraidLabs/Swarmcore/actions/workflows/deploy-dev.yml/badge.svg)](https://github.com/AstraidLabs/Swarmcore/actions/workflows/deploy-dev.yml)
-[![Deploy Production](https://github.com/AstraidLabs/Swarmcore/actions/workflows/deploy-production.yml/badge.svg)](https://github.com/AstraidLabs/Swarmcore/actions/workflows/deploy-production.yml)
+
 
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![C#](https://img.shields.io/badge/C%23-preview-239120?style=flat-square&logo=csharp&logoColor=white)](https://learn.microsoft.com/en-us/dotnet/csharp/)
