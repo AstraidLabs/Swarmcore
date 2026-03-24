@@ -30,10 +30,10 @@ jobs:
           dotnet-quality: ${{ env.DOTNET_QUALITY }}
 
       - name: Restore dependencies
-        run: dotnet restore Swarmcore.slnx
+        run: dotnet restore BeeTracker.slnx
 
       - name: Build solution
-        run: dotnet build Swarmcore.slnx --no-restore -c Release
+        run: dotnet build BeeTracker.slnx --no-restore -c Release
 
   docker-build:
     name: Docker Build (${{ matrix.service }})
@@ -43,8 +43,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - service: swarmcore
-            dockerfile: Swarmcore/Dockerfile
+          - service: beetracker
+            dockerfile: BeeTracker/Dockerfile
           - service: tracker-gateway
             dockerfile: src/Services/Tracker.Gateway/Tracker.Gateway.Api/Dockerfile
           - service: admin-service
@@ -67,6 +67,6 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: false
-          tags: swarmcore/${{ matrix.service }}:ci-${{ github.sha }}
+          tags: beetracker/${{ matrix.service }}:ci-${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}

@@ -9,8 +9,8 @@ public sealed class AdminIdentityDbContextFactory : IDesignTimeDbContextFactory<
     {
         var optionsBuilder = new DbContextOptionsBuilder<AdminIdentityDbContext>();
         optionsBuilder.UseNpgsql(
-            Environment.GetEnvironmentVariable("SWARMCORE_POSTGRES_CONNECTION")
-            ?? "Host=localhost;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore",
+            Environment.GetEnvironmentVariable("BEETRACKER_POSTGRES_CONNECTION")
+            ?? "Host=localhost;Port=5432;Database=beetracker;Username=beetracker;Password=beetracker",
             npgsqlOptions => npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", AdminIdentityDbContext.SchemaName));
         optionsBuilder.UseOpenIddict();
         return new AdminIdentityDbContext(optionsBuilder.Options);

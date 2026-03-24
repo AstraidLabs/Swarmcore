@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Application\Swarmcore.BuildingBlocks.Application.csproj" />
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Observability\Swarmcore.BuildingBlocks.Observability.csproj" />
-    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Configuration\Swarmcore.Contracts.Configuration.csproj" />
-    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Runtime\Swarmcore.Contracts.Runtime.csproj" />
-    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Telemetry\Swarmcore.Contracts.Telemetry.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Application\BeeTracker.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Observability\BeeTracker.BuildingBlocks.Observability.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Configuration\BeeTracker.Contracts.Configuration.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Runtime\BeeTracker.Contracts.Runtime.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Telemetry\BeeTracker.Contracts.Telemetry.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

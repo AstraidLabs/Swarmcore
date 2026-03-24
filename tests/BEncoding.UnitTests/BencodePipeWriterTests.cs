@@ -1,7 +1,7 @@
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Text;
-using Swarmcore.Serialization.BEncoding;
+using BeeTracker.Serialization.BEncoding;
 
 namespace BEncoding.UnitTests;
 

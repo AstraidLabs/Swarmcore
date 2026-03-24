@@ -2,18 +2,18 @@ services:
   postgres:
     image: postgres:17
     environment:
-      POSTGRES_DB: swarmcore
-      POSTGRES_USER: swarmcore
-      POSTGRES_PASSWORD: swarmcore
+      POSTGRES_DB: beetracker
+      POSTGRES_USER: beetracker
+      POSTGRES_PASSWORD: beetracker
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U swarmcore -d swarmcore"]
+      test: ["CMD-SHELL", "pg_isready -U beetracker -d beetracker"]
       interval: 5s
       timeout: 5s
       retries: 12
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.2
 
   redis:
@@ -24,7 +24,7 @@ services:
       timeout: 5s
       retries: 12
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.3
 
   tracker-gateway:
@@ -33,19 +33,19 @@ services:
       dockerfile: src/Services/Tracker.Gateway/Tracker.Gateway.Api/Dockerfile
     environment:
       ASPNETCORE_URLS: http://+:8080
-      Swarmcore__Postgres__ConnectionString: Host=postgres;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore
-      Swarmcore__Redis__Configuration: redis:6379
-      Swarmcore__TrackerNode__NodeId: gateway-node-1
-      Swarmcore__TrackerNode__Region: local-compose
-      Swarmcore__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
-      Swarmcore__StartupBootstrap__MaxAttempts: 30
-      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
-      Swarmcore__UdpTracker__Enabled: "true"
-      Swarmcore__PublicEndpoint__BaseUrl: https://${TRACKER_DOMAIN:-tracker.example.com}
-      Swarmcore__PublicEndpoint__BaseDomain: ${BASE_DOMAIN:-example.com}
-      Swarmcore__PublicEndpoint__AnnounceBaseUrl: https://${ANNOUNCE_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
-      Swarmcore__PublicEndpoint__ScrapeBaseUrl: https://${SCRAPE_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
-      Swarmcore__PublicEndpoint__ForceHttps: "true"
+      BeeTracker__Postgres__ConnectionString: Host=postgres;Port=5432;Database=beetracker;Username=beetracker;Password=beetracker
+      BeeTracker__Redis__Configuration: redis:6379
+      BeeTracker__TrackerNode__NodeId: gateway-node-1
+      BeeTracker__TrackerNode__Region: local-compose
+      BeeTracker__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
+      BeeTracker__StartupBootstrap__MaxAttempts: 30
+      BeeTracker__StartupBootstrap__RetryDelaySeconds: 2
+      BeeTracker__UdpTracker__Enabled: "true"
+      BeeTracker__PublicEndpoint__BaseUrl: https://${TRACKER_DOMAIN:-tracker.example.com}
+      BeeTracker__PublicEndpoint__BaseDomain: ${BASE_DOMAIN:-example.com}
+      BeeTracker__PublicEndpoint__AnnounceBaseUrl: https://${ANNOUNCE_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
+      BeeTracker__PublicEndpoint__ScrapeBaseUrl: https://${SCRAPE_DOMAIN:-${TRACKER_DOMAIN:-tracker.example.com}}
+      BeeTracker__PublicEndpoint__ForceHttps: "true"
     ports:
       - "6969:6969/udp"
     depends_on:
@@ -57,7 +57,7 @@ services:
       timeout: 5s
       retries: 12
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.10
 
   configuration-service:
@@ -66,17 +66,17 @@ services:
       dockerfile: src/Services/Tracker.ConfigurationService/Tracker.ConfigurationService.Api/Dockerfile
     environment:
       ASPNETCORE_URLS: http://+:8080
-      Swarmcore__Postgres__ConnectionString: Host=postgres;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore
-      Swarmcore__Redis__Configuration: redis:6379
-      Swarmcore__TrackerNode__NodeId: configuration-node-1
-      Swarmcore__TrackerNode__Region: local-compose
-      Swarmcore__StartupBootstrap__MaxAttempts: 30
-      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
+      BeeTracker__Postgres__ConnectionString: Host=postgres;Port=5432;Database=beetracker;Username=beetracker;Password=beetracker
+      BeeTracker__Redis__Configuration: redis:6379
+      BeeTracker__TrackerNode__NodeId: configuration-node-1
+      BeeTracker__TrackerNode__Region: local-compose
+      BeeTracker__StartupBootstrap__MaxAttempts: 30
+      BeeTracker__StartupBootstrap__RetryDelaySeconds: 2
     depends_on:
       - postgres
       - redis
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.11
 
   smtp4dev:
@@ -85,7 +85,7 @@ services:
       - "5000:80"
       - "2525:25"
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.4
 
   admin-service:
@@ -94,25 +94,25 @@ services:
       dockerfile: src/Services/Tracker.AdminService/Tracker.AdminService.Api/Dockerfile
     environment:
       ASPNETCORE_URLS: http://+:8080
-      Swarmcore__Postgres__ConnectionString: Host=postgres;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore
-      Swarmcore__Redis__Configuration: redis:6379
-      Swarmcore__TrackerNode__NodeId: admin-node-1
-      Swarmcore__TrackerNode__Region: local-compose
-      Swarmcore__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
-      Swarmcore__StartupBootstrap__MaxAttempts: 30
-      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
-      Swarmcore__AdminIdentity__DisableTransportSecurityRequirement: "false"
-      Swarmcore__PublicEndpoint__BaseUrl: https://${ADMIN_DOMAIN:-admin.example.com}
-      Swarmcore__PublicEndpoint__BaseDomain: ${BASE_DOMAIN:-example.com}
-      Swarmcore__PublicEndpoint__AdminBaseUrl: https://${ADMIN_DOMAIN:-admin.example.com}
-      Swarmcore__PublicEndpoint__ForceHttps: "true"
-      Swarmcore__Smtp__Host: smtp4dev
-      Swarmcore__Smtp__Port: "25"
-      Swarmcore__Smtp__UseSsl: "false"
-      Swarmcore__Smtp__UseStartTls: "false"
-      Swarmcore__Smtp__RequireAuthentication: "false"
-      Swarmcore__Smtp__SenderAddress: noreply@swarmcore.local
-      Swarmcore__Smtp__SenderDisplayName: Swarmcore
+      BeeTracker__Postgres__ConnectionString: Host=postgres;Port=5432;Database=beetracker;Username=beetracker;Password=beetracker
+      BeeTracker__Redis__Configuration: redis:6379
+      BeeTracker__TrackerNode__NodeId: admin-node-1
+      BeeTracker__TrackerNode__Region: local-compose
+      BeeTracker__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
+      BeeTracker__StartupBootstrap__MaxAttempts: 30
+      BeeTracker__StartupBootstrap__RetryDelaySeconds: 2
+      BeeTracker__AdminIdentity__DisableTransportSecurityRequirement: "false"
+      BeeTracker__PublicEndpoint__BaseUrl: https://${ADMIN_DOMAIN:-admin.example.com}
+      BeeTracker__PublicEndpoint__BaseDomain: ${BASE_DOMAIN:-example.com}
+      BeeTracker__PublicEndpoint__AdminBaseUrl: https://${ADMIN_DOMAIN:-admin.example.com}
+      BeeTracker__PublicEndpoint__ForceHttps: "true"
+      BeeTracker__Smtp__Host: smtp4dev
+      BeeTracker__Smtp__Port: "25"
+      BeeTracker__Smtp__UseSsl: "false"
+      BeeTracker__Smtp__UseStartTls: "false"
+      BeeTracker__Smtp__RequireAuthentication: "false"
+      BeeTracker__Smtp__SenderAddress: noreply@beetracker.local
+      BeeTracker__Smtp__SenderDisplayName: BeeTracker
     depends_on:
       - postgres
       - redis
@@ -123,7 +123,7 @@ services:
       timeout: 5s
       retries: 12
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.12
 
   cache-coordinator:
@@ -131,15 +131,15 @@ services:
       context: .
       dockerfile: src/Services/Tracker.CacheCoordinator/Tracker.CacheCoordinator.Worker/Dockerfile
     environment:
-      Swarmcore__Redis__Configuration: redis:6379
-      Swarmcore__TrackerNode__NodeId: coordinator-node-1
-      Swarmcore__TrackerNode__Region: local-compose
-      Swarmcore__StartupBootstrap__MaxAttempts: 30
-      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
+      BeeTracker__Redis__Configuration: redis:6379
+      BeeTracker__TrackerNode__NodeId: coordinator-node-1
+      BeeTracker__TrackerNode__Region: local-compose
+      BeeTracker__StartupBootstrap__MaxAttempts: 30
+      BeeTracker__StartupBootstrap__RetryDelaySeconds: 2
     depends_on:
       - redis
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.13
 
   telemetry-ingest:
@@ -147,15 +147,15 @@ services:
       context: .
       dockerfile: src/Services/Tracker.TelemetryIngest/Tracker.TelemetryIngest.Worker/Dockerfile
     environment:
-      Swarmcore__Postgres__ConnectionString: Host=postgres;Port=5432;Database=swarmcore;Username=swarmcore;Password=swarmcore
-      Swarmcore__TrackerNode__NodeId: telemetry-node-1
-      Swarmcore__TrackerNode__Region: local-compose
-      Swarmcore__StartupBootstrap__MaxAttempts: 30
-      Swarmcore__StartupBootstrap__RetryDelaySeconds: 2
+      BeeTracker__Postgres__ConnectionString: Host=postgres;Port=5432;Database=beetracker;Username=beetracker;Password=beetracker
+      BeeTracker__TrackerNode__NodeId: telemetry-node-1
+      BeeTracker__TrackerNode__Region: local-compose
+      BeeTracker__StartupBootstrap__MaxAttempts: 30
+      BeeTracker__StartupBootstrap__RetryDelaySeconds: 2
     depends_on:
       - postgres
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.14
 
   nginx:
@@ -180,7 +180,7 @@ services:
       - certbot-conf:/etc/letsencrypt:ro
       - certbot-www:/var/www/certbot:ro
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.20
 
   certbot:
@@ -195,7 +195,7 @@ services:
           sleep 12h & wait $${!};
         done"
     networks:
-      swarmcore:
+      beetracker:
         ipv4_address: 172.29.0.21
 
 volumes:
@@ -204,7 +204,7 @@ volumes:
   certbot-www:
 
 networks:
-  swarmcore:
+  beetracker:
     driver: bridge
     ipam:
       config:

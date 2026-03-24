@@ -1,7 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Net;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.Contracts.Configuration;
 
 namespace Tracker.Gateway.Application.Announce;
 

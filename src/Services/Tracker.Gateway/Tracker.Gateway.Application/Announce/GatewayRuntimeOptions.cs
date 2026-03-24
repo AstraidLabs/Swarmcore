@@ -2,7 +2,7 @@ namespace Tracker.Gateway.Application.Announce;
 
 public sealed class GatewayRuntimeOptions
 {
-    public const string SectionName = "Swarmcore:GatewayRuntime";
+    public const string SectionName = "BeeTracker:GatewayRuntime";
 
     public int ShardCount { get; init; } = 64;
     public int MaxPeersPerResponse { get; init; } = 80;

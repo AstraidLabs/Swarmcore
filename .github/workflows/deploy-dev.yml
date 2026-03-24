@@ -18,7 +18,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository_owner }}/swarmcore
+  IMAGE_PREFIX: ${{ github.repository_owner }}/beetracker
   ENVIRONMENT: dev
 
 permissions:
@@ -57,7 +57,7 @@ jobs:
 
       - name: Verify images exist
         run: |
-          services=(swarmcore tracker-gateway admin-service configuration-service cache-coordinator telemetry-ingest)
+          services=(beetracker tracker-gateway admin-service configuration-service cache-coordinator telemetry-ingest)
           tag="${{ steps.tag.outputs.tag }}"
           for svc in "${services[@]}"; do
             image="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${svc}:${tag}"
@@ -91,6 +91,6 @@ jobs:
           # Example SSH deployment:
           #   echo "${DEPLOY_KEY}" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
           #   ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no "deploy@${DEPLOY_HOST}" \
-          #     "cd /opt/swarmcore && IMAGE_TAG=${IMAGE_TAG} docker compose pull && docker compose up -d"
+          #     "cd /opt/beetracker && IMAGE_TAG=${IMAGE_TAG} docker compose pull && docker compose up -d"
           # ──────────────────────────────────────────────────────────────────
           echo "::warning::Deployment command not yet configured. Set up DEV_DEPLOY_HOST and DEV_DEPLOY_KEY secrets."

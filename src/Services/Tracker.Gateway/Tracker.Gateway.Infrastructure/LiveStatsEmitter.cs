@@ -3,8 +3,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.Caching.Redis;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Caching.Redis;
 using Tracker.Gateway.Application.Announce;
 using Tracker.Gateway.Runtime;
 

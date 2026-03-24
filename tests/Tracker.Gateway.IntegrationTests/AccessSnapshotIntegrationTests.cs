@@ -4,9 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
 using StackExchange.Redis;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.Contracts.Configuration;
-using Swarmcore.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Configuration;
+using BeeTracker.Hosting;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Tracker.ConfigurationService.Application;
@@ -19,9 +19,9 @@ namespace Tracker.Gateway.IntegrationTests;
 public sealed class AccessSnapshotIntegrationTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder("postgres:17")
-        .WithDatabase("swarmcore")
-        .WithUsername("swarmcore")
-        .WithPassword("swarmcore")
+        .WithDatabase("beetracker")
+        .WithUsername("beetracker")
+        .WithPassword("beetracker")
         .Build();
 
     private readonly RedisContainer _redisContainer = new RedisBuilder("redis:7.4")
@@ -124,7 +124,7 @@ public sealed class AccessSnapshotIntegrationTests : IAsyncLifetime
 
         var builder = Host.CreateApplicationBuilder();
         builder.Configuration.AddConfiguration(configuration);
-        builder.Services.AddSwarmcoreInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
+        builder.Services.AddBeeTrackerInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
         builder.Services.AddGatewayInfrastructure();
         builder.Services.AddConfigurationInfrastructure(builder.Configuration);
 

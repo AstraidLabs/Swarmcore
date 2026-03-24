@@ -22,7 +22,7 @@
     <ProjectReference Include="..\..\src\Services\Tracker.Gateway\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.Gateway\Tracker.Gateway.Runtime\Tracker.Gateway.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.Gateway\Tracker.Gateway.Infrastructure\Tracker.Gateway.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Shared\Swarmcore.Serialization.BEncoding\Swarmcore.Serialization.BEncoding.csproj" />
+    <ProjectReference Include="..\..\src\Shared\BeeTracker.Serialization.BEncoding\BeeTracker.Serialization.BEncoding.csproj" />
   </ItemGroup>
 
 </Project>

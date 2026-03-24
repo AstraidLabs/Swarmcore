@@ -4,9 +4,9 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.Contracts.Telemetry;
-using Swarmcore.Persistence.Postgres;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Telemetry;
+using BeeTracker.Persistence.Postgres;
 using Tracker.TelemetryIngest.Application;
 
 namespace Tracker.TelemetryIngest.Infrastructure;

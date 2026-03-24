@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Net;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using Tracker.Gateway.Application.Announce;
 using Tracker.UdpTracker.Protocol;
 

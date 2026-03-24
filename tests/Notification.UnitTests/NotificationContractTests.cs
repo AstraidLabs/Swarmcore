@@ -100,16 +100,16 @@ public sealed class SmtpOptionsTests
     }
 
     [Fact]
-    public void Defaults_SenderDisplayNameIsSwarmcore()
+    public void Defaults_SenderDisplayNameIsBeeTracker()
     {
         var options = new SmtpOptions();
-        Assert.Equal("Swarmcore", options.SenderDisplayName);
+        Assert.Equal("BeeTracker", options.SenderDisplayName);
     }
 
     [Fact]
     public void SectionName_IsCorrect()
     {
-        Assert.Equal("Swarmcore:Smtp", SmtpOptions.SectionName);
+        Assert.Equal("BeeTracker:Smtp", SmtpOptions.SectionName);
     }
 }
 

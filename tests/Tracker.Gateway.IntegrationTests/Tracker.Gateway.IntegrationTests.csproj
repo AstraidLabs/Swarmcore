@@ -27,9 +27,9 @@
     <ProjectReference Include="..\..\src\Services\Tracker.Gateway\Tracker.Gateway.Infrastructure\Tracker.Gateway.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.ConfigurationService\Tracker.ConfigurationService.Application\Tracker.ConfigurationService.Application.csproj" />
     <ProjectReference Include="..\..\src\Services\Tracker.ConfigurationService\Tracker.ConfigurationService.Infrastructure\Tracker.ConfigurationService.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Shared\Swarmcore.Caching.Redis\Swarmcore.Caching.Redis.csproj" />
-    <ProjectReference Include="..\..\src\Shared\Swarmcore.Persistence.Postgres\Swarmcore.Persistence.Postgres.csproj" />
-    <ProjectReference Include="..\..\src\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Shared\BeeTracker.Caching.Redis\BeeTracker.Caching.Redis.csproj" />
+    <ProjectReference Include="..\..\src\Shared\BeeTracker.Persistence.Postgres\BeeTracker.Persistence.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\Shared\BeeTracker.Hosting\BeeTracker.Hosting.csproj" />
   </ItemGroup>
 
 </Project>

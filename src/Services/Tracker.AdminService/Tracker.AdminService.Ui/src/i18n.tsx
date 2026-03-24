@@ -340,7 +340,7 @@ type I18nContextValue = {
   dictionary: I18nDictionary;
 };
 
-const localeStorageKey = "swarmcore.admin.locale";
+const localeStorageKey = "beetracker.admin.locale";
 
 const english: I18nDictionary = {
   localeLabel: "Language",
@@ -423,10 +423,10 @@ const english: I18nDictionary = {
   routes: {
     overviewEyebrow: "Operations",
     overviewTitle: "Cluster overview",
-    overviewDescription: "Monitor gateway readiness, access posture and the live state of the Swarmcore admin panel.",
+    overviewDescription: "Monitor gateway readiness, access posture and the live state of the BeeTracker admin panel.",
     torrentsEyebrow: "Tracker Policy",
     torrentsTitle: "Torrent catalog",
-    torrentsDescription: "Manage tracker mode, lifecycle state and rollout-safe policy changes for the torrents served by Swarmcore.",
+    torrentsDescription: "Manage tracker mode, lifecycle state and rollout-safe policy changes for the torrents served by BeeTracker.",
     torrentPolicyEyebrow: "Policy Change",
     torrentPolicyTitle: "Torrent policy",
     torrentPolicyDescription: "Review the current tracker policy, preview the next state and apply an audited configuration change for one torrent.",
@@ -444,7 +444,7 @@ const english: I18nDictionary = {
     bansDescription: "Create, expire and remove enforcement rules with explicit scope, subject and audit visibility.",
     auditEyebrow: "Audit",
     auditTitle: "Audit trail",
-    auditDescription: "Review privileged actions, session identity and correlation trails across Swarmcore."
+    auditDescription: "Review privileged actions, session identity and correlation trails across BeeTracker."
   },
   dashboard: {
     loadError: "Unable to load the dashboard overview.",
@@ -460,7 +460,7 @@ const english: I18nDictionary = {
     lastHeartbeat: "Last heartbeat recorded at",
     productEyebrow: "Product",
     whyTitle: "Why this admin panel exists",
-    whyBody: "Swarmcore gives teams a dedicated surface for policy, access and operational control without dragging configuration, audit and reporting concerns into tracker runtime.",
+    whyBody: "BeeTracker gives teams a dedicated surface for policy, access and operational control without dragging configuration, audit and reporting concerns into tracker runtime.",
     observedSnapshot: "Observed cluster snapshot",
     snapshotBody: "This page summarizes the current operational state across gateway and admin boundaries.",
     bulletRuntime: "Tracker runtime stays thin, explicit and isolated.",

@@ -2,8 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Identity.SelfService.Domain\Identity.SelfService.Domain.csproj" />
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Abstractions\Swarmcore.BuildingBlocks.Abstractions.csproj" />
-    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Identity\Swarmcore.Contracts.Identity.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\BeeTracker.BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Identity\BeeTracker.Contracts.Identity.csproj" />
     <ProjectReference Include="..\..\Audit\Audit.Application\Audit.Application.csproj" />
     <ProjectReference Include="..\..\Notification\Notification.Application\Notification.Application.csproj" />
   </ItemGroup>

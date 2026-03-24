@@ -3,11 +3,11 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using StackExchange.Redis;
-using Swarmcore.Caching.Redis;
-using Swarmcore.Contracts.Runtime;
+using BeeTracker.Caching.Redis;
+using BeeTracker.Contracts.Runtime;
 using Tracker.CacheCoordinator.Application;
 
 namespace Tracker.CacheCoordinator.Infrastructure;

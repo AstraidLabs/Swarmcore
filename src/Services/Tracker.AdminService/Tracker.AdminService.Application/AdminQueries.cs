@@ -1,7 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
-using Swarmcore.Contracts.Admin;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.Contracts.Admin;
+using BeeTracker.Contracts.Configuration;
 
 namespace Tracker.AdminService.Application;
 

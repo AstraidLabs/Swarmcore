@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Configuration;
 using Tracker.Gateway.Application.Announce;
 using Tracker.Gateway.Infrastructure;
 

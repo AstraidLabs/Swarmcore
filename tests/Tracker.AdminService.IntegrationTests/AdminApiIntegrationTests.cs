@@ -12,8 +12,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using StackExchange.Redis;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.Contracts.Configuration;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Configuration;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Tracker.ConfigurationService.Infrastructure;
@@ -25,9 +25,9 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
 {
     private const string AdminApiScope = "admin_api";
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder("postgres:17")
-        .WithDatabase("swarmcore")
-        .WithUsername("swarmcore")
-        .WithPassword("swarmcore")
+        .WithDatabase("beetracker")
+        .WithUsername("beetracker")
+        .WithPassword("beetracker")
         .Build();
 
     private readonly RedisContainer _redisContainer = new RedisBuilder("redis:7.4")
@@ -193,7 +193,7 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
         var anonymousBody = await anonymousResponse.Content.ReadAsStringAsync();
         Assert.Equal(System.Net.HttpStatusCode.OK, anonymousResponse.StatusCode);
         Assert.Contains("<div id=\"root\"></div>", anonymousBody);
-        Assert.Contains("Swarmcore Admin", anonymousBody);
+        Assert.Contains("BeeTracker Admin", anonymousBody);
 
         using var browserClient = _adminFactory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -209,7 +209,7 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
 
         Assert.Equal(System.Net.HttpStatusCode.OK, landingResponse.StatusCode);
         Assert.Contains("<div id=\"root\"></div>", landingBody);
-        Assert.Contains("Swarmcore Admin", landingBody);
+        Assert.Contains("BeeTracker Admin", landingBody);
     }
 
     [Fact]

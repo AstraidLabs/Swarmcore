@@ -10,6 +10,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Tracker.CacheCoordinator.Application\Tracker.CacheCoordinator.Application.csproj" />
     <ProjectReference Include="..\Tracker.CacheCoordinator.Infrastructure\Tracker.CacheCoordinator.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\..\Shared\Swarmcore.Hosting\Swarmcore.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\Shared\BeeTracker.Hosting\BeeTracker.Hosting.csproj" />
   </ItemGroup>
 </Project>

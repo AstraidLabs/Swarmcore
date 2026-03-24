@@ -1,17 +1,17 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Hosting;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
-using Swarmcore.BuildingBlocks.Observability.Diagnostics;
-using Swarmcore.Contracts.Runtime;
-using Swarmcore.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Hosting;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.Contracts.Runtime;
+using BeeTracker.Hosting;
 using Tracker.CacheCoordinator.Application;
 using Tracker.CacheCoordinator.Infrastructure;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddSwarmcoreInfrastructure(builder.Configuration, usePostgres: false, useRedis: true);
+builder.Services.AddBeeTrackerInfrastructure(builder.Configuration, usePostgres: false, useRedis: true);
 builder.Services.AddCacheCoordinatorInfrastructure();
 builder.Services.AddClusterCoordinatorInfrastructure();
 builder.Services.AddHostedService<CacheCoordinatorStartupService>();

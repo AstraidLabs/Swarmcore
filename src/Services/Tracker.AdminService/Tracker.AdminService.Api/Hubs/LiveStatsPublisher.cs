@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using StackExchange.Redis;
-using Swarmcore.Caching.Redis;
+using BeeTracker.Caching.Redis;
 
 namespace Tracker.AdminService.Api.Hubs;
 

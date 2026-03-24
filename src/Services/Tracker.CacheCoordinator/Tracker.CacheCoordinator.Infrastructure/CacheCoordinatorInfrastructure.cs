@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using Swarmcore.Caching.Redis;
-using Swarmcore.Contracts.Runtime;
+using BeeTracker.Caching.Redis;
+using BeeTracker.Contracts.Runtime;
 using Tracker.CacheCoordinator.Application;
 
 namespace Tracker.CacheCoordinator.Infrastructure;

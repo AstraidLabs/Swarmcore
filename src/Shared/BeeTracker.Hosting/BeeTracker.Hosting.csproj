@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\BeeTracker.BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Observability\BeeTracker.BuildingBlocks.Observability.csproj" />
+    <ProjectReference Include="..\BeeTracker.Caching.Redis\BeeTracker.Caching.Redis.csproj" />
+    <ProjectReference Include="..\BeeTracker.Persistence.Postgres\BeeTracker.Persistence.Postgres.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Infrastructure\BeeTracker.BuildingBlocks.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.5" />
+  </ItemGroup>
+
+</Project>

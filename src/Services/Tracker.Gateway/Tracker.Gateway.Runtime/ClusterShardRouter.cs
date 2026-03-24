@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
 using Tracker.Gateway.Application.Announce;
 using Tracker.Gateway.Application.Cluster;
 

@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\BuildingBlocks\Swarmcore.BuildingBlocks.Application\Swarmcore.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Application\BeeTracker.BuildingBlocks.Application.csproj" />
     <ProjectReference Include="..\Tracker.ConfigurationService.Domain\Tracker.ConfigurationService.Domain.csproj" />
-    <ProjectReference Include="..\..\..\Contracts\Swarmcore.Contracts.Configuration\Swarmcore.Contracts.Configuration.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Configuration\BeeTracker.Contracts.Configuration.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

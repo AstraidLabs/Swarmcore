@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using OpenIddict.EntityFrameworkCore;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
 using Tracker.AdminService.Application;
 
 namespace Tracker.AdminService.Infrastructure;
@@ -244,7 +244,7 @@ public static class AdminAuthInfrastructureServiceCollectionExtensions
         services.ConfigureApplicationCookie(options =>
         {
             options.LoginPath = "/account/login";
-            options.Cookie.Name = "swarmcore_admin_auth";
+            options.Cookie.Name = "beetracker_admin_auth";
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
             // Always — the admin surface is served over HTTPS (via Nginx).

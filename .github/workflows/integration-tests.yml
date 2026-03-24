@@ -30,12 +30,12 @@ jobs:
           dotnet-quality: ${{ env.DOTNET_QUALITY }}
 
       - name: Restore dependencies
-        run: dotnet restore Swarmcore.slnx
+        run: dotnet restore BeeTracker.slnx
 
       # Testcontainers require Docker — available by default on ubuntu-latest
       - name: Run integration tests
         run: >
-          dotnet test Swarmcore.slnx
+          dotnet test BeeTracker.slnx
           --no-restore
           -c Release
           --filter "FullyQualifiedName~IntegrationTests|FullyQualifiedName~SmokeTests"

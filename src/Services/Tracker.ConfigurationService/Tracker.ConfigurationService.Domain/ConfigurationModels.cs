@@ -1,4 +1,4 @@
-using Swarmcore.BuildingBlocks.Domain.Primitives;
+using BeeTracker.BuildingBlocks.Domain.Primitives;
 
 namespace Tracker.ConfigurationService.Domain;
 

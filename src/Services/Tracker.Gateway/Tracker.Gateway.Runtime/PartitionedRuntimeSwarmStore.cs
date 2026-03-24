@@ -1,7 +1,7 @@
 using System.Buffers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Swarmcore.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using Tracker.Gateway.Application.Announce;
 
 namespace Tracker.Gateway.Runtime;

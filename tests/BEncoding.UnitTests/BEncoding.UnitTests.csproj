@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Shared\Swarmcore.Serialization.BEncoding\Swarmcore.Serialization.BEncoding.csproj" />
+    <ProjectReference Include="..\..\src\Shared\BeeTracker.Serialization.BEncoding\BeeTracker.Serialization.BEncoding.csproj" />
   </ItemGroup>
 
 </Project>

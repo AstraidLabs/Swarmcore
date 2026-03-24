@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Notification.Application;
 using Notification.Domain;
-using Swarmcore.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Abstractions.Options;
 
 namespace Notification.Infrastructure;
 
