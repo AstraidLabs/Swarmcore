@@ -7,7 +7,9 @@ on:
         description: "Image tag to deploy (defaults to latest master SHA)"
         required: false
         type: string
-  push:
+  workflow_run:
+    workflows: ["Docker Publish"]
+    types: [completed]
     branches: [master]
 
 concurrency:
@@ -28,8 +30,13 @@ jobs:
     name: Deploy to Dev
     runs-on: ubuntu-latest
     environment: dev
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Determine image tag
         id: tag
@@ -37,7 +44,8 @@ jobs:
           if [ -n "${{ inputs.image_tag }}" ]; then
             echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+            echo "tag=${SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Log in to GHCR
