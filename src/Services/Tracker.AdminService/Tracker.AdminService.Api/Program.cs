@@ -114,6 +114,7 @@ app.MapGet("/admin-ui/config", (HttpContext httpContext, IOptions<AdminIdentityO
 });
 
 app.MapSelfServiceEndpoints();
+app.MapRbacEndpoints();
 
 var adminApi = app.MapGroup("/api/admin");
 
@@ -511,6 +512,7 @@ sealed class AdminStartupService(IServiceProvider serviceProvider, IReadinessSta
         await StartupBootstrap.MigrateDbContextAsync<Notification.Infrastructure.NotificationDbContext>(scope.ServiceProvider, cancellationToken);
         await StartupBootstrap.MigrateDbContextAsync<Identity.SelfService.Infrastructure.SelfServiceDbContext>(scope.ServiceProvider, cancellationToken);
         await scope.ServiceProvider.GetRequiredService<AdminIdentitySeedService>().SeedAsync(cancellationToken);
+        await scope.ServiceProvider.GetRequiredService<Identity.SelfService.Infrastructure.RbacSeedService>().SeedAsync(cancellationToken);
         readinessState.MarkReady();
     }
 
