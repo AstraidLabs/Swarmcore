@@ -2,7 +2,7 @@
 
 # BeeTracker
 
-**High-performance BitTorrent tracker built on .NET 10**
+**The BitTorrent tracker that gets out of the way — and lets your swarm fly.**
 
 [![Build](https://github.com/AstraidLabs/BeeTracker/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/BeeTracker/actions/workflows/ci.yml)
 [![Unit Tests](https://github.com/AstraidLabs/BeeTracker/actions/workflows/unit-tests.yml/badge.svg?branch=master)](https://github.com/AstraidLabs/BeeTracker/actions/workflows/unit-tests.yml)
@@ -16,40 +16,36 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](LICENSE.txt)
 
-> BeeTracker is a production-grade, microservice-based BitTorrent tracker engineered for maximum throughput, minimal latency, and operational reliability.
+> Most BitTorrent trackers are either fast *or* manageable. BeeTracker is both — a production-ready tracker built on .NET 10 that handles high announce volumes without breaking a sweat, and gives you a real admin interface to actually run it. Free, open-source, and `docker compose up` away from running.
 
 </div>
 
 ---
 
-## Overview
+## Why BeeTracker?
 
-BeeTracker implements the **BitTorrent tracker protocol** (HTTP + UDP/BEP15) as a set of independently deployable services. Runtime peer state lives in a sharded in-memory store, keeping the announce/scrape hot path completely free of database I/O. PostgreSQL owns configuration and audit data; Redis serves as an L2 cache and cross-node coordination layer.
+You've seen the options. Static configs, scripts held together with duct tape, trackers that haven't seen a commit since 2014. BeeTracker is different — engineered from the ground up for modern infrastructure, with a clean architecture that scales and an operational experience that doesn't make you want to quit.
 
-**Five things that make BeeTracker fast and reliable:**
+**Zero database hits on the announce path.** Peer state lives entirely in a 64-shard in-memory store. Requests come in, responses go out — no disk, no waiting. PostgreSQL handles what it's good at (config, audit, telemetry). Redis handles the rest. Your hot path stays hot.
 
-- **Zero database latency on the hot path** — announce/scrape never touches PostgreSQL
-- **64-shard in-memory peer store** — lock contention scales linearly with cores, not with load
-- **Three-level passkey cache** — L1 (local memory) → L2 (Redis) → L3 (PostgreSQL)
-- **Full UDP tracker support (BEP15)** — alongside HTTP for maximum client compatibility
-- **Fire-and-forget telemetry** — async batched writes via `Channel<T>`, requests never wait for persistence
+### What you get
+
+| | |
+|---|---|
+| 📡 **HTTP + UDP Announce & Scrape** | Full BitTorrent tracker protocol — HTTP and UDP (BEP15) both supported out of the box, covering every major client |
+| 🔑 **Passkey Access Control** | Per-user passkey authentication with a three-level policy cache (memory → Redis → PostgreSQL) so auth never slows you down |
+| 🛡️ **Rate Limiting** | Per-passkey and per-IP abuse protection. Configure thresholds, not workarounds |
+| 📈 **Built-in Telemetry** | Every announce event is captured asynchronously — no request waits for a write. Analytics without the overhead |
+| 🩺 **Health & Readiness Probes** | Startup, liveness, and readiness checks on every service, ready for any orchestration layer |
+
+### What most trackers don't have — BeeTracker does
+
+| | |
+|---|---|
+| 📊 **Real Admin Dashboard** | A proper React 19 UI with role-based access control, live swarm monitoring, and user management. Not a config file. An actual interface |
+| 🔄 **Distributed Cache Coordination** | Running multiple tracker nodes? Redis-based invalidation keeps every node's policy cache in sync automatically, no manual intervention needed |
 
 ---
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| 📡 **Announce & Scrape** | Ultra-lightweight HTTP announce/scrape with strict input validation and peer selection |
-| 🔌 **UDP Tracker (BEP15)** | Full UDP protocol support alongside HTTP for maximum client compatibility |
-| 🔑 **Access Control** | Passkey-based authentication with L1/L2/L3 policy caching |
-| 🛡️ **Rate Limiting** | Per-passkey and per-IP abuse protection with configurable thresholds |
-| 📊 **Admin Dashboard** | React 19 admin UI with role-based access, live monitoring, and permission management |
-| 📈 **Telemetry** | Async batched event collection and persistence for tracker analytics |
-| 🔄 **Cache Coordination** | Redis-based invalidation signaling across distributed nodes |
-| 🏗️ **Configuration Service** | Centralized schema ownership with owned PostgreSQL migrations |
-| 🩺 **Health Checks** | Startup, liveness, and readiness probes on every service |
-| ⚡ **Sharded Peer Store** | 64-shard lock-based `PartitionedRuntimeSwarmStore` for hot-path peer state |
 
 ---
 
