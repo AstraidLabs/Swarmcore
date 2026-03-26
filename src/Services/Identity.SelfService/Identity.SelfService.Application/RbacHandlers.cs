@@ -6,6 +6,7 @@ using MediatR;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using Notification.Application;
+using System.Text.Json;
 
 using AdminAccountState = Identity.SelfService.Domain.AdminAccountState;
 using SystemRoleNames = Identity.SelfService.Domain.SystemRoleNames;
@@ -16,7 +17,6 @@ namespace Identity.SelfService.Application;
 
 public sealed class UpdateProfileHandler(
     IRbacService rbacService,
-    IAdminAccountRepository accountRepo,
     IAuditChannelWriter auditWriter,
     ILogger<UpdateProfileHandler> logger) : IRequestHandler<UpdateProfileCommand, SelfServiceResult>
 {
@@ -124,6 +124,9 @@ public sealed class CreateAdminUserHandler(
     public async Task<SelfServiceResult> Handle(CreateAdminUserCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.UsersCreate, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
 
         var existingByName = await userManager.FindByNameAsync(request.UserName);
         if (existingByName is not null)
@@ -165,11 +168,18 @@ public sealed class CreateAdminUserHandler(
         }
 
         await accountRepo.SetAccountStateAsync(user.Id, AdminAccountState.Active, ct);
+        await rbacService.UpdateProfileAsync(
+            user.Id,
+            string.IsNullOrWhiteSpace(request.DisplayName) ? request.UserName : request.DisplayName,
+            "UTC",
+            ct);
 
         foreach (var roleName in request.Roles)
         {
             await userManager.AddToRoleAsync(user, roleName);
         }
+
+        await rbacService.InvalidatePermissionSnapshotAsync(ct);
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminUserCreated, request.ActorId, user.Id, correlationId,
@@ -198,12 +208,16 @@ public sealed class CreateAdminUserHandler(
 
 public sealed class UpdateAdminUserHandler(
     UserManager<IdentityUser> userManager,
+    IRbacService rbacService,
     IAuditChannelWriter auditWriter,
     ILogger<UpdateAdminUserHandler> logger) : IRequestHandler<UpdateAdminUserCommand, SelfServiceResult>
 {
     public async Task<SelfServiceResult> Handle(UpdateAdminUserCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.UsersEdit, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
 
         var user = await userManager.FindByIdAsync(request.TargetUserId);
         if (user is null)
@@ -226,6 +240,12 @@ public sealed class UpdateAdminUserHandler(
             return SelfServiceResult.Fail("UPDATE_FAILED", errors);
         }
 
+        await rbacService.UpdateProfileAsync(
+            request.TargetUserId,
+            string.IsNullOrWhiteSpace(request.DisplayName) ? user.UserName ?? request.TargetUserId : request.DisplayName,
+            "UTC",
+            ct);
+
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminUserUpdated, request.ActorId, request.TargetUserId, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success));
@@ -247,6 +267,9 @@ public sealed class AssignRolesHandler(
     public async Task<SelfServiceResult> Handle(AssignRolesCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.UsersAssignRoles, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
 
         var user = await userManager.FindByIdAsync(request.TargetUserId);
         if (user is null)
@@ -285,6 +308,8 @@ public sealed class AssignRolesHandler(
         if (rolesToAdd.Count > 0)
             await userManager.AddToRolesAsync(user, rolesToAdd);
 
+        await rbacService.InvalidatePermissionSnapshotAsync(ct);
+
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminRolesAssigned, request.ActorId, request.TargetUserId, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success, null,
@@ -299,6 +324,7 @@ public sealed class AssignRolesHandler(
 
 public sealed class ResetPasswordAdminHandler(
     UserManager<IdentityUser> userManager,
+    IRbacService rbacService,
     IEmailDispatchService emailDispatch,
     IAuditChannelWriter auditWriter,
     ILogger<ResetPasswordAdminHandler> logger) : IRequestHandler<ResetPasswordAdminCommand, SelfServiceResult>
@@ -306,6 +332,9 @@ public sealed class ResetPasswordAdminHandler(
     public async Task<SelfServiceResult> Handle(ResetPasswordAdminCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.UsersResetPassword, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
 
         var user = await userManager.FindByIdAsync(request.TargetUserId);
         if (user is null)
@@ -320,6 +349,7 @@ public sealed class ResetPasswordAdminHandler(
         }
 
         await userManager.UpdateSecurityStampAsync(user);
+        await rbacService.InvalidatePermissionSnapshotAsync(ct);
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminPasswordResetByAdmin, request.ActorId, request.TargetUserId, correlationId,
@@ -348,6 +378,7 @@ public sealed class ResetPasswordAdminHandler(
 public sealed class ActivateAccountAdminHandler(
     UserManager<IdentityUser> userManager,
     IAdminAccountRepository accountRepo,
+    IRbacService rbacService,
     IEmailDispatchService emailDispatch,
     IAuditChannelWriter auditWriter,
     ILogger<ActivateAccountAdminHandler> logger) : IRequestHandler<ActivateAccountAdminCommand, SelfServiceResult>
@@ -355,6 +386,9 @@ public sealed class ActivateAccountAdminHandler(
     public async Task<SelfServiceResult> Handle(ActivateAccountAdminCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.UsersActivate, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
 
         var user = await userManager.FindByIdAsync(request.TargetUserId);
         if (user is null)
@@ -368,6 +402,7 @@ public sealed class ActivateAccountAdminHandler(
             return SelfServiceResult.Fail("INVALID_STATE", $"Account cannot be activated from state '{currentState}'.");
 
         await accountRepo.SetAccountStateAsync(request.TargetUserId, AdminAccountState.Active, ct);
+        await rbacService.InvalidatePermissionSnapshotAsync(ct);
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminAccountActivatedByAdmin, request.ActorId, request.TargetUserId, correlationId,
@@ -404,6 +439,9 @@ public sealed class DeactivateAccountAdminHandler(
     public async Task<SelfServiceResult> Handle(DeactivateAccountAdminCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.UsersDeactivate, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
 
         var user = await userManager.FindByIdAsync(request.TargetUserId);
         if (user is null)
@@ -418,6 +456,7 @@ public sealed class DeactivateAccountAdminHandler(
             return SelfServiceResult.Fail("ALREADY_DEACTIVATED", "Account is already deactivated.");
 
         await accountRepo.SetAccountStateAsync(request.TargetUserId, AdminAccountState.Deactivated, ct);
+        await rbacService.InvalidatePermissionSnapshotAsync(ct);
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminAccountDeactivatedByAdmin, request.ActorId, request.TargetUserId, correlationId,
@@ -454,6 +493,9 @@ public sealed class LockAccountHandler(
     public async Task<SelfServiceResult> Handle(LockAccountCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.UsersDeactivate, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
 
         var user = await userManager.FindByIdAsync(request.TargetUserId);
         if (user is null)
@@ -467,6 +509,7 @@ public sealed class LockAccountHandler(
             return SelfServiceResult.Fail("ALREADY_LOCKED", "Account is already locked.");
 
         await accountRepo.SetAccountStateAsync(request.TargetUserId, AdminAccountState.Locked, ct);
+        await rbacService.InvalidatePermissionSnapshotAsync(ct);
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminAccountLocked, request.ActorId, request.TargetUserId, correlationId,
@@ -495,6 +538,7 @@ public sealed class LockAccountHandler(
 public sealed class UnlockAccountHandler(
     UserManager<IdentityUser> userManager,
     IAdminAccountRepository accountRepo,
+    IRbacService rbacService,
     IEmailDispatchService emailDispatch,
     IAuditChannelWriter auditWriter,
     ILogger<UnlockAccountHandler> logger) : IRequestHandler<UnlockAccountCommand, SelfServiceResult>
@@ -502,6 +546,9 @@ public sealed class UnlockAccountHandler(
     public async Task<SelfServiceResult> Handle(UnlockAccountCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.UsersActivate, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
 
         var user = await userManager.FindByIdAsync(request.TargetUserId);
         if (user is null)
@@ -512,6 +559,7 @@ public sealed class UnlockAccountHandler(
             return SelfServiceResult.Fail("NOT_LOCKED", "Account is not locked.");
 
         await accountRepo.SetAccountStateAsync(request.TargetUserId, AdminAccountState.Active, ct);
+        await rbacService.InvalidatePermissionSnapshotAsync(ct);
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminAccountUnlocked, request.ActorId, request.TargetUserId, correlationId,
@@ -603,8 +651,18 @@ public sealed class CreateRoleHandler(
     public async Task<SelfServiceResult> Handle(CreateRoleCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        var roleId = await rbacService.CreateRoleAsync(request.Name, request.Description, request.Priority, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.RolesCreate, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        string roleId;
+        try
+        {
+            roleId = await rbacService.CreateRoleAsync(request.Name, request.Description, request.Priority, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("ROLE_CREATE_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminRoleCreated, request.ActorId, null, correlationId,
@@ -624,13 +682,30 @@ public sealed class UpdateRoleHandler(
     public async Task<SelfServiceResult> Handle(UpdateRoleCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        await rbacService.UpdateRoleAsync(request.RoleId, request.Description, request.Priority, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.RolesEdit, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        var existingRole = await rbacService.GetRoleDetailAsync(request.RoleId, ct);
+        try
+        {
+            await rbacService.UpdateRoleAsync(request.RoleId, request.Description, request.Priority, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("ROLE_UPDATE_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminRoleUpdated, request.ActorId, null, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success, null,
-            System.Text.Json.JsonSerializer.Serialize(new { request.RoleId })));
+            JsonSerializer.Serialize(new
+            {
+                request.RoleId,
+                previousDescription = existingRole?.Description,
+                newDescription = request.Description,
+                previousPriority = existingRole?.Priority,
+                newPriority = request.Priority
+            })));
 
         logger.LogInformation("Role {RoleId} updated by {ActorId}.", request.RoleId, request.ActorId);
         return SelfServiceResult.Ok(request.RoleId);
@@ -645,13 +720,30 @@ public sealed class DeleteRoleHandler(
     public async Task<SelfServiceResult> Handle(DeleteRoleCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        await rbacService.DeleteRoleAsync(request.RoleId, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.RolesDelete, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        var existingRole = await rbacService.GetRoleDetailAsync(request.RoleId, ct);
+        try
+        {
+            await rbacService.DeleteRoleAsync(request.RoleId, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("ROLE_DELETE_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminRoleDeleted, request.ActorId, null, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success, null,
-            System.Text.Json.JsonSerializer.Serialize(new { request.RoleId })));
+            JsonSerializer.Serialize(new
+            {
+                request.RoleId,
+                roleName = existingRole?.Name,
+                description = existingRole?.Description,
+                directPermissionKeys = existingRole?.DirectPermissionKeys,
+                effectivePermissionKeys = existingRole?.EffectivePermissionKeys
+            })));
 
         logger.LogInformation("Role {RoleId} deleted by {ActorId}.", request.RoleId, request.ActorId);
         return SelfServiceResult.Ok(request.RoleId);
@@ -665,13 +757,28 @@ public sealed class AssignRolePermissionGroupsHandler(
     public async Task<SelfServiceResult> Handle(AssignRolePermissionGroupsCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        await rbacService.AssignRolePermissionGroupsAsync(request.RoleId, request.PermissionGroupIds, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.RolesAssignPermissions, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        var existingRole = await rbacService.GetRoleDetailAsync(request.RoleId, ct);
+        try
+        {
+            await rbacService.AssignRolePermissionGroupsAsync(request.RoleId, request.PermissionGroupIds, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("ROLE_ASSIGN_GROUPS_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminRoleUpdated, request.ActorId, null, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success, null,
-            System.Text.Json.JsonSerializer.Serialize(new { request.RoleId, request.PermissionGroupIds })));
+            JsonSerializer.Serialize(new
+            {
+                request.RoleId,
+                previousPermissionGroupIds = existingRole?.PermissionGroupIds,
+                newPermissionGroupIds = request.PermissionGroupIds
+            })));
 
         return SelfServiceResult.Ok(request.RoleId);
     }
@@ -684,13 +791,28 @@ public sealed class AssignRoleDirectPermissionsHandler(
     public async Task<SelfServiceResult> Handle(AssignRoleDirectPermissionsCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        await rbacService.AssignRoleDirectPermissionsAsync(request.RoleId, request.PermissionKeys, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.RolesAssignPermissions, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        var existingRole = await rbacService.GetRoleDetailAsync(request.RoleId, ct);
+        try
+        {
+            await rbacService.AssignRoleDirectPermissionsAsync(request.RoleId, request.PermissionKeys, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("ROLE_ASSIGN_PERMISSIONS_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminRoleUpdated, request.ActorId, null, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success, null,
-            System.Text.Json.JsonSerializer.Serialize(new { request.RoleId, request.PermissionKeys })));
+            JsonSerializer.Serialize(new
+            {
+                request.RoleId,
+                previousPermissionKeys = existingRole?.DirectPermissionKeys,
+                newPermissionKeys = request.PermissionKeys
+            })));
 
         return SelfServiceResult.Ok(request.RoleId);
     }
@@ -706,8 +828,18 @@ public sealed class CreatePermissionGroupHandler(
     public async Task<SelfServiceResult> Handle(CreatePermissionGroupCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        var groupId = await rbacService.CreatePermissionGroupAsync(request.Name, request.Description, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.PermissionGroupsCreate, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        Guid groupId;
+        try
+        {
+            groupId = await rbacService.CreatePermissionGroupAsync(request.Name, request.Description, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("PERMISSION_GROUP_CREATE_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminPermissionGroupCreated, request.ActorId, null, correlationId,
@@ -726,13 +858,30 @@ public sealed class UpdatePermissionGroupHandler(
     public async Task<SelfServiceResult> Handle(UpdatePermissionGroupCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        await rbacService.UpdatePermissionGroupAsync(request.GroupId, request.Name, request.Description, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.PermissionGroupsEdit, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        var existingGroup = await rbacService.GetPermissionGroupDetailAsync(request.GroupId, ct);
+        try
+        {
+            await rbacService.UpdatePermissionGroupAsync(request.GroupId, request.Name, request.Description, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("PERMISSION_GROUP_UPDATE_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminPermissionGroupUpdated, request.ActorId, null, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success, null,
-            System.Text.Json.JsonSerializer.Serialize(new { request.GroupId })));
+            JsonSerializer.Serialize(new
+            {
+                request.GroupId,
+                previousName = existingGroup?.Name,
+                newName = request.Name,
+                previousDescription = existingGroup?.Description,
+                newDescription = request.Description
+            })));
 
         return SelfServiceResult.Ok(request.GroupId.ToString());
     }
@@ -746,13 +895,28 @@ public sealed class DeletePermissionGroupHandler(
     public async Task<SelfServiceResult> Handle(DeletePermissionGroupCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        await rbacService.DeletePermissionGroupAsync(request.GroupId, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.PermissionGroupsDelete, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        var existingGroup = await rbacService.GetPermissionGroupDetailAsync(request.GroupId, ct);
+        try
+        {
+            await rbacService.DeletePermissionGroupAsync(request.GroupId, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("PERMISSION_GROUP_DELETE_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminPermissionGroupDeleted, request.ActorId, null, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success, null,
-            System.Text.Json.JsonSerializer.Serialize(new { request.GroupId })));
+            JsonSerializer.Serialize(new
+            {
+                request.GroupId,
+                groupName = existingGroup?.Name,
+                permissionKeys = existingGroup?.PermissionKeys
+            })));
 
         logger.LogInformation("Permission group {GroupId} deleted by {ActorId}.", request.GroupId, request.ActorId);
         return SelfServiceResult.Ok(request.GroupId.ToString());
@@ -766,14 +930,44 @@ public sealed class AssignGroupPermissionsHandler(
     public async Task<SelfServiceResult> Handle(AssignGroupPermissionsCommand request, CancellationToken ct)
     {
         var correlationId = request.CorrelationId ?? Guid.NewGuid().ToString("N");
-
-        await rbacService.AssignGroupPermissionsAsync(request.GroupId, request.PermissionKeys, ct);
+        var authorizationFailure = await RbacCommandAuthorization.EnsureAsync(rbacService, request.ActorId, PermissionCatalog.PermissionGroupsEdit, ct);
+        if (authorizationFailure is not null)
+            return authorizationFailure;
+        var existingGroup = await rbacService.GetPermissionGroupDetailAsync(request.GroupId, ct);
+        try
+        {
+            await rbacService.AssignGroupPermissionsAsync(request.GroupId, request.PermissionKeys, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return SelfServiceResult.Fail("PERMISSION_GROUP_ASSIGN_PERMISSIONS_FAILED", exception.Message);
+        }
 
         auditWriter.TryWrite(AuditRecord.Create(
             AuditAction.AdminPermissionGroupUpdated, request.ActorId, null, correlationId,
             request.IpAddress, request.UserAgent, AuditOutcome.Success, null,
-            System.Text.Json.JsonSerializer.Serialize(new { request.GroupId, request.PermissionKeys })));
+            JsonSerializer.Serialize(new
+            {
+                request.GroupId,
+                previousPermissionKeys = existingGroup?.PermissionKeys,
+                newPermissionKeys = request.PermissionKeys
+            })));
 
         return SelfServiceResult.Ok(request.GroupId.ToString());
+    }
+}
+
+internal static class RbacCommandAuthorization
+{
+    public static async Task<SelfServiceResult?> EnsureAsync(IRbacService rbacService, string actorId, string permissionKey, CancellationToken ct)
+    {
+        if (await rbacService.IsSuperAdminAsync(actorId, ct))
+        {
+            return null;
+        }
+
+        return await rbacService.UserHasPermissionAsync(actorId, permissionKey, ct)
+            ? null
+            : SelfServiceResult.Fail("INSUFFICIENT_PERMISSIONS", $"The current admin account requires '{permissionKey}' to perform this action.");
     }
 }

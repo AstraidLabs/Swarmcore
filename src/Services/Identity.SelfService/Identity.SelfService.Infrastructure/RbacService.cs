@@ -14,6 +14,8 @@ public sealed class RbacService(
     UserManager<IdentityUser> userManager,
     RoleManager<IdentityRole> roleManager) : IRbacService
 {
+    private const string PermissionSnapshotStateKey = "permission_snapshot";
+
     // ─── Permission Resolution ──────────────────────────────────────────────
 
     public async Task<IReadOnlySet<string>> GetEffectivePermissionsAsync(string userId, CancellationToken ct)
@@ -85,6 +87,20 @@ public sealed class RbacService(
         if (user is null) return false;
         var roles = await userManager.GetRolesAsync(user);
         return roles.Contains(DomainSystemRoleNames.SuperAdmin, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<long> GetPermissionSnapshotVersionAsync(CancellationToken ct)
+    {
+        var state = await EnsurePermissionSnapshotStateAsync(ct);
+        return state.Version;
+    }
+
+    public async Task InvalidatePermissionSnapshotAsync(CancellationToken ct)
+    {
+        var state = await EnsurePermissionSnapshotStateAsync(ct);
+        state.Version++;
+        state.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
     }
 
     // ─── Admin User Management ──────────────────────────────────────────────
@@ -318,6 +334,7 @@ public sealed class RbacService(
             UpdatedAtUtc = now
         });
         await db.SaveChangesAsync(ct);
+        await InvalidatePermissionSnapshotAsync(ct);
 
         return role.Id;
     }
@@ -331,6 +348,7 @@ public sealed class RbacService(
         metadata.Priority = priority;
         metadata.UpdatedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await InvalidatePermissionSnapshotAsync(ct);
     }
 
     public async Task DeleteRoleAsync(string roleId, CancellationToken ct)
@@ -357,6 +375,8 @@ public sealed class RbacService(
         var deleteResult = await roleManager.DeleteAsync(role);
         if (!deleteResult.Succeeded)
             throw new InvalidOperationException($"Failed to delete role: {string.Join(", ", deleteResult.Errors.Select(e => e.Description))}");
+
+        await InvalidatePermissionSnapshotAsync(ct);
     }
 
     public async Task AssignRolePermissionGroupsAsync(string roleId, IReadOnlyList<Guid> permissionGroupIds, CancellationToken ct)
@@ -370,6 +390,7 @@ public sealed class RbacService(
         }
 
         await db.SaveChangesAsync(ct);
+        await InvalidatePermissionSnapshotAsync(ct);
     }
 
     public async Task AssignRoleDirectPermissionsAsync(string roleId, IReadOnlyList<string> permissionKeys, CancellationToken ct)
@@ -387,6 +408,7 @@ public sealed class RbacService(
         }
 
         await db.SaveChangesAsync(ct);
+        await InvalidatePermissionSnapshotAsync(ct);
     }
 
     // ─── Permission Group Management ────────────────────────────────────────
@@ -459,6 +481,7 @@ public sealed class RbacService(
 
         db.PermissionGroups.Add(entity);
         await db.SaveChangesAsync(ct);
+        await InvalidatePermissionSnapshotAsync(ct);
 
         return entity.Id;
     }
@@ -472,6 +495,7 @@ public sealed class RbacService(
         group.Description = description;
         group.UpdatedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await InvalidatePermissionSnapshotAsync(ct);
     }
 
     public async Task DeletePermissionGroupAsync(Guid groupId, CancellationToken ct)
@@ -490,6 +514,7 @@ public sealed class RbacService(
 
         db.PermissionGroups.Remove(group);
         await db.SaveChangesAsync(ct);
+        await InvalidatePermissionSnapshotAsync(ct);
     }
 
     public async Task AssignGroupPermissionsAsync(Guid groupId, IReadOnlyList<string> permissionKeys, CancellationToken ct)
@@ -511,6 +536,7 @@ public sealed class RbacService(
         }
 
         await db.SaveChangesAsync(ct);
+        await InvalidatePermissionSnapshotAsync(ct);
     }
 
     // ─── Permission Catalog ─────────────────────────────────────────────────
@@ -550,5 +576,25 @@ public sealed class RbacService(
         }
 
         return activeSuperAdminCount <= 1;
+    }
+
+    private async Task<RbacStateEntity> EnsurePermissionSnapshotStateAsync(CancellationToken ct)
+    {
+        var state = await db.RbacStates.FirstOrDefaultAsync(entry => entry.Key == PermissionSnapshotStateKey, ct);
+        if (state is not null)
+        {
+            return state;
+        }
+
+        state = new RbacStateEntity
+        {
+            Key = PermissionSnapshotStateKey,
+            Version = 1,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        };
+
+        db.RbacStates.Add(state);
+        await db.SaveChangesAsync(ct);
+        return state;
     }
 }

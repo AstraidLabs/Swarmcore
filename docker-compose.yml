@@ -14,7 +14,7 @@ services:
       retries: 12
     networks:
       beetracker:
-        ipv4_address: 172.29.0.2
+        ipv4_address: 172.30.0.2
 
   redis:
     image: redis:7.4
@@ -25,7 +25,7 @@ services:
       retries: 12
     networks:
       beetracker:
-        ipv4_address: 172.29.0.3
+        ipv4_address: 172.30.0.3
 
   tracker-gateway:
     build:
@@ -37,7 +37,7 @@ services:
       BeeTracker__Redis__Configuration: redis:6379
       BeeTracker__TrackerNode__NodeId: gateway-node-1
       BeeTracker__TrackerNode__Region: local-compose
-      BeeTracker__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
+      BeeTracker__TrustedProxy__KnownNetworks__0: 172.30.0.0/24
       BeeTracker__StartupBootstrap__MaxAttempts: 30
       BeeTracker__StartupBootstrap__RetryDelaySeconds: 2
       BeeTracker__UdpTracker__Enabled: "true"
@@ -52,13 +52,13 @@ services:
       - postgres
       - redis
     healthcheck:
-      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/health/ready || exit 1"]
+      test: ["CMD-SHELL", "curl --fail --silent -H 'Host: ${TRACKER_DOMAIN:-tracker.example.com}' http://localhost:8080/health/ready || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
     networks:
       beetracker:
-        ipv4_address: 172.29.0.10
+        ipv4_address: 172.30.0.10
 
   configuration-service:
     build:
@@ -77,16 +77,16 @@ services:
       - redis
     networks:
       beetracker:
-        ipv4_address: 172.29.0.11
+        ipv4_address: 172.30.0.11
 
   smtp4dev:
-    image: rnwood/smtp4dev:3
+    image: rnwood/smtp4dev:latest
     ports:
       - "5000:80"
       - "2525:25"
     networks:
       beetracker:
-        ipv4_address: 172.29.0.4
+        ipv4_address: 172.30.0.4
 
   admin-service:
     build:
@@ -98,7 +98,7 @@ services:
       BeeTracker__Redis__Configuration: redis:6379
       BeeTracker__TrackerNode__NodeId: admin-node-1
       BeeTracker__TrackerNode__Region: local-compose
-      BeeTracker__TrustedProxy__KnownNetworks__0: 172.29.0.0/24
+      BeeTracker__TrustedProxy__KnownNetworks__0: 172.30.0.0/24
       BeeTracker__StartupBootstrap__MaxAttempts: 30
       BeeTracker__StartupBootstrap__RetryDelaySeconds: 2
       BeeTracker__AdminIdentity__DisableTransportSecurityRequirement: "false"
@@ -118,13 +118,13 @@ services:
       - redis
       - smtp4dev
     healthcheck:
-      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/health/ready || exit 1"]
+      test: ["CMD-SHELL", "curl --fail --silent -H 'Host: ${ADMIN_DOMAIN:-admin.example.com}' http://localhost:8080/health/ready || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
     networks:
       beetracker:
-        ipv4_address: 172.29.0.12
+        ipv4_address: 172.30.0.12
 
   cache-coordinator:
     build:
@@ -140,7 +140,7 @@ services:
       - redis
     networks:
       beetracker:
-        ipv4_address: 172.29.0.13
+        ipv4_address: 172.30.0.13
 
   telemetry-ingest:
     build:
@@ -156,7 +156,7 @@ services:
       - postgres
     networks:
       beetracker:
-        ipv4_address: 172.29.0.14
+        ipv4_address: 172.30.0.14
 
   nginx:
     image: nginx:1.29-alpine
@@ -181,7 +181,7 @@ services:
       - certbot-www:/var/www/certbot:ro
     networks:
       beetracker:
-        ipv4_address: 172.29.0.20
+        ipv4_address: 172.30.0.20
 
   certbot:
     image: certbot/certbot:latest
@@ -196,7 +196,7 @@ services:
         done"
     networks:
       beetracker:
-        ipv4_address: 172.29.0.21
+        ipv4_address: 172.30.0.21
 
 volumes:
   postgres-data:
@@ -208,4 +208,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.29.0.0/24
+        - subnet: 172.30.0.0/24

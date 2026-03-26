@@ -45,6 +45,7 @@ public sealed record PasskeyAccessDto(
     DateTimeOffset? ExpiresAtUtc,
     long Version);
 
+[Obsolete("Use TrackerAccessRightsDto. UserPermissionSnapshotDto is a compatibility alias and will be removed in a future release.")]
 public sealed record UserPermissionSnapshotDto(
     Guid UserId,
     bool CanLeech,
@@ -128,6 +129,7 @@ public sealed record BulkPasskeyRotateItem(
     DateTimeOffset? ExpiresAtUtc = null,
     long? ExpectedVersion = null);
 
+[Obsolete("Use TrackerAccessRightsUpsertRequest. UserPermissionUpsertRequest is a compatibility alias and will be removed in a future release.")]
 public sealed record UserPermissionUpsertRequest(
     bool CanLeech,
     bool CanSeed,
@@ -135,6 +137,7 @@ public sealed record UserPermissionUpsertRequest(
     bool CanUsePrivateTracker,
     long? ExpectedVersion = null);
 
+[Obsolete("Use BulkTrackerAccessRightsUpsertItem. BulkUserPermissionUpsertItem is a compatibility alias and will be removed in a future release.")]
 public sealed record BulkUserPermissionUpsertItem(
     Guid UserId,
     bool CanLeech,

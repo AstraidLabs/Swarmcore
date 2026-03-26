@@ -93,6 +93,20 @@ public interface IAccessSnapshotProvider
 {
     ValueTask<TorrentPolicyDto?> GetTorrentPolicyAsync(string infoHashHex, CancellationToken cancellationToken);
     ValueTask<PasskeyAccessDto?> GetPasskeyAsync(string passkey, CancellationToken cancellationToken);
-    ValueTask<UserPermissionSnapshotDto?> GetUserPermissionAsync(Guid userId, CancellationToken cancellationToken);
+    ValueTask<TrackerAccessRightsDto?> GetTrackerAccessRightsAsync(Guid userId, CancellationToken cancellationToken);
     ValueTask<BanRuleDto?> GetBanRuleAsync(string scope, string subject, CancellationToken cancellationToken);
 }
+
+#pragma warning disable CS0618
+public static class AccessSnapshotProviderExtensions
+{
+    public static async ValueTask<UserPermissionSnapshotDto?> GetUserPermissionAsync(
+        this IAccessSnapshotProvider provider,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var rights = await provider.GetTrackerAccessRightsAsync(userId, cancellationToken);
+        return rights?.ToSnapshot();
+    }
+}
+#pragma warning restore CS0618

@@ -20,6 +20,7 @@ public sealed class RbacSeedService(
         await SeedSystemRolesAsync(db, roleManager, cancellationToken);
         await SeedSystemPermissionGroupsAsync(db, cancellationToken);
         await SeedDefaultRolePermissionsAsync(db, roleManager, cancellationToken);
+        await EnsurePermissionSnapshotStateAsync(db, cancellationToken);
 
         logger.LogInformation("RBAC seed completed.");
     }
@@ -121,7 +122,8 @@ public sealed class RbacSeedService(
                 PermissionCatalog.UsersView, PermissionCatalog.UsersCreate, PermissionCatalog.UsersEdit,
                 PermissionCatalog.UsersActivate, PermissionCatalog.UsersDeactivate,
                 PermissionCatalog.UsersAssignRoles, PermissionCatalog.UsersResetPassword,
-                PermissionCatalog.RolesView, PermissionCatalog.PermissionGroupsView,
+                PermissionCatalog.RolesView, PermissionCatalog.RolesAssignPermissions,
+                PermissionCatalog.PermissionGroupsView, PermissionCatalog.PermissionCatalogView,
             }),
             (Name: SystemPermissionGroupNames.TrackerManagement, Description: "Tracker management permissions.", Permissions: new[]
             {
@@ -129,15 +131,16 @@ public sealed class RbacSeedService(
                 PermissionCatalog.TrackerPoliciesView, PermissionCatalog.TrackerPoliciesEdit,
                 PermissionCatalog.BansView, PermissionCatalog.BansManage,
                 PermissionCatalog.PasskeysView, PermissionCatalog.PasskeysRegenerate,
-                PermissionCatalog.NodesView, PermissionCatalog.StatsView,
+                PermissionCatalog.TrackerAccessView, PermissionCatalog.TrackerAccessManage,
+                PermissionCatalog.NodesView, PermissionCatalog.StatsView, PermissionCatalog.MaintenanceExecute,
             }),
             (Name: SystemPermissionGroupNames.ReadOnly, Description: "Read-only access.", Permissions: new[]
             {
                 PermissionCatalog.DashboardView, PermissionCatalog.ProfileView,
                 PermissionCatalog.UsersView, PermissionCatalog.RolesView,
-                PermissionCatalog.PermissionGroupsView, PermissionCatalog.AuditView,
+                PermissionCatalog.PermissionGroupsView, PermissionCatalog.PermissionCatalogView, PermissionCatalog.AuditView,
                 PermissionCatalog.TorrentsView, PermissionCatalog.TrackerPoliciesView,
-                PermissionCatalog.BansView, PermissionCatalog.PasskeysView,
+                PermissionCatalog.BansView, PermissionCatalog.PasskeysView, PermissionCatalog.TrackerAccessView,
                 PermissionCatalog.NodesView, PermissionCatalog.StatsView,
                 PermissionCatalog.SystemSettingsView,
             }),
@@ -230,5 +233,23 @@ public sealed class RbacSeedService(
 
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Seeded default role permissions.");
+    }
+
+    private static async Task EnsurePermissionSnapshotStateAsync(SelfServiceDbContext db, CancellationToken ct)
+    {
+        var state = await db.RbacStates.FirstOrDefaultAsync(entry => entry.Key == "permission_snapshot", ct);
+        if (state is not null)
+        {
+            return;
+        }
+
+        db.RbacStates.Add(new RbacStateEntity
+        {
+            Key = "permission_snapshot",
+            Version = 1,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        await db.SaveChangesAsync(ct);
     }
 }

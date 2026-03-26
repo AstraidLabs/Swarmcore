@@ -14,41 +14,68 @@ public static class RbacEndpoints
         var rbac = app.MapGroup("/api/admin/rbac").RequireAuthorization();
 
         // ─── Profile ────────────────────────────────────────────────────
-        rbac.MapGet("/profile", HandleGetProfileAsync);
-        rbac.MapPut("/profile", HandleUpdateProfileAsync);
-        rbac.MapPost("/profile/change-email", HandleChangeEmailAsync);
+        rbac.MapGet("/profile", HandleGetProfileAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.ProfileView));
+        rbac.MapPut("/profile", HandleUpdateProfileAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.ProfileEdit));
+        rbac.MapPost("/profile/change-email", HandleChangeEmailAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.ProfileEdit));
 
         // ─── Admin Users ────────────────────────────────────────────────
-        rbac.MapGet("/users", HandleListUsersAsync);
-        rbac.MapGet("/users/{userId}", HandleGetUserDetailAsync);
-        rbac.MapPost("/users", HandleCreateUserAsync);
-        rbac.MapPut("/users/{userId}", HandleUpdateUserAsync);
-        rbac.MapPut("/users/{userId}/roles", HandleAssignRolesAsync);
-        rbac.MapPost("/users/{userId}/reset-password", HandleResetPasswordAsync);
-        rbac.MapPost("/users/{userId}/activate", HandleActivateAccountAsync);
-        rbac.MapPost("/users/{userId}/deactivate", HandleDeactivateAccountAsync);
-        rbac.MapPost("/users/{userId}/lock", HandleLockAccountAsync);
-        rbac.MapPost("/users/{userId}/unlock", HandleUnlockAccountAsync);
+        rbac.MapGet("/users", HandleListUsersAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersView));
+        rbac.MapGet("/users/{userId}", HandleGetUserDetailAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersView));
+        rbac.MapPost("/users", HandleCreateUserAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersCreate));
+        rbac.MapPut("/users/{userId}", HandleUpdateUserAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersEdit));
+        rbac.MapPut("/users/{userId}/roles", HandleAssignRolesAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersAssignRoles));
+        rbac.MapPost("/users/{userId}/reset-password", HandleResetPasswordAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersResetPassword));
+        rbac.MapPost("/users/{userId}/activate", HandleActivateAccountAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersActivate));
+        rbac.MapPost("/users/{userId}/deactivate", HandleDeactivateAccountAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersDeactivate));
+        rbac.MapPost("/users/{userId}/lock", HandleLockAccountAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersDeactivate));
+        rbac.MapPost("/users/{userId}/unlock", HandleUnlockAccountAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersActivate));
 
         // ─── Roles ──────────────────────────────────────────────────────
-        rbac.MapGet("/roles", HandleListRolesAsync);
-        rbac.MapGet("/roles/{roleId}", HandleGetRoleDetailAsync);
-        rbac.MapPost("/roles", HandleCreateRoleAsync);
-        rbac.MapPut("/roles/{roleId}", HandleUpdateRoleAsync);
-        rbac.MapDelete("/roles/{roleId}", HandleDeleteRoleAsync);
-        rbac.MapPut("/roles/{roleId}/permission-groups", HandleAssignRolePermissionGroupsAsync);
-        rbac.MapPut("/roles/{roleId}/permissions", HandleAssignRoleDirectPermissionsAsync);
+        rbac.MapGet("/roles", HandleListRolesAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesView));
+        rbac.MapGet("/roles/{roleId}", HandleGetRoleDetailAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesView));
+        rbac.MapPost("/roles", HandleCreateRoleAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesCreate));
+        rbac.MapPut("/roles/{roleId}", HandleUpdateRoleAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesEdit));
+        rbac.MapDelete("/roles/{roleId}", HandleDeleteRoleAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesDelete));
+        rbac.MapPut("/roles/{roleId}/permission-groups", HandleAssignRolePermissionGroupsAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesAssignPermissions));
+        rbac.MapPut("/roles/{roleId}/permissions", HandleAssignRoleDirectPermissionsAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesAssignPermissions));
 
         // ─── Permission Groups ──────────────────────────────────────────
-        rbac.MapGet("/permission-groups", HandleListPermissionGroupsAsync);
-        rbac.MapGet("/permission-groups/{groupId:guid}", HandleGetPermissionGroupDetailAsync);
-        rbac.MapPost("/permission-groups", HandleCreatePermissionGroupAsync);
-        rbac.MapPut("/permission-groups/{groupId:guid}", HandleUpdatePermissionGroupAsync);
-        rbac.MapDelete("/permission-groups/{groupId:guid}", HandleDeletePermissionGroupAsync);
-        rbac.MapPut("/permission-groups/{groupId:guid}/permissions", HandleAssignGroupPermissionsAsync);
+        rbac.MapGet("/permission-groups", HandleListPermissionGroupsAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsView));
+        rbac.MapGet("/permission-groups/{groupId:guid}", HandleGetPermissionGroupDetailAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsView));
+        rbac.MapPost("/permission-groups", HandleCreatePermissionGroupAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsCreate));
+        rbac.MapPut("/permission-groups/{groupId:guid}", HandleUpdatePermissionGroupAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsEdit));
+        rbac.MapDelete("/permission-groups/{groupId:guid}", HandleDeletePermissionGroupAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsDelete));
+        rbac.MapPut("/permission-groups/{groupId:guid}/permissions", HandleAssignGroupPermissionsAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsEdit));
 
         // ─── Permissions Catalog ────────────────────────────────────────
-        rbac.MapGet("/permissions", HandleListPermissionsAsync);
+        rbac.MapGet("/permissions", HandleListPermissionsAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionCatalogView));
 
         return rbac;
     }
@@ -452,7 +479,8 @@ public static class RbacEndpoints
     // ─── Helpers ────────────────────────────────────────────────────────────
 
     private static string? GetUserId(HttpContext httpContext)
-        => httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        => httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.User.FindFirstValue(OpenIddict.Abstractions.OpenIddictConstants.Claims.Subject);
 
     private static string? GetIpAddress(HttpContext httpContext)
         => httpContext.Connection.RemoteIpAddress?.ToString();

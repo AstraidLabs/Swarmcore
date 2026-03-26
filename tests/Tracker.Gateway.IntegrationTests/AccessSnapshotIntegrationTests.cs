@@ -16,6 +16,7 @@ using Tracker.Gateway.Infrastructure;
 
 namespace Tracker.Gateway.IntegrationTests;
 
+#pragma warning disable CS0618
 public sealed class AccessSnapshotIntegrationTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder("postgres:17")
@@ -272,3 +273,4 @@ public sealed class AccessSnapshotIntegrationTests : IAsyncLifetime
         throw new TimeoutException("Condition was not met within the allotted time.");
     }
 }
+#pragma warning restore CS0618

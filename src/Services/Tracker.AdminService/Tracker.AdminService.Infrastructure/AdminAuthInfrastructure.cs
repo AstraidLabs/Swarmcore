@@ -9,6 +9,9 @@ using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using OpenIddict.EntityFrameworkCore;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.Contracts.Identity;
+using Identity.SelfService.Domain;
+using Identity.SelfService.Infrastructure;
 using Tracker.AdminService.Application;
 
 namespace Tracker.AdminService.Infrastructure;
@@ -43,6 +46,9 @@ public sealed class AdminIdentitySeedService(
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
         var applicationManager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+        var selfServiceDb = scope.ServiceProvider.GetRequiredService<SelfServiceDbContext>();
+
+        var permissionSnapshotChanged = false;
 
         foreach (var bootstrapUser in _options.Value.BootstrapUsers)
         {
@@ -99,6 +105,8 @@ public sealed class AdminIdentitySeedService(
                 {
                     throw new InvalidOperationException($"Failed to remove role '{currentRole}' from bootstrap user '{bootstrapUser.UserName}'.");
                 }
+
+                permissionSnapshotChanged = true;
             }
 
             if (!currentRoles.Contains(normalizedRole, StringComparer.OrdinalIgnoreCase))
@@ -108,6 +116,8 @@ public sealed class AdminIdentitySeedService(
                 {
                     throw new InvalidOperationException($"Failed to assign role '{normalizedRole}' to bootstrap user '{bootstrapUser.UserName}'.");
                 }
+
+                permissionSnapshotChanged = true;
             }
 
             var currentClaims = await userManager.GetClaimsAsync(user);
@@ -118,15 +128,45 @@ public sealed class AdminIdentitySeedService(
                 {
                     throw new InvalidOperationException($"Failed to remove permission claim '{claim.Value}' from bootstrap user '{bootstrapUser.UserName}'.");
                 }
+
+                permissionSnapshotChanged = true;
             }
 
             foreach (var permission in bootstrapUser.Permissions.Where(static permission => !string.IsNullOrWhiteSpace(permission)).Distinct(StringComparer.OrdinalIgnoreCase))
             {
+                if (!AdminPermissionCatalog.All.Any(definition => string.Equals(definition.Key, permission, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException($"Bootstrap admin user '{bootstrapUser.UserName}' declares unknown permission '{permission}'. Use a permission key from the central admin permission catalog.");
+                }
+
                 var addClaim = await userManager.AddClaimAsync(user, new System.Security.Claims.Claim(AdminClaimTypes.Permission, permission));
                 if (!addClaim.Succeeded)
                 {
                     throw new InvalidOperationException($"Failed to assign permission '{permission}' to bootstrap user '{bootstrapUser.UserName}'.");
                 }
+
+                permissionSnapshotChanged = true;
+            }
+
+            var displayName = string.IsNullOrWhiteSpace(bootstrapUser.UserName)
+                ? user.UserName ?? user.Id
+                : bootstrapUser.UserName.Trim();
+            await EnsureBootstrapProfileAsync(selfServiceDb, user.Id, displayName, cancellationToken);
+            await EnsureBootstrapAccountStateAsync(selfServiceDb, user.Id, cancellationToken);
+        }
+
+        await selfServiceDb.SaveChangesAsync(cancellationToken);
+
+        if (permissionSnapshotChanged)
+        {
+            var snapshotState = await selfServiceDb.RbacStates.FirstOrDefaultAsync(
+                static state => state.Key == "permission_snapshot",
+                cancellationToken);
+            if (snapshotState is not null)
+            {
+                snapshotState.Version++;
+                snapshotState.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                await selfServiceDb.SaveChangesAsync(cancellationToken);
             }
         }
 
@@ -208,6 +248,81 @@ public sealed class AdminIdentitySeedService(
             existingDescriptor.Requirements.UnionWith(descriptor.Requirements);
 
             await applicationManager.UpdateAsync(existingApplication, existingDescriptor, cancellationToken);
+        }
+    }
+
+    private static async Task EnsureBootstrapProfileAsync(
+        SelfServiceDbContext selfServiceDb,
+        string userId,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var profile = selfServiceDb.AdminUserProfiles.Local.FirstOrDefault(entity => entity.UserId == userId)
+            ?? await selfServiceDb.AdminUserProfiles.FirstOrDefaultAsync(
+                entity => entity.UserId == userId,
+                cancellationToken);
+
+        if (profile is null)
+        {
+            selfServiceDb.AdminUserProfiles.Add(new AdminUserProfileEntity
+            {
+                UserId = userId,
+                DisplayName = displayName,
+                IsActive = true,
+                TimeZone = "UTC",
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            });
+            return;
+        }
+
+        var profileChanged = false;
+        if (string.IsNullOrWhiteSpace(profile.DisplayName))
+        {
+            profile.DisplayName = displayName;
+            profileChanged = true;
+        }
+
+        if (!profile.IsActive)
+        {
+            profile.IsActive = true;
+            profileChanged = true;
+        }
+
+        if (profileChanged)
+        {
+            profile.UpdatedAtUtc = now;
+        }
+    }
+
+    private static async Task EnsureBootstrapAccountStateAsync(
+        SelfServiceDbContext selfServiceDb,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var accountState = selfServiceDb.AdminAccountStates.Local.FirstOrDefault(entity => entity.UserId == userId)
+            ?? await selfServiceDb.AdminAccountStates.FirstOrDefaultAsync(
+                entity => entity.UserId == userId,
+                cancellationToken);
+
+        if (accountState is null)
+        {
+            selfServiceDb.AdminAccountStates.Add(new AdminAccountStateEntity
+            {
+                UserId = userId,
+                State = Identity.SelfService.Domain.AdminAccountState.Active.ToString(),
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            });
+            return;
+        }
+
+        if (!string.Equals(accountState.State, Identity.SelfService.Domain.AdminAccountState.Active.ToString(), StringComparison.Ordinal))
+        {
+            accountState.State = Identity.SelfService.Domain.AdminAccountState.Active.ToString();
+            accountState.UpdatedAtUtc = now;
         }
     }
 }

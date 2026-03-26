@@ -5,6 +5,8 @@
     <ProjectReference Include="..\Tracker.AdminService.Application\Tracker.AdminService.Application.csproj" />
     <ProjectReference Include="..\..\Tracker.ConfigurationService\Tracker.ConfigurationService.Application\Tracker.ConfigurationService.Application.csproj" />
     <ProjectReference Include="..\..\Tracker.ConfigurationService\Tracker.ConfigurationService.Infrastructure\Tracker.ConfigurationService.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Identity.SelfService\Identity.SelfService.Domain\Identity.SelfService.Domain.csproj" />
+    <ProjectReference Include="..\..\Identity.SelfService\Identity.SelfService.Infrastructure\Identity.SelfService.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Admin\BeeTracker.Contracts.Admin.csproj" />
     <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Runtime\BeeTracker.Contracts.Runtime.csproj" />
     <ProjectReference Include="..\..\..\Shared\BeeTracker.Caching.Redis\BeeTracker.Caching.Redis.csproj" />

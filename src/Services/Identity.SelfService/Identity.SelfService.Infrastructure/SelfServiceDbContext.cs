@@ -16,6 +16,7 @@ public sealed class SelfServiceDbContext(DbContextOptions<SelfServiceDbContext> 
     public DbSet<RolePermissionGroupEntity> RolePermissionGroups => Set<RolePermissionGroupEntity>();
     public DbSet<RolePermissionEntity> RolePermissions => Set<RolePermissionEntity>();
     public DbSet<RoleMetadataEntity> RoleMetadata => Set<RoleMetadataEntity>();
+    public DbSet<RbacStateEntity> RbacStates => Set<RbacStateEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -123,6 +124,15 @@ public sealed class SelfServiceDbContext(DbContextOptions<SelfServiceDbContext> 
             entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
             entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc");
         });
+
+        modelBuilder.Entity<RbacStateEntity>(entity =>
+        {
+            entity.ToTable("rbac_state");
+            entity.HasKey(e => e.Key);
+            entity.Property(e => e.Key).HasColumnName("key").HasMaxLength(128);
+            entity.Property(e => e.Version).HasColumnName("version");
+            entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc");
+        });
     }
 }
 
@@ -204,6 +214,13 @@ public sealed class RoleMetadataEntity
     public bool IsSystemRole { get; set; }
     public int Priority { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
+public sealed class RbacStateEntity
+{
+    public string Key { get; set; } = string.Empty;
+    public long Version { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 

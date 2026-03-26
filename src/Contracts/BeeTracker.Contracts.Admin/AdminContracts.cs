@@ -95,7 +95,17 @@ public sealed record PasskeyAdminDto(
     DateTimeOffset? ExpiresAtUtc,
     long Version);
 
+#pragma warning disable CS0618
+[Obsolete("Use TrackerAccessAdminDto. UserPermissionAdminDto is a compatibility alias and will be removed in a future release.")]
 public sealed record UserPermissionAdminDto(
+    Guid UserId,
+    bool CanLeech,
+    bool CanSeed,
+    bool CanScrape,
+    bool CanUsePrivateTracker,
+    long Version);
+
+public sealed record TrackerAccessAdminDto(
     Guid UserId,
     bool CanLeech,
     bool CanSeed,
@@ -117,7 +127,8 @@ public sealed record BulkOperationResultDto(
     IReadOnlyCollection<BulkPasskeyOperationItemDto> PasskeyItems,
     IReadOnlyCollection<BulkTorrentOperationItemDto> TorrentItems,
     IReadOnlyCollection<BulkUserPermissionOperationItemDto> PermissionItems,
-    IReadOnlyCollection<BulkBanOperationItemDto> BanItems);
+    IReadOnlyCollection<BulkBanOperationItemDto> BanItems,
+    IReadOnlyCollection<BulkTrackerAccessOperationItemDto>? TrackerAccessItems = null);
 
 public sealed record BulkDryRunResultDto(
     int TotalCount,
@@ -134,12 +145,20 @@ public sealed record BulkPasskeyOperationItemDto(
     string? NewPasskey,
     string? NewPasskeyMask);
 
+[Obsolete("Use BulkTrackerAccessOperationItemDto. BulkUserPermissionOperationItemDto is a compatibility alias and will be removed in a future release.")]
 public sealed record BulkUserPermissionOperationItemDto(
     Guid UserId,
     bool Succeeded,
     string? ErrorCode,
     string? ErrorMessage,
     UserPermissionAdminDto? Snapshot);
+
+public sealed record BulkTrackerAccessOperationItemDto(
+    Guid UserId,
+    bool Succeeded,
+    string? ErrorCode,
+    string? ErrorMessage,
+    TrackerAccessAdminDto? Snapshot);
 
 public sealed record BulkTorrentOperationItemDto(
     string InfoHash,
@@ -165,8 +184,46 @@ public sealed record BulkBanOperationItemDto(
     string? ErrorMessage,
     BanRuleAdminDto? Snapshot);
 
+public static class TrackerAccessAdminContractConversions
+{
+    public static TrackerAccessAdminDto ToTrackerAccessAdminDto(this UserPermissionAdminDto permission)
+        => new(
+            permission.UserId,
+            permission.CanLeech,
+            permission.CanSeed,
+            permission.CanScrape,
+            permission.CanUsePrivateTracker,
+            permission.Version);
+
+    public static BulkTrackerAccessOperationItemDto ToTrackerAccessOperationItem(this BulkUserPermissionOperationItemDto item)
+        => new(
+            item.UserId,
+            item.Succeeded,
+            item.ErrorCode,
+            item.ErrorMessage,
+            item.Snapshot?.ToTrackerAccessAdminDto());
+
+    public static UserPermissionAdminDto ToUserPermissionAdminDto(this TrackerAccessAdminDto permission)
+        => new(
+            permission.UserId,
+            permission.CanLeech,
+            permission.CanSeed,
+            permission.CanScrape,
+            permission.CanUsePrivateTracker,
+            permission.Version);
+
+    public static BulkUserPermissionOperationItemDto ToUserPermissionOperationItem(this BulkTrackerAccessOperationItemDto item)
+        => new(
+            item.UserId,
+            item.Succeeded,
+            item.ErrorCode,
+            item.ErrorMessage,
+            item.Snapshot?.ToUserPermissionAdminDto());
+}
+
 // ─── Governance Diagnostics ─────────────────────────────────────────────────
 
+#pragma warning restore CS0618
 public sealed record GovernanceStateDto(
     bool AnnounceDisabled,
     bool ScrapeDisabled,

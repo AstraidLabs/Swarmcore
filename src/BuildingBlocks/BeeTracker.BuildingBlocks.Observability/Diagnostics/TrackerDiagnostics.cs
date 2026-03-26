@@ -66,6 +66,8 @@ public static class TrackerDiagnostics
     // ─── Compatibility ───────────────────────────────────────────────────────
     public static readonly Counter<long> CompatibilityFallback = Meter.CreateCounter<long>("tracker.compatibility.fallback");
     public static readonly Counter<long> CompatibilityWarningIssued = Meter.CreateCounter<long>("tracker.compatibility.warning_issued");
+    public static readonly Counter<long> AdminLegacyTrackerAccessAliasHit = Meter.CreateCounter<long>("tracker.admin.legacy_tracker_access_alias.hit");
+    public static readonly Counter<long> ConfigurationLegacyTrackerAccessAliasHit = Meter.CreateCounter<long>("tracker.configuration.legacy_tracker_access_alias.hit");
     public static readonly Counter<long> StrictnessRejected = Meter.CreateCounter<long>("tracker.strictness.rejected");
     public static readonly Counter<long> StrictnessClamped = Meter.CreateCounter<long>("tracker.strictness.clamped");
 

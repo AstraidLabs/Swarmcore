@@ -11,6 +11,7 @@ import {
 } from "react-router-dom";
 import { User, UserManager, WebStorageStateStore } from "oidc-client-ts";
 import { type I18nDictionary, supportedLocales, useI18n } from "./i18n";
+import { AdminUsersPage, PermissionGate, PermissionGroupsPage, ProfilePage, RolesPage, hasPermission, permissionKeys } from "./rbac";
 
 type AdminUiConfig = {
   authority: string;
@@ -63,7 +64,7 @@ type BanRuleAdminDto = {
   version: number;
 };
 
-type UserPermissionAdminDto = {
+type TrackerAccessAdminDto = {
   userId: string;
   canLeech: boolean;
   canSeed: boolean;
@@ -118,7 +119,8 @@ type BulkOperationResultDto = {
   succeededCount: number;
   failedCount: number;
   passkeyItems: BulkPasskeyOperationItemDto[];
-  permissionItems: BulkUserPermissionOperationItemDto[];
+  permissionItems: BulkTrackerAccessOperationItemDto[];
+  trackerAccessItems?: BulkTrackerAccessOperationItemDto[] | null;
   torrentItems: BulkTorrentOperationItemDto[];
   banItems: BulkBanOperationItemDto[];
 };
@@ -142,12 +144,12 @@ type BulkBanOperationItemDto = {
   snapshot?: BanRuleAdminDto | null;
 };
 
-type BulkUserPermissionOperationItemDto = {
+type BulkTrackerAccessOperationItemDto = {
   userId: string;
   succeeded: boolean;
   errorCode?: string | null;
   errorMessage?: string | null;
-  snapshot?: UserPermissionAdminDto | null;
+  snapshot?: TrackerAccessAdminDto | null;
 };
 
 type BulkTorrentOperationItemDto = {
@@ -182,7 +184,7 @@ type BanFormState = {
   expectedVersion?: number;
 };
 
-type PermissionFormState = {
+type TrackerAccessFormState = {
   userId: string;
   canLeech: boolean;
   canSeed: boolean;
@@ -455,7 +457,7 @@ function toPolicyForm(snapshot: TorrentAdminDto): TorrentPolicyFormState {
   };
 }
 
-function toPermissionForm(snapshot: UserPermissionAdminDto): PermissionFormState {
+function toTrackerAccessForm(snapshot: TrackerAccessAdminDto): TrackerAccessFormState {
   return {
     userId: snapshot.userId,
     canLeech: snapshot.canLeech,
@@ -781,6 +783,18 @@ function DataGrid<T>({
 
 function getRouteMeta(pathname: string, dictionary: I18nDictionary): { eyebrow: string; title: string; description: string } {
   const routes = dictionary.routes;
+  if (pathname.startsWith("/profile")) {
+    return { eyebrow: "RBAC", title: "Admin profile", description: "Update your admin profile and inspect effective permissions issued into the current session." };
+  }
+  if (pathname.startsWith("/admin-users")) {
+    return { eyebrow: "RBAC", title: "Admin users", description: "Provision admin accounts, assign roles, and enforce account state transitions with auditability." };
+  }
+  if (pathname.startsWith("/roles")) {
+    return { eyebrow: "RBAC", title: "Roles", description: "Manage system and custom roles, attach permission groups, and review effective permissions." };
+  }
+  if (pathname.startsWith("/permission-groups")) {
+    return { eyebrow: "RBAC", title: "Permission groups", description: "Bundle permissions into reusable groups and attach them to roles." };
+  }
   if (pathname.startsWith("/torrents/bulk-policy")) {
     return {
       eyebrow: routes.bulkPolicyEyebrow,
@@ -2229,7 +2243,7 @@ function BansPage({
   );
 }
 
-function PermissionsPage({
+function TrackerAccessPage({
   accessToken,
   onReauthenticate,
   capabilities
@@ -2240,12 +2254,12 @@ function PermissionsPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.permissionsPage;
-  const [items, setItems] = useState<UserPermissionAdminDto[]>([]);
+  const [items, setItems] = useState<TrackerAccessAdminDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<BulkOperationResultDto | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-  const [form, setForm] = useState<PermissionFormState>({
+  const [form, setForm] = useState<TrackerAccessFormState>({
     userId: "",
     canLeech: true,
     canSeed: true,
@@ -2255,9 +2269,10 @@ function PermissionsPage({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const canWrite = hasGrantedCapability(capabilities, "admin.write.permissions");
+  const trackerAccessItems = result?.trackerAccessItems ?? result?.permissionItems ?? [];
 
   const reload = async () => {
-    const value = await apiRequest<UserPermissionAdminDto[]>("/api/admin/permissions?page=1&pageSize=50", accessToken, onReauthenticate);
+    const value = await apiRequest<TrackerAccessAdminDto[]>("/api/admin/tracker-access?page=1&pageSize=50", accessToken, onReauthenticate);
     setItems(value);
     setSelectedUserIds((current) => current.filter((userId) => value.some((item) => item.userId === userId)));
   };
@@ -2276,8 +2291,8 @@ function PermissionsPage({
     };
   }, [accessToken, onReauthenticate]);
 
-  const loadUser = (item: UserPermissionAdminDto) => {
-    setForm(toPermissionForm(item));
+  const loadUser = (item: TrackerAccessAdminDto) => {
+    setForm(toTrackerAccessForm(item));
     setStatus(formatText(labels.loadedStatus, { userId: item.userId }));
     setError(null);
   };
@@ -2294,8 +2309,8 @@ function PermissionsPage({
       setStatus(null);
       setError(null);
       setResult(null);
-      await apiMutation<UserPermissionAdminDto, Omit<PermissionFormState, "userId">>(
-        `/api/admin/users/${encodeURIComponent(form.userId)}/permissions`,
+      await apiMutation<TrackerAccessAdminDto, Omit<TrackerAccessFormState, "userId">>(
+        `/api/admin/users/${encodeURIComponent(form.userId)}/tracker-access`,
         "PUT",
         accessToken,
         {
@@ -2347,7 +2362,7 @@ function PermissionsPage({
           }>;
         }
       >(
-        "/api/admin/users/bulk/permissions",
+        "/api/admin/users/bulk/tracker-access",
         "PUT",
         accessToken,
         { items: selectedItems },
@@ -2370,9 +2385,9 @@ function PermissionsPage({
       <Card title={labels.cardTitle} eyebrow={labels.eyebrow}>
         {error ? <p className="mb-4 text-sm text-ember">{error}</p> : null}
         {status ? <p className="mb-4 text-sm text-moss">{status}</p> : null}
-        {result && result.permissionItems.length > 0 ? (
+        {result && trackerAccessItems.length > 0 ? (
           <div className="mb-4 space-y-2">
-            {result.permissionItems.map((item) => (
+            {trackerAccessItems.map((item) => (
               <div key={item.userId} className="rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-mono text-xs text-ink">{item.userId}</p>
@@ -2383,7 +2398,7 @@ function PermissionsPage({
             ))}
           </div>
         ) : null}
-        <DataGrid<UserPermissionAdminDto>
+        <DataGrid<TrackerAccessAdminDto>
           items={items}
           keyFn={(item) => item.userId}
           emptyMessage={labels.empty}
@@ -2679,14 +2694,18 @@ function Shell({
   const { dictionary } = useI18n();
   const links = useMemo(
     () => [
-      { to: "/", label: dictionary.routes.overviewTitle },
-      { to: "/torrents", label: dictionary.routes.torrentsTitle },
-      { to: "/passkeys", label: dictionary.routes.passkeysTitle },
-      { to: "/permissions", label: dictionary.routes.permissionsTitle },
-      { to: "/bans", label: dictionary.routes.bansTitle },
-      { to: "/audit", label: dictionary.routes.auditTitle }
-    ],
-    [dictionary]
+      hasPermission(session.permissions, "admin.dashboard.view") ? { to: "/", label: dictionary.routes.overviewTitle } : null,
+      hasPermission(session.permissions, permissionKeys.profileView) ? { to: "/profile", label: "Profile" } : null,
+      hasPermission(session.permissions, permissionKeys.usersView) ? { to: "/admin-users", label: "Admin users" } : null,
+      hasPermission(session.permissions, permissionKeys.rolesView) ? { to: "/roles", label: "Roles" } : null,
+      hasPermission(session.permissions, permissionKeys.permissionGroupsView) ? { to: "/permission-groups", label: "Permission groups" } : null,
+      hasPermission(session.permissions, "admin.torrents.view") ? { to: "/torrents", label: dictionary.routes.torrentsTitle } : null,
+      hasPermission(session.permissions, "admin.passkeys.view") ? { to: "/passkeys", label: dictionary.routes.passkeysTitle } : null,
+      hasPermission(session.permissions, "admin.tracker_access.view") ? { to: "/permissions", label: dictionary.routes.permissionsTitle } : null,
+      hasPermission(session.permissions, "admin.bans.view") ? { to: "/bans", label: dictionary.routes.bansTitle } : null,
+      hasPermission(session.permissions, permissionKeys.auditView) ? { to: "/audit", label: dictionary.routes.auditTitle } : null
+    ].filter((link): link is { to: string; label: string } => link !== null),
+    [dictionary, session.permissions]
   );
   const location = useLocation();
   const routeMeta = getRouteMeta(location.pathname, dictionary);
@@ -3015,6 +3034,38 @@ function AuthenticatedAdminApp({
     <Shell user={user} session={session} onSignin={onSignin} onSignout={onSignout}>
       <Routes>
         <Route path="/" element={<DashboardPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />} />
+        <Route
+          path="/profile"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.profileView}>
+              <ProfilePage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/admin-users"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.usersView}>
+              <AdminUsersPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/roles"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.rolesView}>
+              <RolesPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/permission-groups"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.permissionGroupsView}>
+              <PermissionGroupsPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
         <Route path="/torrents" element={<TorrentsPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />} />
         <Route
           path="/torrents/bulk-policy"
@@ -3036,7 +3087,7 @@ function AuthenticatedAdminApp({
           path="/permissions"
           element={
             <CapabilityGate capabilities={capabilities} action="admin.read.permissions">
-              <PermissionsPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+                    <TrackerAccessPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
             </CapabilityGate>
           }
         />
@@ -3056,7 +3107,14 @@ function AuthenticatedAdminApp({
             </CapabilityGate>
           }
         />
-        <Route path="/audit" element={<AuditPage accessToken={accessToken} onReauthenticate={onSignin} />} />
+        <Route
+          path="/audit"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.auditView}>
+              <AuditPage accessToken={accessToken} onReauthenticate={onSignin} />
+            </PermissionGate>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

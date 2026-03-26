@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Identity\BeeTracker.Contracts.Identity.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Domain\BeeTracker.BuildingBlocks.Domain.csproj" />
   </ItemGroup>
 

@@ -14,6 +14,7 @@ using Npgsql;
 using StackExchange.Redis;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
 using BeeTracker.Contracts.Configuration;
+using BeeTracker.Contracts.Identity;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Tracker.ConfigurationService.Infrastructure;
@@ -230,6 +231,112 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task LegacyTrackerAccessAlias_EmitsDeprecationHeaders()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/admin/permissions?page=1&pageSize=10");
+        request.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", _csrfToken);
+
+        using var response = await _adminClient.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("true", string.Join(",", response.Headers.GetValues("Deprecation")));
+        Assert.Equal("Wed, 30 Sep 2026 00:00:00 GMT", string.Join(",", response.Headers.GetValues("Sunset")));
+        Assert.Contains("</api/admin/tracker-access>; rel=\"successor-version\"", string.Join(",", response.Headers.GetValues("Link")));
+    }
+
+    [Fact]
+    public async Task RbacEndpoints_ReturnRoleAndPermissionCatalog_ForSuperAdmin()
+    {
+        using var superAdminClient = _adminFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false,
+            HandleCookies = true
+        });
+
+        await LoginWithCookieAsync(superAdminClient, "rbac-root", "Integration123!");
+        var csrfToken = await GetAdminCsrfTokenAsync(superAdminClient, "/roles");
+
+        using var rolesRequest = new HttpRequestMessage(HttpMethod.Get, "/api/admin/rbac/roles");
+        rolesRequest.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", csrfToken);
+        using var permissionsRequest = new HttpRequestMessage(HttpMethod.Get, "/api/admin/rbac/permissions");
+        permissionsRequest.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", csrfToken);
+        using var profileRequest = new HttpRequestMessage(HttpMethod.Get, "/api/admin/rbac/profile");
+        profileRequest.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", csrfToken);
+
+        var rolesResponse = await superAdminClient.SendAsync(rolesRequest);
+        var permissionsResponse = await superAdminClient.SendAsync(permissionsRequest);
+        var profileResponse = await superAdminClient.SendAsync(profileRequest);
+
+        var rolesBody = await rolesResponse.Content.ReadAsStringAsync();
+        var permissionsBody = await permissionsResponse.Content.ReadAsStringAsync();
+        var profileBody = await profileResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, rolesResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.OK, permissionsResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.OK, profileResponse.StatusCode);
+        Assert.Contains("SuperAdmin", rolesBody);
+        Assert.Contains("admin.roles.assign_permissions", permissionsBody);
+        Assert.Contains("admin.users.assign_roles", profileBody);
+    }
+
+    [Fact]
+    public async Task RbacEndpoints_BlockSelfDemotion_OfLastActiveSuperAdmin()
+    {
+        using var superAdminClient = _adminFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false,
+            HandleCookies = true
+        });
+
+        await LoginWithCookieAsync(superAdminClient, "rbac-root", "Integration123!");
+        var csrfToken = await GetAdminCsrfTokenAsync(superAdminClient, "/admin-users");
+
+        var profileResponse = await superAdminClient.GetAsync("/api/admin/rbac/profile");
+        var profileBody = await profileResponse.Content.ReadAsStringAsync();
+        using var profileDocument = JsonDocument.Parse(profileBody);
+        var userId = profileDocument.RootElement.GetProperty("userId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(userId));
+
+        using var assignRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/admin/rbac/users/{userId}/roles");
+        assignRequest.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", csrfToken);
+        assignRequest.Content = JsonContent.Create(new { roles = Array.Empty<string>() });
+
+        var assignResponse = await superAdminClient.SendAsync(assignRequest);
+        var assignBody = await assignResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, assignResponse.StatusCode);
+        Assert.Contains("LAST_SUPERADMIN", assignBody);
+    }
+
+    [Fact]
+    public async Task PermissionProtectedEndpoints_RejectStalePermissionSnapshots()
+    {
+        using var superAdminClient = _adminFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false,
+            HandleCookies = true
+        });
+
+        await LoginWithCookieAsync(superAdminClient, "rbac-root", "Integration123!");
+        _ = await GetAdminCsrfTokenAsync(superAdminClient, "/roles");
+
+        await using (var scope = _adminFactory.Services.CreateAsyncScope())
+        {
+            var rbacService = scope.ServiceProvider.GetRequiredService<Identity.SelfService.Application.IRbacService>();
+            await rbacService.InvalidatePermissionSnapshotAsync(CancellationToken.None);
+        }
+
+        var response = await superAdminClient.GetAsync("/api/admin/rbac/roles");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("admin_permission_snapshot_expired", body);
+    }
+
+    [Fact]
     public async Task AdminEndpoints_ReturnRealtimeClusterAndHistoricalAuditData()
     {
         await SeedHeartbeatAsync();
@@ -274,7 +381,7 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
         var torrentsResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, "/api/admin/torrents?search=AAAA&page=1&pageSize=20", "corr-007"));
         var torrentDetailResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, "/api/admin/torrents/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "corr-008"));
         var passkeysResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, "/api/admin/passkeys?isRevoked=false&page=1&pageSize=20", "corr-009"));
-        var permissionsResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, "/api/admin/permissions?canUsePrivateTracker=true&page=1&pageSize=20", "corr-010"));
+        var permissionsResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, "/api/admin/tracker-access?canUsePrivateTracker=true&page=1&pageSize=20", "corr-010"));
         var bansResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, "/api/admin/bans?scope=user&page=1&pageSize=20", "corr-011"));
 
         var clusterBody = await clusterResponse.Content.ReadAsStringAsync();
@@ -426,7 +533,7 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task BulkAdminMutations_ReturnPartialSuccess_WhenSomeItemsHaveConcurrencyConflicts()
     {
-        using var permissionsRequest = CreateAdminRequest(HttpMethod.Put, "/api/admin/users/bulk/permissions", "corr-bulk-permissions");
+        using var permissionsRequest = CreateAdminRequest(HttpMethod.Put, "/api/admin/users/bulk/tracker-access", "corr-bulk-permissions");
         permissionsRequest.Content = JsonContent.Create(new
         {
             items = new object[]
@@ -461,13 +568,13 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
             Assert.Equal(2, document.RootElement.GetProperty("totalCount").GetInt32());
             Assert.Equal(1, document.RootElement.GetProperty("succeededCount").GetInt32());
             Assert.Equal(1, document.RootElement.GetProperty("failedCount").GetInt32());
-            var permissionItems = document.RootElement.GetProperty("permissionItems").EnumerateArray().ToArray();
-            Assert.Equal(2, permissionItems.Length);
-            Assert.Contains(permissionItems, static item =>
+            var trackerAccessItems = document.RootElement.GetProperty("trackerAccessItems").EnumerateArray().ToArray();
+            Assert.Equal(2, trackerAccessItems.Length);
+            Assert.Contains(trackerAccessItems, static item =>
                 item.GetProperty("userId").GetGuid() == Guid.Parse("00000000-0000-0000-0000-000000000002") &&
                 item.GetProperty("succeeded").GetBoolean() &&
                 item.GetProperty("snapshot").GetProperty("version").GetInt64() == 2);
-            Assert.Contains(permissionItems, static item =>
+            Assert.Contains(trackerAccessItems, static item =>
                 item.GetProperty("userId").GetGuid() == Guid.Parse("00000000-0000-0000-0000-000000000099") &&
                 item.GetProperty("succeeded").GetBoolean() is false &&
                 item.GetProperty("errorCode").GetString() == "concurrency_conflict");
@@ -1002,7 +1109,7 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
 
         Assert.Contains(capabilities, static capability =>
             capability.GetProperty("action").GetString() == "admin.read.cluster_overview" &&
-            capability.GetProperty("permission").GetString() == "admin.read" &&
+            capability.GetProperty("permission").GetString() == "admin.dashboard.view" &&
             capability.GetProperty("httpMethod").GetString() == "GET" &&
             capability.GetProperty("supportsBulk").GetBoolean() is false &&
             capability.GetProperty("bulkRoutePattern").ValueKind is JsonValueKind.Null &&
@@ -1019,7 +1126,7 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
 
         Assert.Contains(capabilities, static capability =>
             capability.GetProperty("action").GetString() == "admin.write.passkey" &&
-            capability.GetProperty("permission").GetString() == "passkeys.write" &&
+            capability.GetProperty("permission").GetString() == "admin.passkeys.manage" &&
             capability.GetProperty("httpMethod").GetString() == "PUT" &&
             capability.GetProperty("supportsBulk").GetBoolean() is false &&
             capability.GetProperty("bulkRoutePattern").ValueKind is JsonValueKind.Null &&
@@ -1037,22 +1144,23 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
 
         Assert.Contains(capabilities, static capability =>
             capability.GetProperty("action").GetString() == "admin.write.permissions" &&
-            capability.GetProperty("permission").GetString() == "permissions.write" &&
+            capability.GetProperty("permission").GetString() == "admin.tracker_access.manage" &&
             capability.GetProperty("httpMethod").GetString() == "PUT" &&
             capability.GetProperty("supportsBulk").GetBoolean() &&
-            capability.GetProperty("bulkRoutePattern").GetString() == "/api/admin/users/bulk/permissions" &&
+            capability.GetProperty("bulkRoutePattern").GetString() == "/api/admin/users/bulk/tracker-access" &&
             capability.GetProperty("selectionMode").GetString() == "multi_select" &&
             capability.GetProperty("idempotencyHint").GetString() == "idempotent" &&
             capability.GetProperty("confirmationRequired").GetBoolean() &&
             capability.GetProperty("granted").GetBoolean() &&
             capability.GetProperty("requiresPrivilegedReauthentication").GetBoolean() &&
             capability.GetProperty("severity").GetString() == "high" &&
-            capability.GetProperty("resourceKind").GetString() == "permission" &&
-            capability.GetProperty("routePattern").GetString() == "/api/admin/users/{userId}/permissions");
+            capability.GetProperty("resourceKind").GetString() == "tracker-access" &&
+            capability.GetProperty("routePattern").GetString() == "/api/admin/users/{userId}/tracker-access" &&
+            capability.GetProperty("resultCollectionProperty").GetString() == "trackerAccessItems");
 
         Assert.Contains(capabilities, static capability =>
             capability.GetProperty("action").GetString() == "admin.execute.maintenance" &&
-            capability.GetProperty("permission").GetString() == "maintenance.execute" &&
+            capability.GetProperty("permission").GetString() == "admin.maintenance.execute" &&
             capability.GetProperty("httpMethod").GetString() == "POST" &&
             capability.GetProperty("supportsBulk").GetBoolean() is false &&
             capability.GetProperty("bulkRoutePattern").ValueKind is JsonValueKind.Null &&
@@ -1471,12 +1579,25 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
                     [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Email"] = "ops-admin@example.test",
                     [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Password"] = "Integration123!",
                     [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Role"] = "security-admin",
-                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:0"] = "admin.read",
-                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:1"] = "torrents.write",
-                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:2"] = "passkeys.write",
-                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:3"] = "permissions.write",
-                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:4"] = "bans.write",
-                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:5"] = "maintenance.execute",
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:0"] = AdminPermissionCatalog.DashboardView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:1"] = AdminPermissionCatalog.AuditView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:2"] = AdminPermissionCatalog.TorrentsView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:3"] = AdminPermissionCatalog.TorrentsEdit,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:4"] = AdminPermissionCatalog.TrackerPoliciesEdit,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:5"] = AdminPermissionCatalog.PasskeysView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:6"] = AdminPermissionCatalog.PasskeysManage,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:7"] = AdminPermissionCatalog.TrackerAccessView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:8"] = AdminPermissionCatalog.TrackerAccessManage,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:9"] = AdminPermissionCatalog.BansView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:10"] = AdminPermissionCatalog.BansManage,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:11"] = AdminPermissionCatalog.NodesView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:12"] = AdminPermissionCatalog.StatsView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:13"] = AdminPermissionCatalog.SystemSettingsView,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:0:Permissions:14"] = AdminPermissionCatalog.MaintenanceExecute,
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:1:UserName"] = "rbac-root",
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:1:Email"] = "rbac-root@example.test",
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:1:Password"] = "Integration123!",
+                    [$"{AdminIdentityOptions.SectionName}:BootstrapUsers:1:Role"] = "SuperAdmin",
                     [$"{AdminIdentityOptions.SectionName}:BootstrapClients:0:ClientId"] = "admin-ui",
                     [$"{AdminIdentityOptions.SectionName}:BootstrapClients:0:DisplayName"] = "Admin UI",
                     [$"{AdminIdentityOptions.SectionName}:BootstrapClients:0:RequirePkce"] = "true",

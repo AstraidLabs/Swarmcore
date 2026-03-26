@@ -8,6 +8,8 @@ public interface IRbacService
     Task<IReadOnlySet<string>> GetEffectivePermissionsAsync(string userId, CancellationToken ct);
     Task<bool> UserHasPermissionAsync(string userId, string permissionKey, CancellationToken ct);
     Task<bool> IsSuperAdminAsync(string userId, CancellationToken ct);
+    Task<long> GetPermissionSnapshotVersionAsync(CancellationToken ct);
+    Task InvalidatePermissionSnapshotAsync(CancellationToken ct);
 
     // ─── Admin User Management ──────────────────────────────────────────────
     Task<PaginatedResult<AdminUserListItemDto>> ListUsersAsync(string? search, int page, int pageSize, CancellationToken ct);

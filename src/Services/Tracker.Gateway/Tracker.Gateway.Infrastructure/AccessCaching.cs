@@ -102,7 +102,7 @@ internal interface IAccessSnapshotStore
 {
     ValueTask<AccessCacheEnvelope<TorrentPolicyDto>> GetTorrentPolicyAsync(string infoHashHex, CancellationToken cancellationToken);
     ValueTask<AccessCacheEnvelope<PasskeyAccessDto>> GetPasskeyAsync(string passkey, CancellationToken cancellationToken);
-    ValueTask<AccessCacheEnvelope<UserPermissionSnapshotDto>> GetUserPermissionAsync(Guid userId, CancellationToken cancellationToken);
+    ValueTask<AccessCacheEnvelope<TrackerAccessRightsDto>> GetTrackerAccessRightsAsync(Guid userId, CancellationToken cancellationToken);
     ValueTask<AccessCacheEnvelope<BanRuleDto>> GetBanRuleAsync(string scope, string subject, CancellationToken cancellationToken);
 }
 
@@ -250,7 +250,7 @@ internal sealed class RedisPostgresAccessSnapshotStore(
         return new AccessCacheEnvelope<PasskeyAccessDto>(true, loadedAccess);
     }
 
-    public async ValueTask<AccessCacheEnvelope<UserPermissionSnapshotDto>> GetUserPermissionAsync(Guid userId, CancellationToken cancellationToken)
+    public async ValueTask<AccessCacheEnvelope<TrackerAccessRightsDto>> GetTrackerAccessRightsAsync(Guid userId, CancellationToken cancellationToken)
     {
         var redisKey = $"tracker:permission:{userId:D}";
         try
@@ -259,8 +259,8 @@ internal sealed class RedisPostgresAccessSnapshotStore(
             if (cached.HasValue)
             {
                 TrackerDiagnostics.CacheHit.Add(1, L2Tag);
-                var cachedPermissions = JsonSerializer.Deserialize<UserPermissionSnapshotDto>((string)cached!, SerializerOptions);
-                return new AccessCacheEnvelope<UserPermissionSnapshotDto>(cachedPermissions is not null, cachedPermissions);
+                var cachedPermissions = JsonSerializer.Deserialize<TrackerAccessRightsDto>((string)cached!, SerializerOptions);
+                return new AccessCacheEnvelope<TrackerAccessRightsDto>(cachedPermissions is not null, cachedPermissions);
             }
         }
         catch (Exception ex)
@@ -288,10 +288,10 @@ internal sealed class RedisPostgresAccessSnapshotStore(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
-            return new AccessCacheEnvelope<UserPermissionSnapshotDto>(false, null);
+            return new AccessCacheEnvelope<TrackerAccessRightsDto>(false, null);
         }
 
-        var permissions = new UserPermissionSnapshotDto(
+        var permissions = new TrackerAccessRightsDto(
             reader.GetGuid(0),
             reader.GetBoolean(1),
             reader.GetBoolean(2),
@@ -311,7 +311,7 @@ internal sealed class RedisPostgresAccessSnapshotStore(
             logger.LogWarning(ex, "Redis L2 write failed for user permission {UserId}.", userId);
         }
 
-        return new AccessCacheEnvelope<UserPermissionSnapshotDto>(true, permissions);
+        return new AccessCacheEnvelope<TrackerAccessRightsDto>(true, permissions);
     }
 
     public async ValueTask<AccessCacheEnvelope<BanRuleDto>> GetBanRuleAsync(string scope, string subject, CancellationToken cancellationToken)
@@ -415,17 +415,17 @@ public sealed class HybridAccessSnapshotProvider(
         return ValueTask.FromResult<PasskeyAccessDto?>(null);
     }
 
-    public ValueTask<UserPermissionSnapshotDto?> GetUserPermissionAsync(Guid userId, CancellationToken cancellationToken)
+    public ValueTask<TrackerAccessRightsDto?> GetTrackerAccessRightsAsync(Guid userId, CancellationToken cancellationToken)
     {
-        if (memoryCache.TryGetValue<UserPermissionSnapshotDto>(GetUserPermissionKey(userId), out var permissions))
+        if (memoryCache.TryGetValue<TrackerAccessRightsDto>(GetUserPermissionKey(userId), out var permissions))
         {
             TrackerDiagnostics.CacheHit.Add(1, L1Tag);
-            return ValueTask.FromResult<UserPermissionSnapshotDto?>(permissions);
+            return ValueTask.FromResult<TrackerAccessRightsDto?>(permissions);
         }
 
         TrackerDiagnostics.CacheMiss.Add(1);
         refreshQueue.EnqueueUserPermission(userId);
-        return ValueTask.FromResult<UserPermissionSnapshotDto?>(null);
+        return ValueTask.FromResult<TrackerAccessRightsDto?>(null);
     }
 
     public ValueTask<BanRuleDto?> GetBanRuleAsync(string scope, string subject, CancellationToken cancellationToken)
@@ -461,7 +461,7 @@ public sealed class HybridAccessSnapshotProvider(
         memoryCache.Remove(GetPasskeyKey(passkey));
     }
 
-    internal void SetUserPermission(UserPermissionSnapshotDto permissions)
+    internal void SetTrackerAccessRights(TrackerAccessRightsDto permissions)
     {
         memoryCache.Set(GetUserPermissionKey(permissions.UserId), permissions, TimeSpan.FromSeconds(cacheOptions.Value.L1Seconds));
     }
@@ -528,10 +528,10 @@ internal sealed class AccessSnapshotHydrationService(
                             break;
                         }
 
-                        var envelope = await store.GetUserPermissionAsync(userId, stoppingToken);
+                        var envelope = await store.GetTrackerAccessRightsAsync(userId, stoppingToken);
                         if (envelope is { Found: true, Value: not null })
                         {
-                            snapshotProvider.SetUserPermission(envelope.Value);
+                            snapshotProvider.SetTrackerAccessRights(envelope.Value);
                         }
 
                         break;

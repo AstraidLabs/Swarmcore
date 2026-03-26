@@ -397,7 +397,7 @@ public sealed class CachedAccessPolicyResolver(IAccessSnapshotProvider accessSna
             return AccessResolution.Deny("torrent not registered");
         }
 
-        var torrentBan = await accessSnapshotProvider.GetBanRuleAsync("torrent", infoHash, cancellationToken);
+        var torrentBan = await accessSnapshotProvider.GetBanRuleAsync(TrackerBanScopes.Torrent, infoHash, cancellationToken);
         if (IsBanActive(torrentBan))
         {
             return AccessResolution.Deny(torrentBan!.Reason);
@@ -424,37 +424,23 @@ public sealed class CachedAccessPolicyResolver(IAccessSnapshotProvider accessSna
             return AccessResolution.Deny("expired passkey");
         }
 
-        var passkeyBan = await accessSnapshotProvider.GetBanRuleAsync("passkey", passkey.Passkey, cancellationToken);
+        var passkeyBan = await accessSnapshotProvider.GetBanRuleAsync(TrackerBanScopes.Passkey, passkey.Passkey, cancellationToken);
         if (IsBanActive(passkeyBan))
         {
             return AccessResolution.Deny(passkeyBan!.Reason);
         }
 
-        var userBan = await accessSnapshotProvider.GetBanRuleAsync("user", passkey.UserId.ToString("D"), cancellationToken);
+        var userBan = await accessSnapshotProvider.GetBanRuleAsync(TrackerBanScopes.User, passkey.UserId.ToString("D"), cancellationToken);
         if (IsBanActive(userBan))
         {
             return AccessResolution.Deny(userBan!.Reason);
         }
 
-        var permissions = await accessSnapshotProvider.GetUserPermissionAsync(passkey.UserId, cancellationToken);
-        if (permissions is null)
+        var trackerAccess = await accessSnapshotProvider.GetTrackerAccessRightsAsync(passkey.UserId, cancellationToken);
+        var accessDecision = trackerAccess.EvaluateAnnounce(request.IsSeeder);
+        if (!accessDecision.IsAllowed)
         {
-            return AccessResolution.Deny("permissions unavailable");
-        }
-
-        if (!permissions.CanUsePrivateTracker)
-        {
-            return AccessResolution.Deny("private tracker access denied");
-        }
-
-        if (request.IsSeeder && !permissions.CanSeed)
-        {
-            return AccessResolution.Deny("seeding is not permitted");
-        }
-
-        if (!request.IsSeeder && !permissions.CanLeech)
-        {
-            return AccessResolution.Deny("leeching is not permitted");
+            return AccessResolution.Deny(accessDecision.FailureReason ?? TrackerAccessDenialReasons.PermissionsUnavailable);
         }
 
         return AccessResolution.Allow(policy);
@@ -477,7 +463,7 @@ public sealed class CachedScrapeAccessPolicyResolver(IAccessSnapshotProvider acc
             return ScrapeAccessResolution.Deny();
         }
 
-        var torrentBan = await accessSnapshotProvider.GetBanRuleAsync("torrent", infoHashHex, cancellationToken);
+        var torrentBan = await accessSnapshotProvider.GetBanRuleAsync(TrackerBanScopes.Torrent, infoHashHex, cancellationToken);
         if (IsBanActive(torrentBan))
         {
             return ScrapeAccessResolution.Deny();
@@ -504,20 +490,20 @@ public sealed class CachedScrapeAccessPolicyResolver(IAccessSnapshotProvider acc
             return ScrapeAccessResolution.Deny();
         }
 
-        var passkeyBan = await accessSnapshotProvider.GetBanRuleAsync("passkey", passkeyAccess.Passkey, cancellationToken);
+        var passkeyBan = await accessSnapshotProvider.GetBanRuleAsync(TrackerBanScopes.Passkey, passkeyAccess.Passkey, cancellationToken);
         if (IsBanActive(passkeyBan))
         {
             return ScrapeAccessResolution.Deny();
         }
 
-        var userBan = await accessSnapshotProvider.GetBanRuleAsync("user", passkeyAccess.UserId.ToString("D"), cancellationToken);
+        var userBan = await accessSnapshotProvider.GetBanRuleAsync(TrackerBanScopes.User, passkeyAccess.UserId.ToString("D"), cancellationToken);
         if (IsBanActive(userBan))
         {
             return ScrapeAccessResolution.Deny();
         }
 
-        var permissions = await accessSnapshotProvider.GetUserPermissionAsync(passkeyAccess.UserId, cancellationToken);
-        if (permissions is null || !permissions.CanUsePrivateTracker || !permissions.CanScrape)
+        var trackerAccess = await accessSnapshotProvider.GetTrackerAccessRightsAsync(passkeyAccess.UserId, cancellationToken);
+        if (!trackerAccess.EvaluateScrape().IsAllowed)
         {
             return ScrapeAccessResolution.Deny();
         }

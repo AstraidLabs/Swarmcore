@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using BeeTracker.BuildingBlocks.Abstractions.Hosting;
+using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using BeeTracker.Contracts.Configuration;
 using BeeTracker.Hosting;
 using Tracker.ConfigurationService.Application;
@@ -39,13 +40,25 @@ app.MapPut("/api/configuration/passkeys/{passkey}",
             httpContext);
     });
 
+app.MapPut("/api/configuration/users/{userId:guid}/tracker-access",
+    async (HttpContext httpContext, Guid userId, TrackerAccessRightsUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await mutationService.UpsertTrackerAccessRightsAsync(userId, request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            httpContext);
+    });
+
+#pragma warning disable CS0618
 app.MapPut("/api/configuration/users/{userId:guid}/permissions",
     async (HttpContext httpContext, Guid userId, UserPermissionUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
     {
+        DeprecatedConfigurationAlias.Apply(httpContext, $"/api/configuration/users/{userId}/tracker-access");
         return await MutationEndpointExecutor.ExecuteAsync(
-            async () => Results.Ok(await mutationService.UpsertUserPermissionsAsync(userId, request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            async () => Results.Ok(await mutationService.UpsertTrackerAccessRightsAsync(userId, request.ToTrackerAccessRightsRequest(), MutationContextFactory.Create(httpContext), cancellationToken)),
             httpContext);
-    });
+    }).WithMetadata(new ObsoleteAttribute("Use /api/configuration/users/{userId}/tracker-access. This alias will be removed in a future release."))
+    .AddEndpointFilter(new DeprecatedConfigurationEndpointFilter("/api/configuration/users/{userId}/tracker-access"));
+#pragma warning restore CS0618
 
 app.MapPut("/api/configuration/bans/{scope}/{subject}",
     async (HttpContext httpContext, string scope, string subject, BanRuleUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
@@ -112,6 +125,46 @@ static class MutationContextFactory
             httpContext.TraceIdentifier,
             httpContext.Connection.RemoteIpAddress?.ToString(),
             httpContext.Request.Headers.UserAgent.ToString());
+    }
+}
+
+sealed class DeprecatedConfigurationEndpointFilter(string canonicalPath) : IEndpointFilter
+{
+    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        DeprecatedConfigurationAlias.Apply(context.HttpContext, canonicalPath);
+        return await next(context);
+    }
+}
+
+static class DeprecatedConfigurationAlias
+{
+    private const string RemovalDate = "Wed, 30 Sep 2026 00:00:00 GMT";
+
+    public static void Apply(HttpContext httpContext, string canonicalPath)
+    {
+        TrackerDiagnostics.ConfigurationLegacyTrackerAccessAliasHit.Add(
+            1,
+            new KeyValuePair<string, object?>("legacy_route", httpContext.Request.Path.Value ?? string.Empty),
+            new KeyValuePair<string, object?>("canonical_route", canonicalPath),
+            new KeyValuePair<string, object?>("method", httpContext.Request.Method));
+        TrackerDiagnostics.CompatibilityWarningIssued.Add(
+            1,
+            new KeyValuePair<string, object?>("category", "configuration-tracker-access-alias"),
+            new KeyValuePair<string, object?>("legacy_route", httpContext.Request.Path.Value ?? string.Empty));
+
+        var logger = httpContext.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("BeeTracker.Configuration.DeprecatedApiAlias");
+        logger.LogWarning(
+            "Deprecated configuration tracker-access alias invoked. LegacyRoute={LegacyRoute} CanonicalRoute={CanonicalRoute} Method={Method}",
+            httpContext.Request.Path.Value ?? string.Empty,
+            canonicalPath,
+            httpContext.Request.Method);
+
+        httpContext.Response.Headers["Deprecation"] = "true";
+        httpContext.Response.Headers["Sunset"] = RemovalDate;
+        httpContext.Response.Headers["Link"] = $"<{canonicalPath}>; rel=\"successor-version\"";
     }
 }
 

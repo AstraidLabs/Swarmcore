@@ -31,7 +31,7 @@ public interface IConfigurationMutationService
     Task<PasskeyAccessDto> UpsertPasskeyAsync(string passkey, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<PasskeyAccessDto> RevokePasskeyAsync(string passkey, PasskeyRevokeRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)> RotatePasskeyAsync(string passkey, PasskeyRotateRequest request, AdminMutationContext context, CancellationToken cancellationToken);
-    Task<UserPermissionSnapshotDto> UpsertUserPermissionsAsync(Guid userId, UserPermissionUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<TrackerAccessRightsDto> UpsertTrackerAccessRightsAsync(Guid userId, TrackerAccessRightsUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BanRuleDto> ExpireBanRuleAsync(string scope, string subject, BanRuleExpireRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task DeleteBanRuleAsync(string scope, string subject, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
@@ -54,3 +54,24 @@ public interface IConfigurationMaintenanceService
 {
     Task TriggerCacheRefreshAsync(string operation, AdminMutationContext context, CancellationToken cancellationToken);
 }
+
+#pragma warning disable CS0618
+public static class ConfigurationMutationServiceExtensions
+{
+    public static async Task<UserPermissionSnapshotDto> UpsertUserPermissionsAsync(
+        this IConfigurationMutationService service,
+        Guid userId,
+        UserPermissionUpsertRequest request,
+        AdminMutationContext context,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = await service.UpsertTrackerAccessRightsAsync(
+            userId,
+            request.ToTrackerAccessRightsRequest(),
+            context,
+            cancellationToken);
+
+        return snapshot.ToSnapshot();
+    }
+}
+#pragma warning restore CS0618

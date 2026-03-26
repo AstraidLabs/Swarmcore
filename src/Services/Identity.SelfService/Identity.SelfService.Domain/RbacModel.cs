@@ -1,3 +1,5 @@
+using BeeTracker.Contracts.Identity;
+
 namespace Identity.SelfService.Domain;
 
 // ─── Admin User Profile Extension ───────────────────────────────────────────
@@ -93,144 +95,66 @@ public sealed class AdminAuditLog
 
 public static class SystemRoleNames
 {
-    public const string SuperAdmin = "SuperAdmin";
-    public const string Admin = "Admin";
-    public const string Moderator = "Moderator";
-    public const string Support = "Support";
+    public const string SuperAdmin = AdminSystemRoleNames.SuperAdmin;
+    public const string Admin = AdminSystemRoleNames.Admin;
+    public const string Moderator = AdminSystemRoleNames.Moderator;
+    public const string Support = AdminSystemRoleNames.Support;
 
-    public static readonly IReadOnlyList<string> All = [SuperAdmin, Admin, Moderator, Support];
+    public static readonly IReadOnlyList<string> All = AdminSystemRoleNames.All;
 }
 
 // ─── Permission Catalog ─────────────────────────────────────────────────────
 
 public static class PermissionCatalog
 {
-    // Dashboard
-    public const string DashboardView = "admin.dashboard.view";
+    public const string DashboardView = AdminPermissionCatalog.DashboardView;
+    public const string ProfileView = AdminPermissionCatalog.ProfileView;
+    public const string ProfileEdit = AdminPermissionCatalog.ProfileEdit;
+    public const string UsersView = AdminPermissionCatalog.UsersView;
+    public const string UsersCreate = AdminPermissionCatalog.UsersCreate;
+    public const string UsersEdit = AdminPermissionCatalog.UsersEdit;
+    public const string UsersActivate = AdminPermissionCatalog.UsersActivate;
+    public const string UsersDeactivate = AdminPermissionCatalog.UsersDeactivate;
+    public const string UsersAssignRoles = AdminPermissionCatalog.UsersAssignRoles;
+    public const string UsersResetPassword = AdminPermissionCatalog.UsersResetPassword;
+    public const string RolesView = AdminPermissionCatalog.RolesView;
+    public const string RolesCreate = AdminPermissionCatalog.RolesCreate;
+    public const string RolesEdit = AdminPermissionCatalog.RolesEdit;
+    public const string RolesDelete = AdminPermissionCatalog.RolesDelete;
+    public const string RolesAssignPermissions = AdminPermissionCatalog.RolesAssignPermissions;
+    public const string PermissionGroupsView = AdminPermissionCatalog.PermissionGroupsView;
+    public const string PermissionGroupsCreate = AdminPermissionCatalog.PermissionGroupsCreate;
+    public const string PermissionGroupsEdit = AdminPermissionCatalog.PermissionGroupsEdit;
+    public const string PermissionGroupsDelete = AdminPermissionCatalog.PermissionGroupsDelete;
+    public const string PermissionCatalogView = AdminPermissionCatalog.PermissionCatalogView;
+    public const string AuditView = AdminPermissionCatalog.AuditView;
+    public const string TorrentsView = AdminPermissionCatalog.TorrentsView;
+    public const string TorrentsEdit = AdminPermissionCatalog.TorrentsEdit;
+    public const string TrackerPoliciesView = AdminPermissionCatalog.TrackerPoliciesView;
+    public const string TrackerPoliciesEdit = AdminPermissionCatalog.TrackerPoliciesEdit;
+    public const string BansView = AdminPermissionCatalog.BansView;
+    public const string BansManage = AdminPermissionCatalog.BansManage;
+    public const string PasskeysView = AdminPermissionCatalog.PasskeysView;
+    public const string PasskeysRegenerate = AdminPermissionCatalog.PasskeysManage;
+    public const string TrackerAccessView = AdminPermissionCatalog.TrackerAccessView;
+    public const string TrackerAccessManage = AdminPermissionCatalog.TrackerAccessManage;
+    public const string NodesView = AdminPermissionCatalog.NodesView;
+    public const string StatsView = AdminPermissionCatalog.StatsView;
+    public const string SystemSettingsView = AdminPermissionCatalog.SystemSettingsView;
+    public const string SystemSettingsEdit = AdminPermissionCatalog.SystemSettingsEdit;
+    public const string MaintenanceExecute = AdminPermissionCatalog.MaintenanceExecute;
 
-    // Profile
-    public const string ProfileView = "admin.profile.view";
-    public const string ProfileEdit = "admin.profile.edit";
+    public static IReadOnlyList<(string Key, string Name, string Description, string Category)> All => AdminPermissionCatalog.All;
 
-    // Users
-    public const string UsersView = "admin.users.view";
-    public const string UsersCreate = "admin.users.create";
-    public const string UsersEdit = "admin.users.edit";
-    public const string UsersActivate = "admin.users.activate";
-    public const string UsersDeactivate = "admin.users.deactivate";
-    public const string UsersAssignRoles = "admin.users.assign_roles";
-    public const string UsersResetPassword = "admin.users.reset_password";
-
-    // Roles
-    public const string RolesView = "admin.roles.view";
-    public const string RolesCreate = "admin.roles.create";
-    public const string RolesEdit = "admin.roles.edit";
-    public const string RolesDelete = "admin.roles.delete";
-    public const string RolesAssignPermissions = "admin.roles.assign_permissions";
-
-    // Permission Groups
-    public const string PermissionGroupsView = "admin.permission_groups.view";
-    public const string PermissionGroupsCreate = "admin.permission_groups.create";
-    public const string PermissionGroupsEdit = "admin.permission_groups.edit";
-    public const string PermissionGroupsDelete = "admin.permission_groups.delete";
-
-    // Audit
-    public const string AuditView = "admin.audit.view";
-
-    // Tracker configuration
-    public const string TorrentsView = "admin.torrents.view";
-    public const string TorrentsEdit = "admin.torrents.edit";
-    public const string TrackerPoliciesView = "admin.tracker_policies.view";
-    public const string TrackerPoliciesEdit = "admin.tracker_policies.edit";
-    public const string BansView = "admin.bans.view";
-    public const string BansManage = "admin.bans.manage";
-    public const string PasskeysView = "admin.passkeys.view";
-    public const string PasskeysRegenerate = "admin.passkeys.regenerate";
-    public const string NodesView = "admin.nodes.view";
-    public const string StatsView = "admin.stats.view";
-    public const string SystemSettingsView = "admin.system_settings.view";
-    public const string SystemSettingsEdit = "admin.system_settings.edit";
-
-    public static IReadOnlyList<(string Key, string Name, string Description, string Category)> All =>
-    [
-        (DashboardView, "View Dashboard", "Access the admin dashboard", "Dashboard"),
-        (ProfileView, "View Profile", "View own admin profile", "Profile"),
-        (ProfileEdit, "Edit Profile", "Edit own admin profile", "Profile"),
-        (UsersView, "View Users", "List and view admin user details", "Users"),
-        (UsersCreate, "Create Users", "Create new admin users", "Users"),
-        (UsersEdit, "Edit Users", "Edit admin user details", "Users"),
-        (UsersActivate, "Activate Users", "Activate admin user accounts", "Users"),
-        (UsersDeactivate, "Deactivate Users", "Deactivate admin user accounts", "Users"),
-        (UsersAssignRoles, "Assign Roles", "Assign roles to admin users", "Users"),
-        (UsersResetPassword, "Reset Password", "Reset admin user passwords", "Users"),
-        (RolesView, "View Roles", "List and view role definitions", "Roles"),
-        (RolesCreate, "Create Roles", "Create new roles", "Roles"),
-        (RolesEdit, "Edit Roles", "Edit existing roles", "Roles"),
-        (RolesDelete, "Delete Roles", "Delete non-system roles", "Roles"),
-        (RolesAssignPermissions, "Assign Permissions to Roles", "Manage role permission assignments", "Roles"),
-        (PermissionGroupsView, "View Permission Groups", "List and view permission groups", "Permission Groups"),
-        (PermissionGroupsCreate, "Create Permission Groups", "Create new permission groups", "Permission Groups"),
-        (PermissionGroupsEdit, "Edit Permission Groups", "Edit existing permission groups", "Permission Groups"),
-        (PermissionGroupsDelete, "Delete Permission Groups", "Delete non-system permission groups", "Permission Groups"),
-        (AuditView, "View Audit Log", "View the admin audit log", "Audit"),
-        (TorrentsView, "View Torrents", "View torrent configuration", "Tracker"),
-        (TorrentsEdit, "Edit Torrents", "Modify torrent configuration", "Tracker"),
-        (TrackerPoliciesView, "View Tracker Policies", "View tracker policy settings", "Tracker"),
-        (TrackerPoliciesEdit, "Edit Tracker Policies", "Modify tracker policy settings", "Tracker"),
-        (BansView, "View Bans", "View ban rules", "Tracker"),
-        (BansManage, "Manage Bans", "Create, edit, and remove ban rules", "Tracker"),
-        (PasskeysView, "View Passkeys", "View passkey information", "Tracker"),
-        (PasskeysRegenerate, "Regenerate Passkeys", "Regenerate user passkeys", "Tracker"),
-        (NodesView, "View Nodes", "View cluster node information", "Monitoring"),
-        (StatsView, "View Stats", "View tracker statistics", "Monitoring"),
-        (SystemSettingsView, "View System Settings", "View system configuration", "System"),
-        (SystemSettingsEdit, "Edit System Settings", "Modify system configuration", "System"),
-    ];
-
-    public static IReadOnlyDictionary<string, IReadOnlyList<string>> DefaultRolePermissions => new Dictionary<string, IReadOnlyList<string>>
-    {
-        [SystemRoleNames.SuperAdmin] = All.Select(p => p.Key).ToList(),
-        [SystemRoleNames.Admin] = [
-            DashboardView, ProfileView, ProfileEdit,
-            UsersView, UsersCreate, UsersEdit, UsersActivate, UsersDeactivate, UsersAssignRoles, UsersResetPassword,
-            RolesView, RolesCreate, RolesEdit, RolesAssignPermissions,
-            PermissionGroupsView, PermissionGroupsCreate, PermissionGroupsEdit,
-            AuditView,
-            TorrentsView, TorrentsEdit, TrackerPoliciesView, TrackerPoliciesEdit,
-            BansView, BansManage, PasskeysView, PasskeysRegenerate,
-            NodesView, StatsView, SystemSettingsView,
-        ],
-        [SystemRoleNames.Moderator] = [
-            DashboardView, ProfileView, ProfileEdit,
-            UsersView,
-            RolesView,
-            PermissionGroupsView,
-            AuditView,
-            TorrentsView, TorrentsEdit, TrackerPoliciesView,
-            BansView, BansManage,
-            PasskeysView,
-            NodesView, StatsView,
-        ],
-        [SystemRoleNames.Support] = [
-            DashboardView, ProfileView, ProfileEdit,
-            UsersView,
-            RolesView,
-            PermissionGroupsView,
-            AuditView,
-            TorrentsView, TrackerPoliciesView,
-            BansView,
-            PasskeysView,
-            NodesView, StatsView,
-        ],
-    };
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> DefaultRolePermissions => AdminPermissionCatalog.DefaultRolePermissions;
 }
 
 // ─── System Permission Group Names ──────────────────────────────────────────
 
 public static class SystemPermissionGroupNames
 {
-    public const string FullAccess = "Full Access";
-    public const string UserManagement = "User Management";
-    public const string TrackerManagement = "Tracker Management";
-    public const string ReadOnly = "Read Only Access";
+    public const string FullAccess = AdminSystemPermissionGroupNames.FullAccess;
+    public const string UserManagement = AdminSystemPermissionGroupNames.UserManagement;
+    public const string TrackerManagement = AdminSystemPermissionGroupNames.TrackerManagement;
+    public const string ReadOnly = AdminSystemPermissionGroupNames.ReadOnly;
 }

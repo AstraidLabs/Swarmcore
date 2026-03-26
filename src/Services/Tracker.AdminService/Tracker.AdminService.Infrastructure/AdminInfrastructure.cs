@@ -409,9 +409,9 @@ public sealed class EfPasskeyAdminReader(TrackerConfigurationDbContext dbContext
         => (page < 1 ? 1 : page, Math.Clamp(pageSize, 1, 200));
 }
 
-public sealed class EfUserPermissionAdminReader(TrackerConfigurationDbContext dbContext) : IUserPermissionAdminReader
+public sealed class EfTrackerAccessRightsAdminReader(TrackerConfigurationDbContext dbContext) : ITrackerAccessRightsAdminReader
 {
-    public async Task<IReadOnlyCollection<UserPermissionAdminDto>> ListAsync(bool? canUsePrivateTracker, int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<IReadOnlyCollection<TrackerAccessAdminDto>> ListAsync(bool? canUsePrivateTracker, int page, int pageSize, CancellationToken cancellationToken)
     {
         var (normalizedPage, normalizedPageSize) = NormalizePaging(page, pageSize);
         var offset = (normalizedPage - 1) * normalizedPageSize;
@@ -431,7 +431,7 @@ public sealed class EfUserPermissionAdminReader(TrackerConfigurationDbContext db
             .ToListAsync(cancellationToken);
 
         return permissions
-            .Select(static permission => new UserPermissionAdminDto(
+            .Select(static permission => new TrackerAccessAdminDto(
                 permission.UserId,
                 permission.CanLeech,
                 permission.CanSeed,
@@ -483,6 +483,7 @@ public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : 
         => (page < 1 ? 1 : page, Math.Clamp(pageSize, 1, 200));
 }
 
+#pragma warning disable CS0618
 public sealed class ConfigurationMutationOrchestrator(
     IConfigurationMutationService configurationMutationService,
     IConfigurationMutationPreviewService configurationMutationPreviewService,
@@ -804,29 +805,35 @@ public sealed class ConfigurationMutationOrchestrator(
             Array.Empty<BulkBanOperationItemDto>());
     }
 
-    public Task<UserPermissionSnapshotDto> UpsertUserPermissionsAsync(Guid userId, UserPermissionUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
-        => configurationMutationService.UpsertUserPermissionsAsync(userId, request, context, cancellationToken);
-
-    public async Task<BulkOperationResultDto> BulkUpsertUserPermissionsAsync(IReadOnlyCollection<BulkUserPermissionUpsertItem> items, AdminMutationContext context, CancellationToken cancellationToken)
+    public Task<TrackerAccessRightsDto> UpsertTrackerAccessRightsAsync(Guid userId, TrackerAccessRightsUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
     {
-        var results = new List<BulkUserPermissionOperationItemDto>(items.Count);
+        return configurationMutationService.UpsertTrackerAccessRightsAsync(
+            userId,
+            request,
+            context,
+            cancellationToken);
+    }
+
+    public async Task<BulkOperationResultDto> BulkUpsertTrackerAccessRightsAsync(IReadOnlyCollection<BulkTrackerAccessRightsUpsertItem> items, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var results = new List<BulkTrackerAccessOperationItemDto>(items.Count);
 
         foreach (var item in items)
         {
             try
             {
-                var snapshot = await configurationMutationService.UpsertUserPermissionsAsync(
+                var snapshot = await configurationMutationService.UpsertTrackerAccessRightsAsync(
                     item.UserId,
-                    new UserPermissionUpsertRequest(item.CanLeech, item.CanSeed, item.CanScrape, item.CanUsePrivateTracker, item.ExpectedVersion),
+                    new TrackerAccessRightsUpsertRequest(item.CanLeech, item.CanSeed, item.CanScrape, item.CanUsePrivateTracker, item.ExpectedVersion),
                     context,
                     cancellationToken);
 
-                results.Add(new BulkUserPermissionOperationItemDto(
+                results.Add(new BulkTrackerAccessOperationItemDto(
                     item.UserId,
                     true,
                     null,
                     null,
-                    new UserPermissionAdminDto(
+                    new TrackerAccessAdminDto(
                         snapshot.UserId,
                         snapshot.CanLeech,
                         snapshot.CanSeed,
@@ -836,7 +843,7 @@ public sealed class ConfigurationMutationOrchestrator(
             }
             catch (ConfigurationConcurrencyException exception)
             {
-                results.Add(new BulkUserPermissionOperationItemDto(item.UserId, false, "concurrency_conflict", exception.Message, null));
+                results.Add(new BulkTrackerAccessOperationItemDto(item.UserId, false, "concurrency_conflict", exception.Message, null));
             }
         }
 
@@ -846,8 +853,9 @@ public sealed class ConfigurationMutationOrchestrator(
             results.Count(static item => !item.Succeeded),
             Array.Empty<BulkPasskeyOperationItemDto>(),
             Array.Empty<BulkTorrentOperationItemDto>(),
-            results,
-            Array.Empty<BulkBanOperationItemDto>());
+            results.Select(static item => item.ToUserPermissionOperationItem()).ToArray(),
+            Array.Empty<BulkBanOperationItemDto>(),
+            results);
     }
 
     public Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
@@ -977,6 +985,7 @@ public sealed class ConfigurationMutationOrchestrator(
         => configurationMaintenanceService.TriggerCacheRefreshAsync(operation, context, cancellationToken);
 }
 
+#pragma warning restore CS0618
 public static class AdminInfrastructureServiceCollectionExtensions
 {
     public static IServiceCollection AddAdminInfrastructure(this IServiceCollection services, IConfiguration configuration)
@@ -989,7 +998,7 @@ public static class AdminInfrastructureServiceCollectionExtensions
         services.AddScoped<IMaintenanceRunReader, EfMaintenanceRunReader>();
         services.AddScoped<ITorrentAdminReader, EfTorrentAdminReader>();
         services.AddScoped<IPasskeyAdminReader, EfPasskeyAdminReader>();
-        services.AddScoped<IUserPermissionAdminReader, EfUserPermissionAdminReader>();
+        services.AddScoped<ITrackerAccessRightsAdminReader, EfTrackerAccessRightsAdminReader>();
         services.AddScoped<IBanAdminReader, EfBanAdminReader>();
         services.AddScoped<IAdminMutationOrchestrator, ConfigurationMutationOrchestrator>();
         return services;

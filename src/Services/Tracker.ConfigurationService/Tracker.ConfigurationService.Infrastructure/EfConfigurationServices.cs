@@ -270,7 +270,7 @@ internal sealed class EfConfigurationMutationService(
             new PasskeyAccessDto(newPasskey, currentEntity.UserId, false, nextExpiresAtUtc, 1));
     }
 
-    public async Task<UserPermissionSnapshotDto> UpsertUserPermissionsAsync(Guid userId, UserPermissionUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+    public async Task<TrackerAccessRightsDto> UpsertTrackerAccessRightsAsync(Guid userId, TrackerAccessRightsUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
     {
         var entity = await dbContext.Permissions.SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
         var nextVersion = 1L;
@@ -279,7 +279,7 @@ internal sealed class EfConfigurationMutationService(
         {
             if (request.ExpectedVersion.HasValue)
             {
-                throw new ConfigurationConcurrencyException("permissions", userId.ToString("D"), request.ExpectedVersion.Value, 0);
+                throw new ConfigurationConcurrencyException("tracker_access", userId.ToString("D"), request.ExpectedVersion.Value, 0);
             }
 
             entity = new UserPermissionEntity
@@ -292,7 +292,7 @@ internal sealed class EfConfigurationMutationService(
         {
             if (request.ExpectedVersion.HasValue && request.ExpectedVersion.Value != entity.RowVersion)
             {
-                throw new ConfigurationConcurrencyException("permissions", userId.ToString("D"), request.ExpectedVersion.Value, entity.RowVersion);
+                throw new ConfigurationConcurrencyException("tracker_access", userId.ToString("D"), request.ExpectedVersion.Value, entity.RowVersion);
             }
 
             nextVersion = entity.RowVersion + 1;
@@ -308,13 +308,13 @@ internal sealed class EfConfigurationMutationService(
         await invalidationPublisher.PublishUserPermissionInvalidationAsync(userId, cancellationToken);
         await EnqueueAuditAsync(
             context,
-            "permissions.upsert",
+            "tracker_access.upsert",
             "user",
             userId.ToString("D"),
             System.Text.Json.JsonSerializer.Serialize(request, AuditJsonOptions),
             cancellationToken);
 
-        return new UserPermissionSnapshotDto(userId, request.CanLeech, request.CanSeed, request.CanScrape, request.CanUsePrivateTracker, nextVersion);
+        return new TrackerAccessRightsDto(userId, request.CanLeech, request.CanSeed, request.CanScrape, request.CanUsePrivateTracker, nextVersion);
     }
 
     public async Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)

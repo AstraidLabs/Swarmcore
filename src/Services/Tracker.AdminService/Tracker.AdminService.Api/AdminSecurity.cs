@@ -13,6 +13,8 @@ using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
 using BeeTracker.Contracts.Configuration;
+using BeeTracker.Contracts.Identity;
+using Identity.SelfService.Application;
 using Tracker.AdminService.Application;
 using Tracker.AdminService.Infrastructure;
 
@@ -59,14 +61,17 @@ internal static class AdminSecurityServiceCollectionExtensions
 
         services.AddAuthorization(options =>
         {
-            options.AddPolicy(AdminAuthorizationPolicies.Read, BuildPermissionPolicy(AdminPermissions.Read));
-            options.AddPolicy(AdminAuthorizationPolicies.TorrentWrite, BuildPermissionPolicy(AdminPermissions.TorrentWrite));
-            options.AddPolicy(AdminAuthorizationPolicies.PasskeyWrite, BuildPermissionPolicy(AdminPermissions.PasskeyWrite, requireRecentAuthentication: true));
-            options.AddPolicy(AdminAuthorizationPolicies.PermissionWrite, BuildPermissionPolicy(AdminPermissions.PermissionWrite, requireRecentAuthentication: true));
-            options.AddPolicy(AdminAuthorizationPolicies.BanWrite, BuildPermissionPolicy(AdminPermissions.BanWrite, requireRecentAuthentication: true));
-            options.AddPolicy(AdminAuthorizationPolicies.MaintenanceExecute, BuildPermissionPolicy(AdminPermissions.MaintenanceExecute, requireRecentAuthentication: true));
+            foreach (var (permissionKey, _, _, _) in AdminPermissionCatalog.All)
+            {
+                options.AddPolicy(
+                    AdminAuthorizationPolicies.ForPermission(permissionKey),
+                    BuildPermissionPolicy(
+                        permissionKey,
+                        requireRecentAuthentication: AdminPermissionCatalog.PrivilegedPermissions.Contains(permissionKey)));
+            }
         });
         services.AddSingleton<IAuthorizationHandler, RecentAdminAuthenticationHandler>();
+        services.AddScoped<IAuthorizationHandler, CurrentPermissionSnapshotHandler>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, AdminAuthorizationResultHandler>();
 
         var openIddict = services.AddOpenIddict();
@@ -118,7 +123,8 @@ internal static class AdminSecurityServiceCollectionExtensions
                 IdentityConstants.ApplicationScheme,
                 OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme)
             .RequireAuthenticatedUser()
-            .RequireClaim(AdminClaimTypes.Permission, permission);
+            .RequireClaim(AdminClaimTypes.Permission, permission)
+            .AddRequirements(new CurrentPermissionSnapshotRequirement());
 
         if (requireRecentAuthentication)
         {
@@ -130,6 +136,7 @@ internal static class AdminSecurityServiceCollectionExtensions
 }
 
 internal sealed class RecentAdminAuthenticationRequirement : IAuthorizationRequirement;
+internal sealed class CurrentPermissionSnapshotRequirement : IAuthorizationRequirement;
 
 internal sealed class RecentAdminAuthenticationHandler(
     IOptions<AdminIdentityOptions> options,
@@ -163,6 +170,34 @@ internal sealed class RecentAdminAuthenticationHandler(
     }
 }
 
+internal sealed class CurrentPermissionSnapshotHandler(
+    IRbacService rbacService) : AuthorizationHandler<CurrentPermissionSnapshotRequirement>
+{
+    protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, CurrentPermissionSnapshotRequirement requirement)
+    {
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return;
+        }
+
+        var rawVersion = context.User.FindFirstValue(AdminClaimTypes.PermissionSnapshotVersion);
+        if (!long.TryParse(rawVersion, out var principalVersion))
+        {
+            context.Fail(new AuthorizationFailureReason(this, AdminAuthorizationFailureReasons.PermissionSnapshotExpired));
+            return;
+        }
+
+        var currentVersion = await rbacService.GetPermissionSnapshotVersionAsync(CancellationToken.None);
+        if (principalVersion != currentVersion)
+        {
+            context.Fail(new AuthorizationFailureReason(this, AdminAuthorizationFailureReasons.PermissionSnapshotExpired));
+            return;
+        }
+
+        context.Succeed(requirement);
+    }
+}
+
 internal static class AdminAuthorization
 {
     public static AdminMutationContext CreateMutationContext(HttpContext httpContext)
@@ -190,6 +225,8 @@ internal static class AdminTokenEndpoint
     public static async Task<IResult> HandleAsync(
         HttpContext httpContext,
         UserManager<IdentityUser> userManager,
+        IRbacService rbacService,
+        IAdminAccountRepository adminAccountRepository,
         IOptions<AdminIdentityOptions> adminIdentityOptionsAccessor,
         TimeProvider timeProvider)
     {
@@ -231,8 +268,19 @@ internal static class AdminTokenEndpoint
                     [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
             }
 
+            if (!await IsEligibleForAdminSignInAsync(adminAccountRepository, authenticatedUser.Id, httpContext.RequestAborted))
+            {
+                return Results.Forbid(
+                    new AuthenticationProperties(new Dictionary<string, string?>
+                    {
+                        [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.InvalidGrant,
+                        [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = "The admin account is not in an active state."
+                    }),
+                    [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
+            }
+
             var authenticatedAtUtc = AdminSessionState.TryGetAuthenticatedAtUtc(result.Principal) ?? timeProvider.GetUtcNow();
-            var authorizationCodePrincipal = await CreatePrincipalAsync(userManager, authenticatedUser, authenticatedAtUtc);
+            var authorizationCodePrincipal = await CreatePrincipalAsync(userManager, rbacService, authenticatedUser, authenticatedAtUtc, httpContext.RequestAborted);
             authorizationCodePrincipal.SetScopes(GetRequestedScopes(request, adminIdentityOptions));
 
             return Results.SignIn(authorizationCodePrincipal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -277,7 +325,18 @@ internal static class AdminTokenEndpoint
                 [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
         }
 
-        var principal = await CreatePrincipalAsync(userManager, user, timeProvider.GetUtcNow());
+        if (!await IsEligibleForAdminSignInAsync(adminAccountRepository, user.Id, httpContext.RequestAborted))
+        {
+            return Results.Forbid(
+                new AuthenticationProperties(new Dictionary<string, string?>
+                {
+                    [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.InvalidGrant,
+                    [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = "The admin account is not in an active state."
+                }),
+                [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
+        }
+
+        var principal = await CreatePrincipalAsync(userManager, rbacService, user, timeProvider.GetUtcNow(), httpContext.RequestAborted);
         principal.SetScopes([Scopes.OpenId, Scopes.Profile, Scopes.Roles, adminIdentityOptions.AdminApiScope]);
 
         return Results.SignIn(principal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -286,6 +345,8 @@ internal static class AdminTokenEndpoint
     public static async Task<IResult> HandleAuthorizationAsync(
         HttpContext httpContext,
         UserManager<IdentityUser> userManager,
+        IRbacService rbacService,
+        IAdminAccountRepository adminAccountRepository,
         IOptions<AdminIdentityOptions> adminIdentityOptionsAccessor,
         TimeProvider timeProvider)
     {
@@ -323,8 +384,19 @@ internal static class AdminTokenEndpoint
                 [IdentityConstants.ApplicationScheme]);
         }
 
+        if (!await IsEligibleForAdminSignInAsync(adminAccountRepository, user.Id, httpContext.RequestAborted))
+        {
+            await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+            return Results.Challenge(
+                new AuthenticationProperties
+                {
+                    RedirectUri = "/account/login"
+                },
+                [IdentityConstants.ApplicationScheme]);
+        }
+
         var authenticatedAtUtc = AdminSessionState.TryGetAuthenticatedAtUtc(authenticateResult.Principal) ?? timeProvider.GetUtcNow();
-        var principal = await CreatePrincipalAsync(userManager, user, authenticatedAtUtc);
+        var principal = await CreatePrincipalAsync(userManager, rbacService, user, authenticatedAtUtc, httpContext.RequestAborted);
         principal.SetScopes(GetRequestedScopes(request, adminIdentityOptionsAccessor.Value));
 
         return Results.SignIn(principal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -574,6 +646,8 @@ internal static class AdminTokenEndpoint
         HttpContext httpContext,
         SignInManager<IdentityUser> signInManager,
         UserManager<IdentityUser> userManager,
+        IAdminAccountRepository adminAccountRepository,
+        IRbacService rbacService,
         TimeProvider timeProvider)
     {
         var form = await httpContext.Request.ReadFormAsync(httpContext.RequestAborted);
@@ -602,17 +676,33 @@ internal static class AdminTokenEndpoint
             });
         }
 
+        if (!await IsEligibleForAdminSignInAsync(adminAccountRepository, user.Id, httpContext.RequestAborted))
+        {
+            return Results.BadRequest(new
+            {
+                code = "inactive_account",
+                message = "The admin account is not in an active state."
+            });
+        }
+
         if (reauth)
         {
             await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
         }
 
-        await signInManager.SignInWithClaimsAsync(
+        var principal = await CreatePrincipalAsync(
+            userManager,
+            rbacService,
             user,
-            isPersistent: false,
-            [
-                new Claim(AdminClaimTypes.AuthenticatedAt, timeProvider.GetUtcNow().ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture))
-            ]);
+            timeProvider.GetUtcNow(),
+            httpContext.RequestAborted);
+        await httpContext.SignInAsync(
+            IdentityConstants.ApplicationScheme,
+            principal,
+            new AuthenticationProperties
+            {
+                IsPersistent = false
+            });
 
         return Results.Redirect(safeReturnUrl);
     }
@@ -632,7 +722,12 @@ internal static class AdminTokenEndpoint
             : Results.NoContent();
     }
 
-    private static async Task<ClaimsPrincipal> CreatePrincipalAsync(UserManager<IdentityUser> userManager, IdentityUser user, DateTimeOffset authenticatedAtUtc)
+    private static async Task<ClaimsPrincipal> CreatePrincipalAsync(
+        UserManager<IdentityUser> userManager,
+        IRbacService rbacService,
+        IdentityUser user,
+        DateTimeOffset authenticatedAtUtc,
+        CancellationToken cancellationToken)
     {
         var identity = new ClaimsIdentity(
             authenticationType: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme,
@@ -640,7 +735,9 @@ internal static class AdminTokenEndpoint
             roleType: Claims.Role);
 
         identity.AddClaim(CreateAccessTokenClaim(Claims.Subject, user.Id));
+        identity.AddClaim(CreateAccessTokenClaim(ClaimTypes.NameIdentifier, user.Id));
         identity.AddClaim(CreateAccessTokenClaim(Claims.Name, user.UserName ?? user.Id));
+        identity.AddClaim(CreateAccessTokenClaim(ClaimTypes.Name, user.UserName ?? user.Id));
         identity.AddClaim(CreateAccessTokenClaim(
             AdminClaimTypes.AuthenticatedAt,
             authenticatedAtUtc.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)));
@@ -648,19 +745,45 @@ internal static class AdminTokenEndpoint
         if (!string.IsNullOrWhiteSpace(user.Email))
         {
             identity.AddClaim(CreateAccessTokenClaim(Claims.Email, user.Email));
+            identity.AddClaim(CreateAccessTokenClaim(ClaimTypes.Email, user.Email));
         }
 
         foreach (var role in await userManager.GetRolesAsync(user))
         {
             identity.AddClaim(CreateAccessTokenClaim(Claims.Role, role));
+            identity.AddClaim(CreateAccessTokenClaim(ClaimTypes.Role, role));
         }
 
+        var directPermissionClaims = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var claim in await userManager.GetClaimsAsync(user))
         {
             identity.AddClaim(CreateAccessTokenClaim(claim.Type, claim.Value));
+            if (string.Equals(claim.Type, AdminClaimTypes.Permission, StringComparison.Ordinal))
+            {
+                directPermissionClaims.Add(claim.Value);
+            }
         }
 
+        var effectivePermissions = await rbacService.GetEffectivePermissionsAsync(user.Id, cancellationToken);
+        var grantedPermissions = effectivePermissions
+            .Union(directPermissionClaims, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var permission in grantedPermissions.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase))
+        {
+            identity.AddClaim(CreateAccessTokenClaim(AdminClaimTypes.Permission, permission));
+        }
+
+        identity.AddClaim(CreateAccessTokenClaim(
+            AdminClaimTypes.PermissionSnapshotVersion,
+            (await rbacService.GetPermissionSnapshotVersionAsync(cancellationToken)).ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
         return new ClaimsPrincipal(identity);
+    }
+
+    private static async Task<bool> IsEligibleForAdminSignInAsync(IAdminAccountRepository adminAccountRepository, string userId, CancellationToken cancellationToken)
+    {
+        var accountState = await adminAccountRepository.GetAccountStateAsync(userId, cancellationToken);
+        return accountState is null or Identity.SelfService.Domain.AdminAccountState.Active;
     }
 
     private static Claim CreateAccessTokenClaim(string type, string value)
@@ -734,6 +857,26 @@ internal sealed class AdminAuthorizationResultHandler : IAuthorizationMiddleware
                 return;
             }
 
+            if (authorizeResult.AuthorizationFailure?.FailureReasons.Any(static reason => string.Equals(reason.Message, AdminAuthorizationFailureReasons.PermissionSnapshotExpired, StringComparison.Ordinal)) == true)
+            {
+                var returnUrl = AdminReauthentication.ResolveReturnUrl(context);
+                var reauthenticationUrl = AdminReauthentication.BuildLoginPath(returnUrl);
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    code = "admin_permission_snapshot_expired",
+                    message = "The current admin session is stale because permissions changed. Sign in again to refresh authorization.",
+                    reauthenticationUrl,
+                    reauthenticationContext = AdminReauthentication.BuildContext(
+                        reason: AdminReauthenticationReasons.SessionStale,
+                        action: $"{context.Request.Method} {context.Request.Path}",
+                        returnUrl,
+                        reauthenticationUrl,
+                        severity: AdminReauthentication.ResolveSeverity($"{context.Request.Method} {context.Request.Path}", returnUrl))
+                });
+                return;
+            }
+
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             await context.Response.WriteAsJsonAsync(new
             {
@@ -752,6 +895,7 @@ internal sealed class AdminAuthorizationResultHandler : IAuthorizationMiddleware
 internal static class AdminAuthorizationFailureReasons
 {
     public const string ReauthenticationRequired = "recent_authentication_required";
+    public const string PermissionSnapshotExpired = "permission_snapshot_expired";
 }
 
 internal static class AdminReauthenticationReasons
@@ -779,6 +923,12 @@ internal static class AdminSessionState
         }
 
         return DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
+    }
+
+    public static long? TryGetPermissionSnapshotVersion(ClaimsPrincipal principal)
+    {
+        var rawValue = principal.FindFirstValue(AdminClaimTypes.PermissionSnapshotVersion);
+        return long.TryParse(rawValue, out var version) ? version : null;
     }
 
     public static DateTimeOffset? GetPrivilegedSessionFreshUntilUtc(ClaimsPrincipal principal, AdminIdentityOptions options)
@@ -888,31 +1038,31 @@ internal static class AdminCapabilities
 {
     private static readonly AdminCapabilityDescriptor[] Descriptors =
     [
-        CreateReadCapability("admin.read.cluster_overview", "cluster", "/api/admin/cluster-overview", "View cluster overview", "monitoring"),
-        CreateReadCapability("admin.read.audit", "audit-record", "/api/admin/audit", "View audit history", "audit"),
-        CreateReadCapability("admin.read.maintenance", "maintenance-run", "/api/admin/maintenance", "View maintenance history", "maintenance"),
-        CreateReadCapability("admin.read.torrents", "torrent", "/api/admin/torrents", "View torrents", "configuration"),
-        CreateReadCapability("admin.read.passkeys", "passkey", "/api/admin/passkeys", "View passkeys", "access"),
-        CreateReadCapability("admin.read.permissions", "permission", "/api/admin/permissions", "View permissions", "access"),
-        CreateReadCapability("admin.read.bans", "ban", "/api/admin/bans", "View bans", "access"),
-        CreateWriteCapability("admin.write.torrent_policy", AdminPermissions.TorrentWrite, "PUT", false, null, null, "single", "idempotent", true, AdminReauthenticationSeverities.Medium, false, false, AdminReauthenticationSeverities.Medium, "configuration", "torrent-policy", "/api/admin/torrents/{infoHash}/policy", "Edit torrent policy", "This change affects tracker configuration.", "single_payload", null, ["isPrivate", "isEnabled", "announceIntervalSeconds", "minAnnounceIntervalSeconds", "defaultNumWant", "maxNumWant", "allowScrape", "expectedVersion"], ["isPrivate", "isEnabled", "announceIntervalSeconds", "minAnnounceIntervalSeconds", "defaultNumWant", "maxNumWant", "allowScrape"], new Dictionary<string, string>(StringComparer.Ordinal) { ["isPrivate"] = "boolean", ["isEnabled"] = "boolean", ["announceIntervalSeconds"] = "int32", ["minAnnounceIntervalSeconds"] = "int32", ["defaultNumWant"] = "int32", ["maxNumWant"] = "int32", ["allowScrape"] = "boolean", ["expectedVersion"] = "int64?" }, "single_snapshot", "torrent", null),
-        CreateWriteCapability("admin.bulk_upsert.torrent_policy", AdminPermissions.TorrentWrite, "PUT", true, "/api/admin/torrents/bulk/policy", "/api/admin/torrents/bulk/policy/dry-run", "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, true, false, AdminReauthenticationSeverities.High, "configuration", "torrent-policy", "/api/admin/torrents/{infoHash}/policy", "Bulk edit torrent policies", "This change applies tracker policy updates to multiple torrents.", "bulk_collection", 50, ["infoHash", "isPrivate", "isEnabled", "announceIntervalSeconds", "minAnnounceIntervalSeconds", "defaultNumWant", "maxNumWant", "allowScrape", "expectedVersion"], ["infoHash", "isPrivate", "isEnabled", "announceIntervalSeconds", "minAnnounceIntervalSeconds", "defaultNumWant", "maxNumWant", "allowScrape"], new Dictionary<string, string>(StringComparer.Ordinal) { ["infoHash"] = "string", ["isPrivate"] = "boolean", ["isEnabled"] = "boolean", ["announceIntervalSeconds"] = "int32", ["minAnnounceIntervalSeconds"] = "int32", ["defaultNumWant"] = "int32", ["maxNumWant"] = "int32", ["allowScrape"] = "boolean", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "torrent", "torrentItems"),
-        CreateWriteCapability("admin.write.passkey", AdminPermissions.PasskeyWrite, "PUT", false, null, null, "single", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "passkey", "/api/admin/passkeys/{passkey}", "Manage passkeys", "Sign in again to confirm this sensitive passkey change.", "single_payload", null, ["userId", "isRevoked", "expiresAtUtc", "expectedVersion"], ["userId", "isRevoked"], new Dictionary<string, string>(StringComparer.Ordinal) { ["userId"] = "guid", ["isRevoked"] = "boolean", ["expiresAtUtc"] = "datetimeoffset?", ["expectedVersion"] = "int64?" }, "single_snapshot", "passkey", null),
-        CreateWriteCapability("admin.revoke.passkey", AdminPermissions.PasskeyWrite, "POST", true, "/api/admin/passkeys/bulk/revoke", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "passkey", "/api/admin/passkeys/{passkey}", "Revoke passkeys", "Sign in again to confirm these passkey revocations.", "bulk_collection", 200, ["passkey", "expectedVersion"], ["passkey"], new Dictionary<string, string>(StringComparer.Ordinal) { ["passkey"] = "string", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "passkey", "passkeyItems"),
-        CreateWriteCapability("admin.rotate.passkey", AdminPermissions.PasskeyWrite, "POST", true, "/api/admin/passkeys/bulk/rotate", null, "multi_select", "non_idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "passkey", "/api/admin/passkeys/{passkey}", "Rotate passkeys", "Sign in again to confirm these passkey rotations.", "bulk_collection", 100, ["passkey", "expiresAtUtc", "expectedVersion"], ["passkey"], new Dictionary<string, string>(StringComparer.Ordinal) { ["passkey"] = "string", ["expiresAtUtc"] = "datetimeoffset?", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "passkey", "passkeyItems"),
-        CreateWriteCapability("admin.activate.torrent", AdminPermissions.TorrentWrite, "POST", true, "/api/admin/torrents/bulk/activate", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.Medium, false, false, AdminReauthenticationSeverities.Medium, "configuration", "torrent", "/api/admin/torrents/{infoHash}", "Activate torrents", "This change enables tracker traffic for the selected torrents.", "bulk_collection", 200, ["infoHash", "expectedVersion"], ["infoHash"], new Dictionary<string, string>(StringComparer.Ordinal) { ["infoHash"] = "string", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "torrent", "torrentItems"),
-        CreateWriteCapability("admin.deactivate.torrent", AdminPermissions.TorrentWrite, "POST", true, "/api/admin/torrents/bulk/deactivate", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.Medium, false, false, AdminReauthenticationSeverities.Medium, "configuration", "torrent", "/api/admin/torrents/{infoHash}", "Deactivate torrents", "This change disables tracker traffic for the selected torrents.", "bulk_collection", 200, ["infoHash", "expectedVersion"], ["infoHash"], new Dictionary<string, string>(StringComparer.Ordinal) { ["infoHash"] = "string", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "torrent", "torrentItems"),
-        CreateWriteCapability("admin.write.permissions", AdminPermissions.PermissionWrite, "PUT", true, "/api/admin/users/bulk/permissions", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "permission", "/api/admin/users/{userId}/permissions", "Manage user permissions", "Sign in again to confirm this privileged permission change.", "bulk_collection", 200, ["userId", "canLeech", "canSeed", "canScrape", "canUsePrivateTracker", "expectedVersion"], ["userId", "canLeech", "canSeed", "canScrape", "canUsePrivateTracker"], new Dictionary<string, string>(StringComparer.Ordinal) { ["userId"] = "guid", ["canLeech"] = "boolean", ["canSeed"] = "boolean", ["canScrape"] = "boolean", ["canUsePrivateTracker"] = "boolean", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "permission", "permissionItems"),
-        CreateWriteCapability("admin.write.ban", AdminPermissions.BanWrite, "PUT", true, "/api/admin/bans/bulk", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "ban", "/api/admin/bans/{scope}/{subject}", "Manage bans", "Sign in again to confirm this sensitive ban change.", "bulk_collection", 200, ["scope", "subject", "reason", "expiresAtUtc", "expectedVersion"], ["scope", "subject", "reason"], new Dictionary<string, string>(StringComparer.Ordinal) { ["scope"] = "string", ["subject"] = "string", ["reason"] = "string", ["expiresAtUtc"] = "datetimeoffset?", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "ban", "banItems"),
-        CreateWriteCapability("admin.expire.ban", AdminPermissions.BanWrite, "POST", true, "/api/admin/bans/bulk/expire", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "ban", "/api/admin/bans/{scope}/{subject}", "Expire bans", "Sign in again to confirm these ban expiry changes.", "bulk_collection", 200, ["scope", "subject", "expiresAtUtc", "expectedVersion"], ["scope", "subject", "expiresAtUtc"], new Dictionary<string, string>(StringComparer.Ordinal) { ["scope"] = "string", ["subject"] = "string", ["expiresAtUtc"] = "datetimeoffset", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "ban", "banItems"),
-        CreateWriteCapability("admin.delete.ban", AdminPermissions.BanWrite, "POST", true, "/api/admin/bans/bulk/delete", null, "multi_select", "conditional_idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "ban", "/api/admin/bans/{scope}/{subject}", "Delete bans", "Sign in again to confirm these ban deletions.", "bulk_collection", 200, ["scope", "subject", "expectedVersion"], ["scope", "subject"], new Dictionary<string, string>(StringComparer.Ordinal) { ["scope"] = "string", ["subject"] = "string", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "ban", "banItems"),
+        CreateReadCapability("admin.read.cluster_overview", AdminPermissions.DashboardView, "cluster", "/api/admin/cluster-overview", "View cluster overview", "monitoring"),
+        CreateReadCapability("admin.read.audit", AdminPermissions.AuditView, "audit-record", "/api/admin/audit", "View audit history", "audit"),
+        CreateReadCapability("admin.read.maintenance", AdminPermissions.SystemSettingsView, "maintenance-run", "/api/admin/maintenance", "View maintenance history", "maintenance"),
+        CreateReadCapability("admin.read.torrents", AdminPermissions.TorrentsView, "torrent", "/api/admin/torrents", "View torrents", "configuration"),
+        CreateReadCapability("admin.read.passkeys", AdminPermissions.PasskeysView, "passkey", "/api/admin/passkeys", "View passkeys", "access"),
+        CreateReadCapability("admin.read.permissions", AdminPermissions.TrackerAccessView, "tracker-access", "/api/admin/tracker-access", "View tracker access rights", "access"),
+        CreateReadCapability("admin.read.bans", AdminPermissions.BansView, "ban", "/api/admin/bans", "View bans", "access"),
+        CreateWriteCapability("admin.write.torrent_policy", AdminPermissions.TrackerPoliciesEdit, "PUT", false, null, null, "single", "idempotent", true, AdminReauthenticationSeverities.Medium, false, false, AdminReauthenticationSeverities.Medium, "configuration", "torrent-policy", "/api/admin/torrents/{infoHash}/policy", "Edit torrent policy", "This change affects tracker configuration.", "single_payload", null, ["isPrivate", "isEnabled", "announceIntervalSeconds", "minAnnounceIntervalSeconds", "defaultNumWant", "maxNumWant", "allowScrape", "expectedVersion"], ["isPrivate", "isEnabled", "announceIntervalSeconds", "minAnnounceIntervalSeconds", "defaultNumWant", "maxNumWant", "allowScrape"], new Dictionary<string, string>(StringComparer.Ordinal) { ["isPrivate"] = "boolean", ["isEnabled"] = "boolean", ["announceIntervalSeconds"] = "int32", ["minAnnounceIntervalSeconds"] = "int32", ["defaultNumWant"] = "int32", ["maxNumWant"] = "int32", ["allowScrape"] = "boolean", ["expectedVersion"] = "int64?" }, "single_snapshot", "torrent", null),
+        CreateWriteCapability("admin.bulk_upsert.torrent_policy", AdminPermissions.TrackerPoliciesEdit, "PUT", true, "/api/admin/torrents/bulk/policy", "/api/admin/torrents/bulk/policy/dry-run", "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, true, false, AdminReauthenticationSeverities.High, "configuration", "torrent-policy", "/api/admin/torrents/{infoHash}/policy", "Bulk edit torrent policies", "This change applies tracker policy updates to multiple torrents.", "bulk_collection", 50, ["infoHash", "isPrivate", "isEnabled", "announceIntervalSeconds", "minAnnounceIntervalSeconds", "defaultNumWant", "maxNumWant", "allowScrape", "expectedVersion"], ["infoHash", "isPrivate", "isEnabled", "announceIntervalSeconds", "minAnnounceIntervalSeconds", "defaultNumWant", "maxNumWant", "allowScrape"], new Dictionary<string, string>(StringComparer.Ordinal) { ["infoHash"] = "string", ["isPrivate"] = "boolean", ["isEnabled"] = "boolean", ["announceIntervalSeconds"] = "int32", ["minAnnounceIntervalSeconds"] = "int32", ["defaultNumWant"] = "int32", ["maxNumWant"] = "int32", ["allowScrape"] = "boolean", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "torrent", "torrentItems"),
+        CreateWriteCapability("admin.write.passkey", AdminPermissions.PasskeysManage, "PUT", false, null, null, "single", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "passkey", "/api/admin/passkeys/{passkey}", "Manage passkeys", "Sign in again to confirm this sensitive passkey change.", "single_payload", null, ["userId", "isRevoked", "expiresAtUtc", "expectedVersion"], ["userId", "isRevoked"], new Dictionary<string, string>(StringComparer.Ordinal) { ["userId"] = "guid", ["isRevoked"] = "boolean", ["expiresAtUtc"] = "datetimeoffset?", ["expectedVersion"] = "int64?" }, "single_snapshot", "passkey", null),
+        CreateWriteCapability("admin.revoke.passkey", AdminPermissions.PasskeysManage, "POST", true, "/api/admin/passkeys/bulk/revoke", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "passkey", "/api/admin/passkeys/{passkey}", "Revoke passkeys", "Sign in again to confirm these passkey revocations.", "bulk_collection", 200, ["passkey", "expectedVersion"], ["passkey"], new Dictionary<string, string>(StringComparer.Ordinal) { ["passkey"] = "string", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "passkey", "passkeyItems"),
+        CreateWriteCapability("admin.rotate.passkey", AdminPermissions.PasskeysManage, "POST", true, "/api/admin/passkeys/bulk/rotate", null, "multi_select", "non_idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "passkey", "/api/admin/passkeys/{passkey}", "Rotate passkeys", "Sign in again to confirm these passkey rotations.", "bulk_collection", 100, ["passkey", "expiresAtUtc", "expectedVersion"], ["passkey"], new Dictionary<string, string>(StringComparer.Ordinal) { ["passkey"] = "string", ["expiresAtUtc"] = "datetimeoffset?", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "passkey", "passkeyItems"),
+        CreateWriteCapability("admin.activate.torrent", AdminPermissions.TorrentsEdit, "POST", true, "/api/admin/torrents/bulk/activate", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.Medium, false, false, AdminReauthenticationSeverities.Medium, "configuration", "torrent", "/api/admin/torrents/{infoHash}", "Activate torrents", "This change enables tracker traffic for the selected torrents.", "bulk_collection", 200, ["infoHash", "expectedVersion"], ["infoHash"], new Dictionary<string, string>(StringComparer.Ordinal) { ["infoHash"] = "string", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "torrent", "torrentItems"),
+        CreateWriteCapability("admin.deactivate.torrent", AdminPermissions.TorrentsEdit, "POST", true, "/api/admin/torrents/bulk/deactivate", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.Medium, false, false, AdminReauthenticationSeverities.Medium, "configuration", "torrent", "/api/admin/torrents/{infoHash}", "Deactivate torrents", "This change disables tracker traffic for the selected torrents.", "bulk_collection", 200, ["infoHash", "expectedVersion"], ["infoHash"], new Dictionary<string, string>(StringComparer.Ordinal) { ["infoHash"] = "string", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "torrent", "torrentItems"),
+        CreateWriteCapability("admin.write.permissions", AdminPermissions.TrackerAccessManage, "PUT", true, "/api/admin/users/bulk/tracker-access", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "tracker-access", "/api/admin/users/{userId}/tracker-access", "Manage tracker access rights", "Sign in again to confirm this privileged tracker access change.", "bulk_collection", 200, ["userId", "canLeech", "canSeed", "canScrape", "canUsePrivateTracker", "expectedVersion"], ["userId", "canLeech", "canSeed", "canScrape", "canUsePrivateTracker"], new Dictionary<string, string>(StringComparer.Ordinal) { ["userId"] = "guid", ["canLeech"] = "boolean", ["canSeed"] = "boolean", ["canScrape"] = "boolean", ["canUsePrivateTracker"] = "boolean", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "tracker-access", "trackerAccessItems"),
+        CreateWriteCapability("admin.write.ban", AdminPermissions.BansManage, "PUT", true, "/api/admin/bans/bulk", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "ban", "/api/admin/bans/{scope}/{subject}", "Manage bans", "Sign in again to confirm this sensitive ban change.", "bulk_collection", 200, ["scope", "subject", "reason", "expiresAtUtc", "expectedVersion"], ["scope", "subject", "reason"], new Dictionary<string, string>(StringComparer.Ordinal) { ["scope"] = "string", ["subject"] = "string", ["reason"] = "string", ["expiresAtUtc"] = "datetimeoffset?", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "ban", "banItems"),
+        CreateWriteCapability("admin.expire.ban", AdminPermissions.BansManage, "POST", true, "/api/admin/bans/bulk/expire", null, "multi_select", "idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "ban", "/api/admin/bans/{scope}/{subject}", "Expire bans", "Sign in again to confirm these ban expiry changes.", "bulk_collection", 200, ["scope", "subject", "expiresAtUtc", "expectedVersion"], ["scope", "subject", "expiresAtUtc"], new Dictionary<string, string>(StringComparer.Ordinal) { ["scope"] = "string", ["subject"] = "string", ["expiresAtUtc"] = "datetimeoffset", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "ban", "banItems"),
+        CreateWriteCapability("admin.delete.ban", AdminPermissions.BansManage, "POST", true, "/api/admin/bans/bulk/delete", null, "multi_select", "conditional_idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "access", "ban", "/api/admin/bans/{scope}/{subject}", "Delete bans", "Sign in again to confirm these ban deletions.", "bulk_collection", 200, ["scope", "subject", "expectedVersion"], ["scope", "subject"], new Dictionary<string, string>(StringComparer.Ordinal) { ["scope"] = "string", ["subject"] = "string", ["expectedVersion"] = "int64?" }, "bulk_operation_result", "ban", "banItems"),
         CreateWriteCapability("admin.execute.maintenance", AdminPermissions.MaintenanceExecute, "POST", false, null, null, "none", "non_idempotent", true, AdminReauthenticationSeverities.High, false, true, AdminReauthenticationSeverities.High, "maintenance", "maintenance-run", "/api/admin/maintenance/cache-refresh", "Run maintenance", "Sign in again to execute a privileged maintenance operation.", "empty", null, [], [], new Dictionary<string, string>(StringComparer.Ordinal), "accepted", null, null)
     ];
 
     public static IReadOnlyList<AdminCapabilityDescriptor> All => Descriptors;
 
-    private static AdminCapabilityDescriptor CreateReadCapability(string action, string resourceKind, string routePattern, string displayName, string category)
-        => new(action, AdminPermissions.Read, "GET", false, null, null, "none", "safe", false, "none", false, false, AdminReauthenticationSeverities.Low, category, resourceKind, routePattern, displayName, "No reauthentication required.", "none", null, [], [], new Dictionary<string, string>(StringComparer.Ordinal), "query_result", resourceKind, null);
+    private static AdminCapabilityDescriptor CreateReadCapability(string action, string permission, string resourceKind, string routePattern, string displayName, string category)
+        => new(action, permission, "GET", false, null, null, "none", "safe", false, "none", false, false, AdminReauthenticationSeverities.Low, category, resourceKind, routePattern, displayName, "No reauthentication required.", "none", null, [], [], new Dictionary<string, string>(StringComparer.Ordinal), "query_result", resourceKind, null);
 
     private static AdminCapabilityDescriptor CreateWriteCapability(
         string action,

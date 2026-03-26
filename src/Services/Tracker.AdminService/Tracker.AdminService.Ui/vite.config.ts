@@ -6,5 +6,10 @@ export default defineConfig({
   build: {
     outDir: "../Tracker.AdminService.Api/wwwroot",
     emptyOutDir: true
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: "./src/test/setup.ts",
+    globals: true
   }
 });
