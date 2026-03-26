@@ -10,7 +10,14 @@ module.exports = {
         mist: "#cbd5e1",
         steel: "#475569",
         brand: "#1d4ed8",
-        panel: "#ffffff"
+        panel: "#ffffff",
+        honey: {
+          100: "#fff6cc",
+          200: "#ffe38a",
+          300: "#facc15",
+          400: "#f6b73c",
+          500: "#d89b00"
+        }
       },
       fontFamily: {
         sans: ["IBM Plex Sans", "Inter", "Segoe UI", "sans-serif"],

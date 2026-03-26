@@ -48,15 +48,21 @@ internal static class AdminSecurityServiceCollectionExtensions
 
         services.AddAntiforgery(options =>
         {
+            var publicEndpointOptions = configuration.GetSection(TrackerPublicEndpointOptions.SectionName).Get<TrackerPublicEndpointOptions>() ?? new TrackerPublicEndpointOptions();
+            var adminIdentityOptions = configuration.GetSection(AdminIdentityOptions.SectionName).Get<AdminIdentityOptions>() ?? new AdminIdentityOptions();
+            var allowPlainHttp = adminIdentityOptions.DisableTransportSecurityRequirement || !publicEndpointOptions.ForceHttps;
+
             options.HeaderName = "X-CSRF-TOKEN";
             options.Cookie.Name = "beetracker_admin_csrf";
             // HttpOnly = false so the SPA JavaScript can read and submit the CSRF token.
             options.Cookie.HttpOnly = false;
             options.Cookie.SameSite = SameSiteMode.Strict;
-            // Always — the admin surface is served over HTTPS (via Nginx).
-            // SameAsRequest would mark the cookie as non-Secure when ASP.NET Core
-            // receives the request over plain HTTP from the reverse proxy.
-            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            // In production behind Nginx we keep the cookie strictly Secure.
+            // Local browser development can run over plain HTTP, so the cookie
+            // has to follow the effective request scheme instead of forcing HTTPS.
+            options.Cookie.SecurePolicy = allowPlainHttp
+                ? CookieSecurePolicy.SameAsRequest
+                : CookieSecurePolicy.Always;
         });
 
         services.AddAuthorization(options =>

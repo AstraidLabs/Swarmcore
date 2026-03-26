@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -210,7 +210,23 @@ type NavigationBannerState = {
   tone: "good" | "warn";
 };
 
+type NavigationLink = {
+  to: string;
+  label: string;
+  description: string;
+  icon: "overview" | "users" | "roles" | "groups" | "torrents" | "passkeys" | "trackerAccess" | "bans" | "audit";
+};
+
+type NavigationSection = {
+  id: string;
+  label: string;
+  to: string;
+  icon: NavigationLink["icon"];
+  links: NavigationLink[];
+};
+
 const bulkTorrentPolicySelectionStorageKey = "beetracker.admin.bulkPolicySelection";
+const adminSignedOutStorageKey = "beetracker.admin.signedout";
 
 function toTitleCase(value: string): string {
   return value
@@ -240,6 +256,85 @@ function formatScrape(allowed: boolean, dictionary: I18nDictionary): string {
 
 function formatBool(value: boolean, dictionary: I18nDictionary): string {
   return value ? dictionary.common.yes : dictionary.common.no;
+}
+
+function NavigationItemIcon({ icon }: { icon: NavigationLink["icon"] }) {
+  switch (icon) {
+    case "overview":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <path d="M3 11.5 12 4l9 7.5" />
+          <path d="M5.5 10.5V20h13V10.5" />
+        </svg>
+      );
+    case "users":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1" />
+          <circle cx="9.5" cy="7.5" r="3.5" />
+          <path d="M17 10.5a3 3 0 1 0 0-6" />
+          <path d="M21 19v-1a4 4 0 0 0-3-3.87" />
+        </svg>
+      );
+    case "roles":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <path d="m12 3 7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4Z" />
+          <path d="m9.5 12 1.7 1.7 3.3-3.7" />
+        </svg>
+      );
+    case "groups":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <rect x="3" y="5" width="7" height="6" rx="1.5" />
+          <rect x="14" y="5" width="7" height="6" rx="1.5" />
+          <rect x="8.5" y="14" width="7" height="6" rx="1.5" />
+        </svg>
+      );
+    case "torrents":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <path d="M12 4v10" />
+          <path d="m8 10 4 4 4-4" />
+          <rect x="4" y="16" width="16" height="4" rx="2" />
+        </svg>
+      );
+    case "passkeys":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <circle cx="8.5" cy="11.5" r="3.5" />
+          <path d="M12 11.5h8" />
+          <path d="M17 11.5v3" />
+          <path d="M20 11.5v2" />
+        </svg>
+      );
+    case "trackerAccess":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <path d="M4 12h16" />
+          <path d="M12 4v16" />
+          <circle cx="12" cy="12" r="8" />
+        </svg>
+      );
+    case "bans":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="8" />
+          <path d="m8.5 15.5 7-7" />
+        </svg>
+      );
+    case "audit":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <path d="M8 6h11" />
+          <path d="M8 12h11" />
+          <path d="M8 18h11" />
+          <path d="M4 6h.01" />
+          <path d="M4 12h.01" />
+          <path d="M4 18h.01" />
+        </svg>
+      );
+  }
 }
 
 async function loadUiConfig(): Promise<AdminUiConfig> {
@@ -310,6 +405,10 @@ function useAdminOidc() {
       return;
     }
 
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(adminSignedOutStorageKey);
+    }
+
     await manager.signinRedirect({
       state: {
         returnTo: `${location.pathname}${location.search}${location.hash}`
@@ -321,6 +420,10 @@ function useAdminOidc() {
   const signout = async () => {
     if (manager) {
       await manager.removeUser();
+    }
+
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(adminSignedOutStorageKey, "1");
     }
 
     await fetch("/account/logout", {
@@ -597,12 +700,12 @@ function fromLocalDateTimeInput(value: string): string | null {
 function StatusPill({ tone, children }: { tone: "neutral" | "good" | "warn"; children: string }) {
   const classes =
     tone === "good"
-      ? "border border-moss/20 bg-moss/10 text-moss"
+      ? "border border-moss/15 bg-moss/10 text-moss"
       : tone === "warn"
-        ? "border border-ember/20 bg-ember/10 text-ember"
-        : "border border-slate-300 bg-slate-100 text-steel";
+        ? "border border-rose-200 bg-rose-50 text-rose-700"
+        : "border border-slate-200 bg-white text-steel";
 
-  return <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${classes}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] ${classes}`}>{children}</span>;
 }
 
 function Card({ title, eyebrow, children }: { title: string; eyebrow?: string; children: React.ReactNode }) {
@@ -700,14 +803,14 @@ function DataGrid<T>({
           placeholder={grid.searchPlaceholder}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-2xl border border-ink/15 bg-white px-4 py-3 text-sm text-ink placeholder:text-ink/40 focus:border-ink/30 focus:outline-none"
+          className="app-input"
         />
       </div>
 
-      <div className="overflow-hidden rounded-3xl border border-ink/10">
+      <div className="app-data-table">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-ink/10 text-sm">
-            <thead className="bg-ink text-left text-xs uppercase tracking-[0.2em] text-white/70">
+          <table className="min-w-full divide-y divide-slate-200/80 text-sm">
+            <thead className="app-table-head">
               <tr>
                 {columns.map((col) => (
                   <th
@@ -727,9 +830,9 @@ function DataGrid<T>({
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink/10 bg-white">
+            <tbody className="divide-y divide-slate-200/80 bg-white/95">
               {pageItems.map((item) => (
-                <tr key={keyFn(item)} className="transition-colors hover:bg-slate-50/80">
+                <tr key={keyFn(item)} className="app-table-row">
                   {columns.map((col) => (
                     <td key={col.key} className={`px-4 py-3 ${col.className ?? ""}`}>
                       {col.render(item)}
@@ -739,7 +842,7 @@ function DataGrid<T>({
               ))}
               {pageItems.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-ink/50" colSpan={columns.length}>
+                  <td className="px-4 py-10 text-center text-steel/80" colSpan={columns.length}>
                     {search ? grid.noResults : emptyMessage}
                   </td>
                 </tr>
@@ -933,10 +1036,10 @@ function DashboardPage({
   return (
     <div className="space-y-6">
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="app-card px-6 py-5">
+        <div className="app-stat-card">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.readinessTitle}</p>
           <div className="mt-4 flex items-end justify-between">
-            <p className="text-4xl font-semibold text-ink">{readinessPercent}%</p>
+            <p className="app-stat-value">{readinessPercent}%</p>
             <span className="text-sm text-steel">{readyNodes}/{overview.activeNodeCount}</span>
           </div>
           <p className="mt-3 text-sm leading-6 text-steel">
@@ -944,21 +1047,21 @@ function DashboardPage({
               ? `${degradedNodes} ${dashboard.readinessNeedsAttention}`
               : dashboard.readinessReady}
           </p>
-          <div className="mt-4 h-1.5 rounded-full bg-slate-100">
-            <div className="h-1.5 rounded-full bg-moss" style={{ width: `${readinessPercent}%` }} />
+          <div className="app-stat-bar">
+            <div className="app-stat-bar-fill bg-moss" style={{ width: `${readinessPercent}%` }} />
           </div>
         </div>
-        <div className="app-card px-6 py-5">
+        <div className="app-stat-card">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.postureTitle}</p>
           <div className="mt-4 flex items-end justify-between">
-            <p className="text-4xl font-semibold text-ink">{grantedCapabilities.length}</p>
+            <p className="app-stat-value">{grantedCapabilities.length}</p>
             <span className="text-sm text-steel">{capabilityCategories.length} {dashboard.postureDomains}</span>
           </div>
           <p className="mt-3 text-sm leading-6 text-steel">
             {privilegedCapabilities} {dashboard.postureProtected}
           </p>
-          <div className="mt-4 h-1.5 rounded-full bg-slate-100">
-            <div className="h-1.5 rounded-full bg-amber-500" style={{ width: `${capabilities.length ? (privilegedCapabilities / capabilities.length) * 100 : 0}%` }} />
+          <div className="app-stat-bar">
+            <div className="app-stat-bar-fill bg-amber-500" style={{ width: `${capabilities.length ? (privilegedCapabilities / capabilities.length) * 100 : 0}%` }} />
           </div>
         </div>
       </section>
@@ -995,7 +1098,7 @@ function DashboardPage({
           <Card title={dashboard.whyTitle} eyebrow={dashboard.productEyebrow}>
             <div className="space-y-4 text-sm leading-6 text-steel">
               <p>{dashboard.whyBody}</p>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+              <div className="app-subtle-panel">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.observedSnapshot}</p>
                 <p className="mt-2 text-sm text-ink">{new Date(overview.observedAtUtc).toLocaleString()}</p>
                 <p className="mt-2 text-sm text-steel">{dashboard.snapshotBody}</p>
@@ -1010,7 +1113,7 @@ function DashboardPage({
           <Card title={dashboard.capabilitiesTitle} eyebrow={dashboard.capabilitiesEyebrow}>
             <div className="space-y-3">
               {grantedCapabilities.map((capability) => (
-                <div key={capability.action} className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div key={capability.action} className="rounded-[22px] border border-slate-200/80 bg-slate-50/50 px-4 py-4">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="font-medium text-ink">{capability.displayName}</p>
@@ -2653,6 +2756,9 @@ function CallbackPage({
         }
 
         onSignedIn(signedInUser);
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem(adminSignedOutStorageKey);
+        }
         const returnTo = typeof signedInUser.state === "object" && signedInUser.state && "returnTo" in signedInUser.state
           ? String((signedInUser.state as { returnTo?: string }).returnTo ?? "/")
           : "/";
@@ -2692,23 +2798,76 @@ function Shell({
   children: React.ReactNode;
 }) {
   const { dictionary } = useI18n();
-  const links = useMemo(
-    () => [
-      hasPermission(session.permissions, "admin.dashboard.view") ? { to: "/", label: dictionary.routes.overviewTitle } : null,
-      hasPermission(session.permissions, permissionKeys.profileView) ? { to: "/profile", label: "Profile" } : null,
-      hasPermission(session.permissions, permissionKeys.usersView) ? { to: "/admin-users", label: "Admin users" } : null,
-      hasPermission(session.permissions, permissionKeys.rolesView) ? { to: "/roles", label: "Roles" } : null,
-      hasPermission(session.permissions, permissionKeys.permissionGroupsView) ? { to: "/permission-groups", label: "Permission groups" } : null,
-      hasPermission(session.permissions, "admin.torrents.view") ? { to: "/torrents", label: dictionary.routes.torrentsTitle } : null,
-      hasPermission(session.permissions, "admin.passkeys.view") ? { to: "/passkeys", label: dictionary.routes.passkeysTitle } : null,
-      hasPermission(session.permissions, "admin.tracker_access.view") ? { to: "/permissions", label: dictionary.routes.permissionsTitle } : null,
-      hasPermission(session.permissions, "admin.bans.view") ? { to: "/bans", label: dictionary.routes.bansTitle } : null,
-      hasPermission(session.permissions, permissionKeys.auditView) ? { to: "/audit", label: dictionary.routes.auditTitle } : null
-    ].filter((link): link is { to: string; label: string } => link !== null),
-    [dictionary, session.permissions]
-  );
   const location = useLocation();
   const routeMeta = getRouteMeta(location.pathname, dictionary);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [sectionMenuOpen, setSectionMenuOpen] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const navbarRef = useRef<HTMLElement | null>(null);
+  const navigationSections = useMemo(
+    (): NavigationSection[] => [
+      {
+        id: "overview",
+        label: "Overview",
+        to: "/",
+        icon: "overview",
+        links: [
+          hasPermission(session.permissions, "admin.dashboard.view")
+            ? { to: "/", label: dictionary.routes.overviewTitle, description: "Cluster health and access posture.", icon: "overview" }
+            : null
+        ].filter((link): link is NavigationLink => link !== null)
+      },
+      {
+        id: "access",
+        label: "Access Management",
+        to: "/admin-users",
+        icon: "users",
+        links: [
+          hasPermission(session.permissions, permissionKeys.usersView)
+            ? { to: "/admin-users", label: "Admin users", description: "Provision accounts and assign roles.", icon: "users" }
+            : null,
+          hasPermission(session.permissions, permissionKeys.rolesView)
+            ? { to: "/roles", label: "Roles", description: "Control system and custom admin roles.", icon: "roles" }
+            : null,
+          hasPermission(session.permissions, permissionKeys.permissionGroupsView)
+            ? { to: "/permission-groups", label: "Groups", description: "Bundle permissions into reusable sets.", icon: "groups" }
+            : null
+        ].filter((link): link is NavigationLink => link !== null)
+      },
+      {
+        id: "tracker",
+        label: "Tracker",
+        to: "/torrents",
+        icon: "torrents",
+        links: [
+          hasPermission(session.permissions, "admin.torrents.view")
+            ? { to: "/torrents", label: "Torrent catalog", description: "Manage tracker mode and rollout policies.", icon: "torrents" }
+            : null,
+          hasPermission(session.permissions, "admin.passkeys.view")
+            ? { to: "/passkeys", label: "Passkeys", description: "Rotate and revoke private tracker credentials.", icon: "passkeys" }
+            : null,
+          hasPermission(session.permissions, "admin.tracker_access.view")
+            ? { to: "/permissions", label: "Tracker access", description: "Control leech, seed, scrape and private access.", icon: "trackerAccess" }
+            : null,
+          hasPermission(session.permissions, "admin.bans.view")
+            ? { to: "/bans", label: "Ban rules", description: "Create and expire enforcement rules.", icon: "bans" }
+            : null
+        ].filter((link): link is NavigationLink => link !== null)
+      },
+      {
+        id: "audit",
+        label: "Audit",
+        to: "/audit",
+        icon: "audit",
+        links: [
+          hasPermission(session.permissions, permissionKeys.auditView)
+            ? { to: "/audit", label: dictionary.routes.auditTitle, description: "Inspect privileged activity and outcomes.", icon: "audit" }
+            : null
+        ].filter((link): link is NavigationLink => link !== null)
+      }
+    ].filter((section) => section.links.length > 0),
+    [dictionary, session.permissions]
+  );
 
   const displayName =
     user.profile.name ??
@@ -2723,91 +2882,271 @@ function Shell({
         ? user.profile.role[0]
         : session.role || "viewer";
 
+  useEffect(() => {
+    setProfileMenuOpen(false);
+    setSectionMenuOpen(null);
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (!navbarRef.current?.contains(target)) {
+        setProfileMenuOpen(false);
+        setSectionMenuOpen(null);
+        setMobileMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setProfileMenuOpen(false);
+        setSectionMenuOpen(null);
+        setMobileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  const activeSection =
+    navigationSections.find((section) =>
+      section.links.some((link) => link.to === location.pathname || (link.to !== "/" && location.pathname.startsWith(`${link.to}/`)))
+    ) ?? (location.pathname === "/profile" ? navigationSections.find((section) => section.id === "access") ?? navigationSections[0] : navigationSections[0]);
+
   return (
-    <div className="min-h-screen px-4 py-4 md:px-6 md:py-6">
-      <div className="mx-auto grid max-w-[1600px] gap-6 lg:grid-cols-[280px,1fr]">
-        <aside className="app-surface overflow-hidden">
-          <div className="border-b border-slate-200 px-6 py-6">
-          <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel/60">BeeTracker</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-ink">{dictionary.landing.eyebrow}</h1>
-            <p className="mt-3 text-sm leading-6 text-steel">
-              {dictionary.landing.capabilitiesIntro}
-            </p>
-          </div>
-          </div>
-          <div className="px-6 py-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/60">{dictionary.common.navigation}</p>
-            <nav className="mt-4 space-y-1.5">
-            {links.map((link) => (
-              <NavLink
-                key={link.to}
-                to={link.to}
-                end={link.to === "/"}
-                className={({ isActive }) =>
-                  `flex items-center justify-between rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                    isActive
-                      ? "border-slate-200 bg-slate-50 text-ink shadow-sm"
-                      : "border-transparent text-steel hover:border-slate-200 hover:bg-slate-50 hover:text-ink"
-                  }`
-                }
+    <div className="app-shell">
+      <div className="app-shell-grid">
+        <nav ref={navbarRef} className="app-navbar">
+          <div className="app-navbar-row">
+            <div className="app-navbar-brand">
+              <button
+                type="button"
+                className="app-navbar-mobile-toggle"
+                onClick={() => {
+                  setMobileMenuOpen((value) => !value);
+                  setSectionMenuOpen(null);
+                }}
+                aria-expanded={mobileMenuOpen}
               >
-                <span>{link.label}</span>
-                <span className="text-xs text-steel/45">›</span>
+                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8">
+                  <path d="M4 7h16" />
+                  <path d="M4 12h16" />
+                  <path d="M4 17h16" />
+                </svg>
+                <span>Menu</span>
+              </button>
+              <NavLink to="/" end className="app-navbar-wordmark">
+                <span className="app-navbar-wordmark-mark">BT</span>
+                <span className="app-navbar-wordmark-text">BeeTracker</span>
               </NavLink>
-            ))}
-          </nav>
-          </div>
-          <div className="border-t border-slate-200 px-6 py-5">
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-5">
-              <p className="text-xs uppercase tracking-[0.2em] text-steel/60">{dictionary.common.signedInAs}</p>
-              <p className="mt-2 text-lg font-semibold text-ink">{displayName}</p>
-              <p className="text-sm text-steel">{role}</p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <StatusPill tone="good">{session.isAuthenticated ? dictionary.common.sessionActive : dictionary.common.sessionMissing}</StatusPill>
-                <StatusPill tone="neutral">{session.permissions.length} {dictionary.common.permissions}</StatusPill>
+              <div className="app-navbar-inline-nav">
+                {navigationSections.map((section) => (
+                  <div key={section.id} className="relative">
+                    {section.links.length === 1 ? (
+                      <NavLink
+                        to={section.links[0].to}
+                        end={section.links[0].to === "/"}
+                        className={() => `app-navbar-link ${activeSection?.id === section.id ? "app-navbar-link-active" : "app-navbar-link-idle"}`}
+                      >
+                        <span className="app-navbar-link-icon">
+                          <NavigationItemIcon icon={section.icon} />
+                        </span>
+                        <span>{section.label}</span>
+                      </NavLink>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSectionMenuOpen((value) => value === section.id ? null : section.id)}
+                        className={`app-navbar-link ${activeSection?.id === section.id ? "app-navbar-link-active" : "app-navbar-link-idle"}`}
+                        aria-expanded={sectionMenuOpen === section.id}
+                      >
+                        <span className="app-navbar-link-icon">
+                          <NavigationItemIcon icon={section.icon} />
+                        </span>
+                        <span>{section.label}</span>
+                        <svg
+                          viewBox="0 0 24 24"
+                          className={`h-4 w-4 transition ${sectionMenuOpen === section.id ? "rotate-180" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        >
+                          <path d="m6 9 6 6 6-6" />
+                        </svg>
+                      </button>
+                    )}
+                    {section.links.length > 1 && sectionMenuOpen === section.id ? (
+                      <div className="app-navbar-dropdown">
+                        <div className="border-b border-slate-200/80 px-4 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9a7300]">{section.label}</p>
+                        </div>
+                        <div className="grid gap-2 p-3">
+                          {section.links.map((link) => (
+                            <NavLink
+                              key={link.to}
+                              to={link.to}
+                              end={link.to === "/"}
+                              className={({ isActive }) => `app-tools-menu-link ${isActive ? "app-tools-menu-link-active" : "app-tools-menu-link-idle"}`}
+                            >
+                              <span className="app-tools-menu-icon">
+                                <NavigationItemIcon icon={link.icon} />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block">{link.label}</span>
+                                <span className="mt-0.5 block text-xs font-normal text-steel/80">{link.description}</span>
+                              </span>
+                            </NavLink>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             </div>
-            <div className="mt-5 flex gap-3">
-            <button
-              type="button"
-              onClick={() => void onSignin(true)}
-              className="app-button-secondary flex-1"
-            >
-              {dictionary.common.reauth}
-            </button>
-            <button
-              type="button"
-              onClick={() => void onSignout()}
-              className="app-button-danger flex-1"
-            >
-              {dictionary.common.signOut}
-            </button>
-          </div>
-          </div>
-        </aside>
-        <main className="space-y-6">
-          <section className="app-surface overflow-hidden">
-            <div className="border-b border-slate-200/80 bg-white px-6 py-4">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-xs text-steel/70">
-                    <span>{dictionary.common.dashboard}</span>
-                    <span>/</span>
-                    <span>{routeMeta.eyebrow}</span>
-                    <span>/</span>
-                    <span className="font-semibold text-ink">{routeMeta.title}</span>
+            <div className="app-navbar-actions">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((value) => !value)}
+                  className="app-profile-trigger"
+                  aria-expanded={profileMenuOpen}
+                >
+                  <div className="app-profile-avatar">
+                    <span>{displayName.slice(0, 2).toUpperCase()}</span>
                   </div>
-                  <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink">{routeMeta.title}</h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-steel">{routeMeta.description}</p>
+                  <div className="min-w-0 text-left">
+                    <p className="truncate text-sm font-semibold text-white">{displayName}</p>
+                    <p className="truncate text-xs text-slate-300">{role}</p>
+                  </div>
+                  <svg viewBox="0 0 24 24" className={`h-4 w-4 text-honey-300 transition ${profileMenuOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+                {profileMenuOpen ? (
+                  <div className="app-profile-menu">
+                    <div className="border-b border-slate-200/80 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-steel/55">{dictionary.common.signedInAs}</p>
+                      <p className="mt-2 text-base font-bold text-ink">{displayName}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <StatusPill tone="good">{session.isAuthenticated ? dictionary.common.sessionActive : dictionary.common.sessionMissing}</StatusPill>
+                        <span className="app-chip">{session.permissions.length} {dictionary.common.permissions}</span>
+                      </div>
+                    </div>
+                    <div className="grid gap-2 p-3">
+                      <Link to="/profile" className="app-profile-menu-link">Open profile</Link>
+                      <Link to="/profile" className="app-profile-menu-link">Profile</Link>
+                      <div className="app-subtle-panel !rounded-[18px] !px-3 !py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-steel/55">Session</p>
+                        <p className="mt-2 text-sm font-semibold text-ink">{role}</p>
+                        <p className="mt-1 text-sm text-steel">{session.permissions.length} granted permissions</p>
+                      </div>
+                      <button type="button" onClick={() => void onSignin(true)} className="app-profile-menu-link text-left">
+                        {dictionary.common.reauth}
+                      </button>
+                      <button type="button" onClick={() => void onSignout()} className="app-profile-menu-link text-left text-rose-600">
+                        {dictionary.common.signOut}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          {mobileMenuOpen ? (
+            <div className="app-navbar-mobile-panel">
+              <div className="grid gap-3">
+                {navigationSections.map((section) => (
+                  <div key={`mobile-${section.id}`} className="rounded-[22px] border border-white/10 bg-white/5 p-2">
+                    {section.links.length === 1 ? (
+                      <NavLink
+                        to={section.links[0].to}
+                        end={section.links[0].to === "/"}
+                        className={({ isActive }) => `app-navbar-mobile-link ${isActive ? "app-navbar-mobile-link-active" : "app-navbar-mobile-link-idle"}`}
+                      >
+                        <span className="app-navbar-link-icon">
+                          <NavigationItemIcon icon={section.icon} />
+                        </span>
+                        <span>{section.label}</span>
+                      </NavLink>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className={`app-navbar-mobile-link ${sectionMenuOpen === section.id || activeSection?.id === section.id ? "app-navbar-mobile-link-active" : "app-navbar-mobile-link-idle"}`}
+                          onClick={() => setSectionMenuOpen((value) => value === section.id ? null : section.id)}
+                          aria-expanded={sectionMenuOpen === section.id}
+                        >
+                          <span className="app-navbar-link-icon">
+                            <NavigationItemIcon icon={section.icon} />
+                          </span>
+                          <span>{section.label}</span>
+                          <svg
+                            viewBox="0 0 24 24"
+                            className={`ml-auto h-4 w-4 transition ${sectionMenuOpen === section.id ? "rotate-180" : ""}`}
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                          >
+                            <path d="m6 9 6 6 6-6" />
+                          </svg>
+                        </button>
+                        {sectionMenuOpen === section.id ? (
+                          <div className="mt-2 grid gap-2 px-2 pb-2">
+                            {section.links.map((link) => (
+                              <NavLink
+                                key={`mobile-${link.to}`}
+                                to={link.to}
+                                end={link.to === "/"}
+                                className={({ isActive }) => `app-tools-menu-link ${isActive ? "app-tools-menu-link-active" : "app-tools-menu-link-idle"}`}
+                              >
+                                <span className="app-tools-menu-icon">
+                                  <NavigationItemIcon icon={link.icon} />
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block">{link.label}</span>
+                                  <span className="mt-0.5 block text-xs font-normal text-steel/80">{link.description}</span>
+                                </span>
+                              </NavLink>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </nav>
+        <main className="mx-auto max-w-[1620px] space-y-6 px-4 md:px-6">
+          <section className="app-page-header">
+            <div className="app-toolbar-body">
+              <div className="max-w-3xl">
+                <div className="app-breadcrumb">
+                  <span className="app-breadcrumb-pill">{dictionary.common.dashboard}</span>
+                  <span>{routeMeta.eyebrow}</span>
+                  <span>/</span>
+                  <span className="font-semibold text-ink">{routeMeta.title}</span>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button type="button" className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-steel shadow-sm">⌕</button>
-                  <button type="button" className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-steel shadow-sm">⟳</button>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dictionary.common.sessionRole}</p>
-                    <p className="mt-1 text-sm font-semibold text-ink">{role}</p>
-                  </div>
+                <h2 className="mt-4 text-[2.6rem] font-extrabold tracking-tight text-ink">{routeMeta.title}</h2>
+                <p className="mt-3 text-sm leading-7 text-steel">{routeMeta.description}</p>
+              </div>
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="app-header-badge">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">{dictionary.common.sessionRole}</p>
+                  <p className="mt-1 text-sm font-semibold text-ink">{role}</p>
                 </div>
               </div>
             </div>
@@ -2839,7 +3178,15 @@ function LandingIcon({
   );
 }
 
-function SignInScreen({ onSignin, error }: { onSignin: (fresh?: boolean) => Promise<void>; error: string | null }) {
+function SignInScreen({
+  onSignin,
+  error,
+  autoStart = false
+}: {
+  onSignin: (fresh?: boolean) => Promise<void>;
+  error: string | null;
+  autoStart?: boolean;
+}) {
   const { locale, setLocale, dictionary } = useI18n();
   const landing = dictionary.landing;
   const capabilityCards = [
@@ -2889,6 +3236,14 @@ function SignInScreen({ onSignin, error }: { onSignin: (fresh?: boolean) => Prom
     { title: landing.stepTwoTitle, body: landing.stepTwoBody },
     { title: landing.stepThreeTitle, body: landing.stepThreeBody }
   ];
+
+  useEffect(() => {
+    if (!autoStart) {
+      return;
+    }
+
+    void onSignin(false);
+  }, [autoStart, onSignin]);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-6 py-12">
@@ -2969,6 +3324,11 @@ function SignInScreen({ onSignin, error }: { onSignin: (fresh?: boolean) => Prom
                 ))}
               </div>
             </div>
+            {autoStart && !error ? (
+              <p className="mt-4 rounded-2xl bg-brand/10 px-4 py-3 text-sm text-brand">
+                Redirecting to sign-in automatically…
+              </p>
+            ) : null}
             {error ? <p className="mt-4 rounded-2xl bg-ember/10 px-4 py-3 text-sm text-ember">{error}</p> : null}
             <button
               type="button"
@@ -3006,7 +3366,8 @@ function AuthenticatedAdminApp({
     }
 
     onUserChanged(null);
-  }, [onUserChanged, user]);
+    void onSignin(false);
+  }, [onSignin, onUserChanged, user]);
 
   if (error) {
     return (
@@ -3125,6 +3486,9 @@ export default function App() {
   const { dictionary } = useI18n();
   const { manager, user, setUser, isBootstrapping, bootError, signin, signout } = useAdminOidc();
   const location = useLocation();
+  const autoStartSignin =
+    typeof window !== "undefined" &&
+    window.sessionStorage.getItem(adminSignedOutStorageKey) !== "1";
 
   if (isBootstrapping) {
     return (
@@ -3161,7 +3525,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <SignInScreen onSignin={signin} error={null} />;
+    return <SignInScreen onSignin={signin} error={null} autoStart={autoStartSignin} />;
   }
 
   return (

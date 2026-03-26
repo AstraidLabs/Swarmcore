@@ -1,0 +1,41 @@
+services:
+  tracker-gateway:
+    environment:
+      BeeTracker__PublicEndpoint__BaseUrl: http://localhost:18080
+      BeeTracker__PublicEndpoint__AnnounceBaseUrl: http://localhost:18080
+      BeeTracker__PublicEndpoint__ScrapeBaseUrl: http://localhost:18080
+      BeeTracker__PublicEndpoint__ForceHttps: "false"
+      BeeTracker__PublicEndpoint__AllowedHosts__0: localhost
+      BeeTracker__PublicEndpoint__AllowedHosts__1: 127.0.0.1
+    ports:
+      - "18080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent -H 'Host: localhost' http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  admin-service:
+    environment:
+      BeeTracker__AdminIdentity__DisableTransportSecurityRequirement: "true"
+      BeeTracker__PublicEndpoint__BaseUrl: http://localhost:18081
+      BeeTracker__PublicEndpoint__AdminBaseUrl: http://localhost:18081
+      BeeTracker__PublicEndpoint__ForceHttps: "false"
+      BeeTracker__PublicEndpoint__AllowedHosts__0: localhost
+      BeeTracker__PublicEndpoint__AllowedHosts__1: 127.0.0.1
+      BeeTracker__AdminIdentity__BootstrapClients__0__ClientId: beetracker-admin-ui
+      BeeTracker__AdminIdentity__BootstrapClients__0__DisplayName: BeeTracker Admin UI
+      BeeTracker__AdminIdentity__BootstrapClients__0__RequirePkce: "true"
+      BeeTracker__AdminIdentity__BootstrapClients__0__RedirectUris__0: http://localhost:18081/oidc/callback
+      BeeTracker__AdminIdentity__BootstrapClients__0__PostLogoutRedirectUris__0: http://localhost:18081/
+      BeeTracker__AdminIdentity__BootstrapClients__0__Scopes__0: openid
+      BeeTracker__AdminIdentity__BootstrapClients__0__Scopes__1: profile
+      BeeTracker__AdminIdentity__BootstrapClients__0__Scopes__2: roles
+      BeeTracker__AdminIdentity__BootstrapClients__0__Scopes__3: admin_api
+    ports:
+      - "18081:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent -H 'Host: localhost' http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
