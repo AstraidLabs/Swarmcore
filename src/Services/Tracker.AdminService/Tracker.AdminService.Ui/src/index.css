@@ -150,7 +150,7 @@ body {
   }
 
   .app-navbar-actions {
-    @apply flex flex-wrap items-center gap-2 xl:ml-auto;
+    @apply relative flex flex-wrap items-center gap-2 pr-1 xl:ml-auto;
   }
 
   .app-navbar-mobile-panel {
@@ -158,7 +158,7 @@ body {
   }
 
   .app-navbar-dropdown {
-    @apply absolute left-0 top-[calc(100%+0.75rem)] z-50 min-w-[320px] overflow-hidden rounded-[26px] border border-slate-200/80 bg-white/95 shadow-[0_24px_60px_rgba(15,23,42,0.16)] backdrop-blur;
+    @apply absolute left-0 top-[calc(100%+0.5rem)] z-50 min-w-[300px] overflow-hidden rounded-[22px] border border-slate-200/80 bg-white/95 shadow-[0_18px_40px_rgba(15,23,42,0.14)] backdrop-blur;
   }
 
   .app-navbar-mobile-link {
@@ -174,11 +174,11 @@ body {
   }
 
   .app-tools-menu-link {
-    @apply flex items-center gap-3 rounded-[18px] px-3 py-3 text-sm font-medium transition;
+    @apply flex items-center gap-3 rounded-[16px] px-3 py-2.5 text-sm font-medium transition;
   }
 
   .app-tools-menu-link-active {
-    @apply bg-[#17160f] text-white;
+    @apply border border-honey-300/35 bg-honey-100/70 text-ink;
   }
 
   .app-tools-menu-link-idle {
@@ -186,10 +186,66 @@ body {
   }
 
   .app-profile-trigger {
-    @apply flex items-center gap-3 rounded-[20px] border border-white/10 bg-white/10 px-3 py-2 text-white transition hover:border-honey-300/40 hover:bg-white/15;
+    position: relative;
+    z-index: 1;
+    background-color: rgba(42, 39, 26, 0.88);
+    min-width: 198px;
+    @apply flex items-center gap-3 overflow-hidden rounded-[20px] border border-white/10 px-3 py-2 pr-7 text-white shadow-[0_10px_20px_rgba(12,12,8,0.2)] backdrop-blur transition hover:border-honey-300/40;
+  }
+
+  .app-profile-trigger:hover {
+    background-color: rgba(49, 45, 30, 0.92);
+  }
+
+  .app-profile-trigger-hive {
+    position: absolute;
+    top: 50%;
+    right: -6px;
+    width: 82px;
+    height: 56px;
+    transform: translateY(-50%);
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 0;
+    opacity: 0.78;
+  }
+
+  .app-profile-trigger-hive-cell {
+    position: absolute;
+    width: 28px;
+    aspect-ratio: 1;
+    clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%);
+    border: 1px solid rgba(250, 204, 21, 0.44);
+    background:
+      linear-gradient(135deg, rgba(255, 251, 232, 0.88), rgba(255, 193, 7, 0.5)),
+      rgba(255, 248, 212, 0.18);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.26),
+      0 4px 10px rgba(255, 193, 7, 0.07);
+    filter: saturate(1.08) contrast(1.04);
+    animation: profile-trigger-hive-drift 6.4s ease-in-out infinite;
+    animation-delay: calc(var(--profile-trigger-hive-index) * -0.5s);
+  }
+
+  .app-profile-trigger-hive-cell:nth-child(1) { top: 1px; right: 10px; width: 30px; opacity: 0.84; }
+  .app-profile-trigger-hive-cell:nth-child(2) { top: 17px; right: 32px; width: 24px; opacity: 0.68; }
+  .app-profile-trigger-hive-cell:nth-child(3) { top: 23px; right: 4px; width: 28px; opacity: 0.58; }
+
+  @keyframes profile-trigger-hive-drift {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      opacity: 0.52;
+    }
+
+    50% {
+      transform: translate3d(0, -2px, 0) scale(1.03);
+      opacity: 0.86;
+    }
   }
 
   .app-profile-avatar {
+    position: relative;
+    z-index: 1;
     @apply inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-honey-300 via-amber-400 to-orange-400 text-sm font-extrabold tracking-[0.12em] text-[#2b2107] shadow-[0_10px_22px_rgba(250,204,21,0.28)];
   }
 
@@ -222,31 +278,84 @@ body {
   }
 
   .app-tools-menu-icon {
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50 text-steel transition;
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-steel transition;
   }
 
   .app-tools-menu-link-active .app-tools-menu-icon {
-    @apply border-white/10 bg-white/10 text-honey-100;
+    @apply border-honey-300/45 bg-white text-[#9a7300];
   }
 
 
   .app-page-header {
-    @apply mx-4 overflow-hidden rounded-[34px] border border-white/70 shadow-[0_24px_70px_rgba(15,23,42,0.08)] md:mx-6;
+    @apply relative overflow-hidden;
     background:
-      linear-gradient(135deg, rgba(250,204,21,0.18), rgba(255,255,255,0.9) 42%, rgba(255,249,219,0.88) 100%),
-      radial-gradient(circle at top right, rgba(255,191,36,0.12), transparent 28%);
-    position: relative;
+      linear-gradient(180deg, rgba(255,250,236,0.94) 0%, rgba(255,252,244,0.78) 58%, rgba(255,255,255,0.08) 100%),
+      radial-gradient(circle at 82% 18%, rgba(255,191,36,0.18), transparent 24%);
+  }
+
+  .app-page-header-shell {
+    @apply -mt-1 -mx-4 pb-2 md:-mx-6;
   }
 
   .app-page-header::before {
     content: "";
     position: absolute;
     inset: 0;
-    background-image:
-      radial-gradient(circle at 20px 20px, rgba(250, 204, 21, 0.08) 2px, transparent 2px),
-      radial-gradient(circle at 60px 54px, rgba(250, 204, 21, 0.06) 2px, transparent 2px);
-    background-size: 80px 72px;
-    opacity: 0.8;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.48), transparent 42%),
+      linear-gradient(90deg, rgba(250, 204, 21, 0.04), transparent 18%, transparent 76%, rgba(250, 204, 21, 0.08));
+    opacity: 0.95;
+  }
+
+  .app-page-header-hive {
+    position: absolute;
+    top: 0.2rem;
+    right: 0;
+    bottom: 0;
+    width: min(36%, 420px);
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 0;
+  }
+
+  .app-page-header-hive-cell {
+    position: absolute;
+    width: 72px;
+    aspect-ratio: 1;
+    clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%);
+    border: 1px solid rgba(250, 204, 21, 0.22);
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.56), rgba(255,216,84,0.2)),
+      rgba(255,248,212,0.08);
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,0.18),
+      0 6px 18px rgba(255,193,7,0.08);
+    opacity: 0.7;
+    animation: hive-drift 9s ease-in-out infinite;
+    animation-delay: calc(var(--hive-index) * -0.5s);
+  }
+
+  .app-page-header-hive-cell:nth-child(1) { top: 8%; right: 4%; }
+  .app-page-header-hive-cell:nth-child(2) { top: 24%; right: 15%; width: 58px; }
+  .app-page-header-hive-cell:nth-child(3) { top: 40%; right: 1%; width: 62px; }
+  .app-page-header-hive-cell:nth-child(4) { top: 54%; right: 10%; width: 78px; }
+  .app-page-header-hive-cell:nth-child(5) { top: 10%; right: 26%; width: 68px; }
+  .app-page-header-hive-cell:nth-child(6) { top: 44%; right: 24%; width: 52px; }
+  .app-page-header-hive-cell:nth-child(7) { top: -3%; right: 18%; width: 86px; opacity: 0.36; }
+  .app-page-header-hive-cell:nth-child(8) { bottom: -10%; right: -1%; width: 88px; opacity: 0.32; }
+  .app-page-header-hive-cell:nth-child(9) { top: 28%; right: 36%; width: 44px; }
+  .app-page-header-hive-cell:nth-child(10) { bottom: 8%; right: 31%; width: 56px; }
+
+  @keyframes hive-drift {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+      opacity: 0.32;
+    }
+
+    50% {
+      transform: translate3d(0, -6px, 0) scale(1.04) rotate(2deg);
+      opacity: 0.62;
+    }
   }
 
   .app-topbar {
@@ -322,7 +431,7 @@ body {
   }
 
   .app-toolbar-body {
-    @apply relative flex flex-col gap-5 px-6 py-6 xl:flex-row xl:items-start xl:justify-between;
+    @apply relative z-[1] flex flex-col gap-3 px-4 py-2 md:px-6;
   }
 
   .app-breadcrumb {
@@ -406,7 +515,14 @@ body {
   }
 
   .app-table-head {
-    @apply bg-[#172033] text-left text-[11px] uppercase tracking-[0.28em] text-white/70;
+    @apply bg-[#172033] text-left text-[11px] uppercase tracking-[0.12em] text-white/70;
+  }
+
+  .app-data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background-color: #172033;
   }
 
   .app-table-row {
@@ -427,5 +543,94 @@ body {
 
   .app-permission-item {
     @apply rounded-[20px] border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm text-steel;
+  }
+
+  .app-catalog-toolbar {
+    @apply grid gap-3 xl:grid-cols-[minmax(0,2.6fr),minmax(170px,0.9fr),minmax(170px,0.9fr),minmax(150px,0.7fr)];
+  }
+
+  .app-catalog-header {
+    @apply flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between;
+  }
+
+  .app-catalog-grid {
+    @apply grid gap-5 md:grid-cols-2 2xl:grid-cols-3;
+  }
+
+  .app-catalog-grid-card {
+    @apply app-card flex h-full flex-col gap-4 px-5 py-5;
+  }
+
+  .app-catalog-grid-meta {
+    @apply mt-auto flex flex-col gap-1 border-t border-slate-200/80 pt-4 text-sm text-steel;
+  }
+
+  .app-catalog-grid-actions {
+    @apply flex flex-wrap gap-3;
+  }
+
+  .app-catalog-pagination {
+    @apply flex flex-col gap-3 rounded-[20px] border border-slate-200/80 bg-white/70 px-5 py-3 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .app-selection-summary {
+    @apply flex flex-col gap-3 rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .app-table-state {
+    @apply flex flex-col items-center justify-center gap-2 rounded-[22px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-8 text-center;
+  }
+
+  .app-preview-drawer {
+    @apply pointer-events-none fixed inset-y-0 right-0 z-[65] flex w-[380px] max-w-[92vw] translate-x-full transition-transform duration-300 ease-out;
+  }
+
+  .app-preview-drawer-open {
+    @apply pointer-events-auto translate-x-0;
+  }
+
+  .app-preview-drawer-card {
+    @apply mt-[110px] flex h-[calc(100vh-132px)] w-full flex-col overflow-hidden border-l border-slate-200/80 bg-white shadow-[-18px_0_48px_rgba(15,23,42,0.16)];
+  }
+
+  .app-preview-drawer-header {
+    @apply flex items-start justify-between gap-4 border-b border-slate-200/80 px-5 py-4;
+  }
+
+  .app-preview-drawer-body {
+    @apply flex-1 overflow-y-auto px-5 py-5;
+  }
+
+  .app-data-table table th,
+  .app-data-table table td {
+    vertical-align: middle;
+  }
+
+  .app-card-header.app-catalog-header {
+    @apply px-5 py-5;
+  }
+
+  .app-card:has(.app-catalog-toolbar) .app-card-body {
+    @apply px-5 py-4;
+  }
+
+  .app-modal-overlay {
+    @apply fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm;
+  }
+
+  .app-modal-card {
+    @apply app-card max-h-[90vh] w-full overflow-hidden;
+  }
+
+  .app-modal-card-medium {
+    @apply max-w-2xl;
+  }
+
+  .app-modal-card-wide {
+    @apply max-w-4xl;
+  }
+
+  .app-modal-card-xwide {
+    @apply max-w-6xl;
   }
 }

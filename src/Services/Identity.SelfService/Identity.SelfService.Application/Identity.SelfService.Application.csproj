@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Identity.SelfService.Domain\Identity.SelfService.Domain.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\BeeTracker.BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Application\BeeTracker.BuildingBlocks.Application.csproj" />
     <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Identity\BeeTracker.Contracts.Identity.csproj" />
     <ProjectReference Include="..\..\Audit\Audit.Application\Audit.Application.csproj" />
     <ProjectReference Include="..\..\Notification\Notification.Application\Notification.Application.csproj" />

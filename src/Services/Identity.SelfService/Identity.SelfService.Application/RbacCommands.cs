@@ -1,4 +1,5 @@
 using BeeTracker.Contracts.Identity;
+using BeeTracker.BuildingBlocks.Application.Queries;
 using MediatR;
 
 namespace Identity.SelfService.Application;
@@ -91,18 +92,15 @@ public sealed record UnlockAccountCommand(
 
 public sealed record GetAdminProfileDetailQuery(string UserId) : IRequest<AdminProfileDetailResponse?>;
 
-public sealed record ListAdminUsersQuery(
-    string? Search,
-    int Page,
-    int PageSize) : IRequest<PaginatedResult<AdminUserListItemDto>>;
+public sealed record ListAdminUsersQuery(GridQuery Query) : IRequest<PaginatedResult<AdminUserListItemDto>>;
 
 public sealed record GetAdminUserDetailQuery(string UserId) : IRequest<AdminUserDetailDto?>;
 
-public sealed record ListRolesQuery() : IRequest<IReadOnlyList<RoleListItemDto>>;
+public sealed record ListRolesQuery(GridQuery Query) : IRequest<PaginatedResult<RoleListItemDto>>;
 
 public sealed record GetRoleDetailQuery(string RoleId) : IRequest<RoleDetailDto?>;
 
-public sealed record ListPermissionGroupsQuery() : IRequest<IReadOnlyList<PermissionGroupListItemDto>>;
+public sealed record ListPermissionGroupsQuery(GridQuery Query) : IRequest<PaginatedResult<PermissionGroupListItemDto>>;
 
 public sealed record GetPermissionGroupDetailQuery(Guid GroupId) : IRequest<PermissionGroupDetailDto?>;
 

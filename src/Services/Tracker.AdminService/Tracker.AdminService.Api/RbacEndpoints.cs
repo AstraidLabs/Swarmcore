@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using BeeTracker.BuildingBlocks.Application.Queries;
 using BeeTracker.Contracts.Identity;
 using Identity.SelfService.Application;
 using MediatR;
@@ -38,6 +39,10 @@ public static class RbacEndpoints
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersActivate));
         rbac.MapPost("/users/{userId}/deactivate", HandleDeactivateAccountAsync)
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersDeactivate));
+        rbac.MapPost("/users/bulk-activate", HandleBulkActivateUsersAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersActivate));
+        rbac.MapPost("/users/bulk-deactivate", HandleBulkDeactivateUsersAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersDeactivate));
         rbac.MapPost("/users/{userId}/lock", HandleLockAccountAsync)
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.UsersDeactivate));
         rbac.MapPost("/users/{userId}/unlock", HandleUnlockAccountAsync)
@@ -54,6 +59,8 @@ public static class RbacEndpoints
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesEdit));
         rbac.MapDelete("/roles/{roleId}", HandleDeleteRoleAsync)
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesDelete));
+        rbac.MapPost("/roles/bulk-delete", HandleBulkDeleteRolesAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesDelete));
         rbac.MapPut("/roles/{roleId}/permission-groups", HandleAssignRolePermissionGroupsAsync)
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.RolesAssignPermissions));
         rbac.MapPut("/roles/{roleId}/permissions", HandleAssignRoleDirectPermissionsAsync)
@@ -69,6 +76,8 @@ public static class RbacEndpoints
         rbac.MapPut("/permission-groups/{groupId:guid}", HandleUpdatePermissionGroupAsync)
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsEdit));
         rbac.MapDelete("/permission-groups/{groupId:guid}", HandleDeletePermissionGroupAsync)
+            .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsDelete));
+        rbac.MapPost("/permission-groups/bulk-delete", HandleBulkDeletePermissionGroupsAsync)
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsDelete));
         rbac.MapPut("/permission-groups/{groupId:guid}/permissions", HandleAssignGroupPermissionsAsync)
             .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PermissionGroupsEdit));
@@ -130,12 +139,14 @@ public static class RbacEndpoints
 
     private static async Task<IResult> HandleListUsersAsync(
         [FromQuery] string? search,
+        [FromQuery] string? filter,
+        [FromQuery] string? sort,
         [FromQuery] int page,
         [FromQuery] int pageSize,
         [FromServices] ISender sender,
         CancellationToken ct)
     {
-        var result = await sender.Send(new ListAdminUsersQuery(search, page, pageSize), ct);
+        var result = await sender.Send(new ListAdminUsersQuery(new GridQuery(search, filter, sort, page, pageSize)), ct);
         return Results.Ok(result);
     }
 
@@ -247,6 +258,60 @@ public static class RbacEndpoints
         return result.Success ? Results.Ok(result) : Results.BadRequest(ToError(result));
     }
 
+    private static async Task<IResult> HandleBulkActivateUsersAsync(
+        HttpContext httpContext,
+        [FromBody] BulkUserIdsRequest request,
+        [FromServices] ISender sender,
+        CancellationToken ct)
+    {
+        var actorId = GetUserId(httpContext);
+        if (actorId is null) return Results.Unauthorized();
+
+        var failures = new List<object>();
+        foreach (var userId in request.UserIds.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var result = await sender.Send(
+                new ActivateAccountAdminCommand(actorId, userId, GetIpAddress(httpContext), GetUserAgent(httpContext), GetCorrelationId(httpContext)),
+                ct);
+
+            if (!result.Success)
+            {
+                failures.Add(new { userId, errors = result.ErrorMessages });
+            }
+        }
+
+        return failures.Count == 0
+            ? Results.Ok(new { processedCount = request.UserIds.Count })
+            : Results.BadRequest(new { code = "BULK_ACTIVATE_FAILED", message = "One or more accounts could not be activated.", failures });
+    }
+
+    private static async Task<IResult> HandleBulkDeactivateUsersAsync(
+        HttpContext httpContext,
+        [FromBody] BulkUserIdsRequest request,
+        [FromServices] ISender sender,
+        CancellationToken ct)
+    {
+        var actorId = GetUserId(httpContext);
+        if (actorId is null) return Results.Unauthorized();
+
+        var failures = new List<object>();
+        foreach (var userId in request.UserIds.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var result = await sender.Send(
+                new DeactivateAccountAdminCommand(actorId, userId, GetIpAddress(httpContext), GetUserAgent(httpContext), GetCorrelationId(httpContext)),
+                ct);
+
+            if (!result.Success)
+            {
+                failures.Add(new { userId, errors = result.ErrorMessages });
+            }
+        }
+
+        return failures.Count == 0
+            ? Results.Ok(new { processedCount = request.UserIds.Count })
+            : Results.BadRequest(new { code = "BULK_DEACTIVATE_FAILED", message = "One or more accounts could not be deactivated.", failures });
+    }
+
     private static async Task<IResult> HandleLockAccountAsync(
         HttpContext httpContext,
         string userId,
@@ -282,10 +347,15 @@ public static class RbacEndpoints
     // ─── Roles ──────────────────────────────────────────────────────────────
 
     private static async Task<IResult> HandleListRolesAsync(
+        [FromQuery] string? search,
+        [FromQuery] string? filter,
+        [FromQuery] string? sort,
+        [FromQuery] int page,
+        [FromQuery] int pageSize,
         [FromServices] ISender sender,
         CancellationToken ct)
     {
-        var result = await sender.Send(new ListRolesQuery(), ct);
+        var result = await sender.Send(new ListRolesQuery(new GridQuery(search, filter, sort, page, pageSize)), ct);
         return Results.Ok(result);
     }
 
@@ -347,6 +417,33 @@ public static class RbacEndpoints
         return result.Success ? Results.NoContent() : Results.BadRequest(ToError(result));
     }
 
+    private static async Task<IResult> HandleBulkDeleteRolesAsync(
+        HttpContext httpContext,
+        [FromBody] BulkRoleDeleteRequest request,
+        [FromServices] ISender sender,
+        CancellationToken ct)
+    {
+        var actorId = GetUserId(httpContext);
+        if (actorId is null) return Results.Unauthorized();
+
+        var failures = new List<object>();
+        foreach (var roleId in request.RoleIds.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var result = await sender.Send(new DeleteRoleCommand(
+                actorId, roleId,
+                GetIpAddress(httpContext), GetUserAgent(httpContext), GetCorrelationId(httpContext)), ct);
+
+            if (!result.Success)
+            {
+                failures.Add(new { roleId, errors = result.ErrorMessages });
+            }
+        }
+
+        return failures.Count == 0
+            ? Results.Ok(new { processedCount = request.RoleIds.Count })
+            : Results.BadRequest(new { code = "BULK_DELETE_FAILED", message = "One or more roles could not be deleted.", failures });
+    }
+
     private static async Task<IResult> HandleAssignRolePermissionGroupsAsync(
         HttpContext httpContext,
         string roleId,
@@ -384,10 +481,15 @@ public static class RbacEndpoints
     // ─── Permission Groups ──────────────────────────────────────────────────
 
     private static async Task<IResult> HandleListPermissionGroupsAsync(
+        [FromQuery] string? search,
+        [FromQuery] string? filter,
+        [FromQuery] string? sort,
+        [FromQuery] int page,
+        [FromQuery] int pageSize,
         [FromServices] ISender sender,
         CancellationToken ct)
     {
-        var result = await sender.Send(new ListPermissionGroupsQuery(), ct);
+        var result = await sender.Send(new ListPermissionGroupsQuery(new GridQuery(search, filter, sort, page, pageSize)), ct);
         return Results.Ok(result);
     }
 
@@ -449,6 +551,33 @@ public static class RbacEndpoints
         return result.Success ? Results.NoContent() : Results.BadRequest(ToError(result));
     }
 
+    private static async Task<IResult> HandleBulkDeletePermissionGroupsAsync(
+        HttpContext httpContext,
+        [FromBody] BulkPermissionGroupDeleteRequest request,
+        [FromServices] ISender sender,
+        CancellationToken ct)
+    {
+        var actorId = GetUserId(httpContext);
+        if (actorId is null) return Results.Unauthorized();
+
+        var failures = new List<object>();
+        foreach (var groupId in request.GroupIds.Distinct())
+        {
+            var result = await sender.Send(new DeletePermissionGroupCommand(
+                actorId, groupId,
+                GetIpAddress(httpContext), GetUserAgent(httpContext), GetCorrelationId(httpContext)), ct);
+
+            if (!result.Success)
+            {
+                failures.Add(new { groupId, errors = result.ErrorMessages });
+            }
+        }
+
+        return failures.Count == 0
+            ? Results.Ok(new { processedCount = request.GroupIds.Count })
+            : Results.BadRequest(new { code = "BULK_DELETE_FAILED", message = "One or more permission groups could not be deleted.", failures });
+    }
+
     private static async Task<IResult> HandleAssignGroupPermissionsAsync(
         HttpContext httpContext,
         Guid groupId,
@@ -498,3 +627,6 @@ public static class RbacEndpoints
 // ─── Request DTOs ───────────────────────────────────────────────────────────
 
 public sealed record ChangeEmailRequest(string NewEmail, string CurrentPassword);
+public sealed record BulkUserIdsRequest(IReadOnlyList<string> UserIds);
+public sealed record BulkRoleDeleteRequest(IReadOnlyList<string> RoleIds);
+public sealed record BulkPermissionGroupDeleteRequest(IReadOnlyList<Guid> GroupIds);

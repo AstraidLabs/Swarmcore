@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
 using BeeTracker.BuildingBlocks.Abstractions.Hosting;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Application.Queries;
 using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using BeeTracker.Contracts.Configuration;
 using BeeTracker.Hosting;
@@ -277,23 +278,23 @@ adminApi.MapGet("/cluster/nodes", async (
 }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.NodesView));
 
 adminApi.MapGet("/audit",
-    async (int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
-        var result = await sender.Send(new ListAuditRecordsQuery(page, pageSize), cancellationToken);
+        var result = await sender.Send(new ListAuditRecordsQuery(new GridQuery(search, filter, sort, page, pageSize)), cancellationToken);
         return Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.AuditView));
 
 adminApi.MapGet("/maintenance",
-    async (int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
-        var result = await sender.Send(new ListMaintenanceRunsQuery(page, pageSize), cancellationToken);
+        var result = await sender.Send(new ListMaintenanceRunsQuery(new GridQuery(search, filter, sort, page, pageSize)), cancellationToken);
         return Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.SystemSettingsView));
 
 adminApi.MapGet("/torrents",
-    async (string? search, bool? isEnabled, bool? isPrivate, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, bool? isEnabled, bool? isPrivate, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
-        var result = await sender.Send(new ListTorrentsQuery(search, isEnabled, isPrivate, page, pageSize), cancellationToken);
+        var result = await sender.Send(new ListTorrentsQuery(new GridQuery(search, filter, sort, page, pageSize), isEnabled, isPrivate), cancellationToken);
         return Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TorrentsView));
 
@@ -305,33 +306,33 @@ adminApi.MapGet("/torrents/{infoHash}",
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TorrentsView));
 
 adminApi.MapGet("/passkeys",
-    async (Guid? userId, bool? isRevoked, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, Guid? userId, bool? isRevoked, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
-        var result = await sender.Send(new ListPasskeysQuery(userId, isRevoked, page, pageSize), cancellationToken);
+        var result = await sender.Send(new ListPasskeysQuery(new GridQuery(search, filter, sort, page, pageSize), userId, isRevoked), cancellationToken);
         return Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysView));
 
 adminApi.MapGet("/tracker-access",
-    async (bool? canUsePrivateTracker, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, bool? canUsePrivateTracker, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
-        var result = await sender.Send(new ListTrackerAccessRightsQuery(canUsePrivateTracker, page, pageSize), cancellationToken);
+        var result = await sender.Send(new ListTrackerAccessRightsQuery(new GridQuery(search, filter, sort, page, pageSize), canUsePrivateTracker), cancellationToken);
         return Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerAccessView));
 
 adminApi.MapGet("/permissions",
-    async (HttpContext httpContext, bool? canUsePrivateTracker, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (HttpContext httpContext, string? search, string? filter, string? sort, bool? canUsePrivateTracker, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         DeprecatedApiAlias.Apply(httpContext, "/api/admin/tracker-access");
-        var result = await sender.Send(new ListTrackerAccessRightsQuery(canUsePrivateTracker, page, pageSize), cancellationToken);
+        var result = await sender.Send(new ListTrackerAccessRightsQuery(new GridQuery(search, filter, sort, page, pageSize), canUsePrivateTracker), cancellationToken);
         return Results.Ok(result);
     }).WithMetadata(new ObsoleteAttribute("Use /api/admin/tracker-access. This alias will be removed in a future release."))
     .AddEndpointFilter(new DeprecatedEndpointFilter("/api/admin/tracker-access"))
     .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerAccessView));
 
 adminApi.MapGet("/bans",
-    async (string? scope, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, string? scope, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
-        var result = await sender.Send(new ListBansQuery(scope, page, pageSize), cancellationToken);
+        var result = await sender.Send(new ListBansQuery(new GridQuery(search, filter, sort, page, pageSize), scope), cancellationToken);
         return Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansView));
 

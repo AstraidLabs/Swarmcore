@@ -596,7 +596,7 @@ public sealed class ListAdminUsersHandler(
     IRbacService rbacService) : IRequestHandler<ListAdminUsersQuery, PaginatedResult<AdminUserListItemDto>>
 {
     public Task<PaginatedResult<AdminUserListItemDto>> Handle(ListAdminUsersQuery request, CancellationToken ct)
-        => rbacService.ListUsersAsync(request.Search, request.Page, request.PageSize, ct);
+        => rbacService.ListUsersAsync(request.Query, ct);
 }
 
 public sealed class GetAdminUserDetailHandler(
@@ -607,10 +607,10 @@ public sealed class GetAdminUserDetailHandler(
 }
 
 public sealed class ListRolesHandler(
-    IRbacService rbacService) : IRequestHandler<ListRolesQuery, IReadOnlyList<RoleListItemDto>>
+    IRbacService rbacService) : IRequestHandler<ListRolesQuery, PaginatedResult<RoleListItemDto>>
 {
-    public Task<IReadOnlyList<RoleListItemDto>> Handle(ListRolesQuery request, CancellationToken ct)
-        => rbacService.ListRolesAsync(ct);
+    public Task<PaginatedResult<RoleListItemDto>> Handle(ListRolesQuery request, CancellationToken ct)
+        => rbacService.ListRolesAsync(request.Query, ct);
 }
 
 public sealed class GetRoleDetailHandler(
@@ -621,10 +621,10 @@ public sealed class GetRoleDetailHandler(
 }
 
 public sealed class ListPermissionGroupsHandler(
-    IRbacService rbacService) : IRequestHandler<ListPermissionGroupsQuery, IReadOnlyList<PermissionGroupListItemDto>>
+    IRbacService rbacService) : IRequestHandler<ListPermissionGroupsQuery, PaginatedResult<PermissionGroupListItemDto>>
 {
-    public Task<IReadOnlyList<PermissionGroupListItemDto>> Handle(ListPermissionGroupsQuery request, CancellationToken ct)
-        => rbacService.ListPermissionGroupsAsync(ct);
+    public Task<PaginatedResult<PermissionGroupListItemDto>> Handle(ListPermissionGroupsQuery request, CancellationToken ct)
+        => rbacService.ListPermissionGroupsAsync(request.Query, ct);
 }
 
 public sealed class GetPermissionGroupDetailHandler(

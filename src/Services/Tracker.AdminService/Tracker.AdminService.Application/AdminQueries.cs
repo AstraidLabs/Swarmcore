@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
+using BeeTracker.BuildingBlocks.Application.Queries;
 using BeeTracker.Contracts.Admin;
 using BeeTracker.Contracts.Configuration;
 
@@ -7,23 +8,23 @@ namespace Tracker.AdminService.Application;
 
 public sealed record GetClusterOverviewQuery() : IRequest<ClusterOverviewDto>;
 
-public sealed record ListAuditRecordsQuery(int Page = 1, int PageSize = 50) : IRequest<IReadOnlyCollection<AuditRecordDto>>;
+public sealed record ListAuditRecordsQuery(GridQuery Query) : IRequest<PageResult<AuditRecordDto>>;
 
-public sealed record ListMaintenanceRunsQuery(int Page = 1, int PageSize = 50) : IRequest<IReadOnlyCollection<MaintenanceRunDto>>;
+public sealed record ListMaintenanceRunsQuery(GridQuery Query) : IRequest<PageResult<MaintenanceRunDto>>;
 
-public sealed record ListTorrentsQuery(string? Search = null, bool? IsEnabled = null, bool? IsPrivate = null, int Page = 1, int PageSize = 50)
-    : IRequest<IReadOnlyCollection<TorrentAdminDto>>;
+public sealed record ListTorrentsQuery(GridQuery Query, bool? IsEnabled = null, bool? IsPrivate = null)
+    : IRequest<PageResult<TorrentAdminDto>>;
 
 public sealed record GetTorrentDetailQuery(string InfoHash) : IRequest<TorrentAdminDto?>;
 
-public sealed record ListPasskeysQuery(Guid? UserId = null, bool? IsRevoked = null, int Page = 1, int PageSize = 50)
-    : IRequest<IReadOnlyCollection<PasskeyAdminDto>>;
+public sealed record ListPasskeysQuery(GridQuery Query, Guid? UserId = null, bool? IsRevoked = null)
+    : IRequest<PageResult<PasskeyAdminDto>>;
 
-public sealed record ListTrackerAccessRightsQuery(bool? CanUsePrivateTracker = null, int Page = 1, int PageSize = 50)
-    : IRequest<IReadOnlyCollection<TrackerAccessAdminDto>>;
+public sealed record ListTrackerAccessRightsQuery(GridQuery Query, bool? CanUsePrivateTracker = null)
+    : IRequest<PageResult<TrackerAccessAdminDto>>;
 
-public sealed record ListBansQuery(string? Scope = null, int Page = 1, int PageSize = 50)
-    : IRequest<IReadOnlyCollection<BanRuleAdminDto>>;
+public sealed record ListBansQuery(GridQuery Query, string? Scope = null)
+    : IRequest<PageResult<BanRuleAdminDto>>;
 
 public sealed record UpsertTorrentPolicyAdminCommand(string InfoHash, TorrentPolicyUpsertRequest Request, AdminMutationContext Context)
     : IRequest<TorrentPolicyDto>;
@@ -116,33 +117,33 @@ internal sealed class GetClusterNodeStatesQueryHandler(IClusterNodeStateReader r
 
 public interface IAuditRecordReader
 {
-    Task<IReadOnlyCollection<AuditRecordDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken);
+    Task<PageResult<AuditRecordDto>> ListAsync(GridQuery query, CancellationToken cancellationToken);
 }
 
 public interface IMaintenanceRunReader
 {
-    Task<IReadOnlyCollection<MaintenanceRunDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken);
+    Task<PageResult<MaintenanceRunDto>> ListAsync(GridQuery query, CancellationToken cancellationToken);
 }
 
 public interface ITorrentAdminReader
 {
-    Task<IReadOnlyCollection<TorrentAdminDto>> ListAsync(string? search, bool? isEnabled, bool? isPrivate, int page, int pageSize, CancellationToken cancellationToken);
+    Task<PageResult<TorrentAdminDto>> ListAsync(GridQuery query, bool? isEnabled, bool? isPrivate, CancellationToken cancellationToken);
     Task<TorrentAdminDto?> GetAsync(string infoHash, CancellationToken cancellationToken);
 }
 
 public interface IPasskeyAdminReader
 {
-    Task<IReadOnlyCollection<PasskeyAdminDto>> ListAsync(Guid? userId, bool? isRevoked, int page, int pageSize, CancellationToken cancellationToken);
+    Task<PageResult<PasskeyAdminDto>> ListAsync(GridQuery query, Guid? userId, bool? isRevoked, CancellationToken cancellationToken);
 }
 
 public interface ITrackerAccessRightsAdminReader
 {
-    Task<IReadOnlyCollection<TrackerAccessAdminDto>> ListAsync(bool? canUsePrivateTracker, int page, int pageSize, CancellationToken cancellationToken);
+    Task<PageResult<TrackerAccessAdminDto>> ListAsync(GridQuery query, bool? canUsePrivateTracker, CancellationToken cancellationToken);
 }
 
 public interface IBanAdminReader
 {
-    Task<IReadOnlyCollection<BanRuleAdminDto>> ListAsync(string? scope, int page, int pageSize, CancellationToken cancellationToken);
+    Task<PageResult<BanRuleAdminDto>> ListAsync(GridQuery query, string? scope, CancellationToken cancellationToken);
 }
 
 public interface IAdminMutationOrchestrator
@@ -171,22 +172,22 @@ internal sealed class GetClusterOverviewQueryHandler(IClusterOverviewReader read
         => reader.GetAsync(cancellationToken);
 }
 
-internal sealed class ListAuditRecordsQueryHandler(IAuditRecordReader reader) : IRequestHandler<ListAuditRecordsQuery, IReadOnlyCollection<AuditRecordDto>>
+internal sealed class ListAuditRecordsQueryHandler(IAuditRecordReader reader) : IRequestHandler<ListAuditRecordsQuery, PageResult<AuditRecordDto>>
 {
-    public Task<IReadOnlyCollection<AuditRecordDto>> Handle(ListAuditRecordsQuery request, CancellationToken cancellationToken)
-        => reader.ListAsync(request.Page, request.PageSize, cancellationToken);
+    public Task<PageResult<AuditRecordDto>> Handle(ListAuditRecordsQuery request, CancellationToken cancellationToken)
+        => reader.ListAsync(request.Query, cancellationToken);
 }
 
-internal sealed class ListMaintenanceRunsQueryHandler(IMaintenanceRunReader reader) : IRequestHandler<ListMaintenanceRunsQuery, IReadOnlyCollection<MaintenanceRunDto>>
+internal sealed class ListMaintenanceRunsQueryHandler(IMaintenanceRunReader reader) : IRequestHandler<ListMaintenanceRunsQuery, PageResult<MaintenanceRunDto>>
 {
-    public Task<IReadOnlyCollection<MaintenanceRunDto>> Handle(ListMaintenanceRunsQuery request, CancellationToken cancellationToken)
-        => reader.ListAsync(request.Page, request.PageSize, cancellationToken);
+    public Task<PageResult<MaintenanceRunDto>> Handle(ListMaintenanceRunsQuery request, CancellationToken cancellationToken)
+        => reader.ListAsync(request.Query, cancellationToken);
 }
 
-internal sealed class ListTorrentsQueryHandler(ITorrentAdminReader reader) : IRequestHandler<ListTorrentsQuery, IReadOnlyCollection<TorrentAdminDto>>
+internal sealed class ListTorrentsQueryHandler(ITorrentAdminReader reader) : IRequestHandler<ListTorrentsQuery, PageResult<TorrentAdminDto>>
 {
-    public Task<IReadOnlyCollection<TorrentAdminDto>> Handle(ListTorrentsQuery request, CancellationToken cancellationToken)
-        => reader.ListAsync(request.Search, request.IsEnabled, request.IsPrivate, request.Page, request.PageSize, cancellationToken);
+    public Task<PageResult<TorrentAdminDto>> Handle(ListTorrentsQuery request, CancellationToken cancellationToken)
+        => reader.ListAsync(request.Query, request.IsEnabled, request.IsPrivate, cancellationToken);
 }
 
 internal sealed class GetTorrentDetailQueryHandler(ITorrentAdminReader reader) : IRequestHandler<GetTorrentDetailQuery, TorrentAdminDto?>
@@ -195,22 +196,22 @@ internal sealed class GetTorrentDetailQueryHandler(ITorrentAdminReader reader) :
         => reader.GetAsync(request.InfoHash, cancellationToken);
 }
 
-internal sealed class ListPasskeysQueryHandler(IPasskeyAdminReader reader) : IRequestHandler<ListPasskeysQuery, IReadOnlyCollection<PasskeyAdminDto>>
+internal sealed class ListPasskeysQueryHandler(IPasskeyAdminReader reader) : IRequestHandler<ListPasskeysQuery, PageResult<PasskeyAdminDto>>
 {
-    public Task<IReadOnlyCollection<PasskeyAdminDto>> Handle(ListPasskeysQuery request, CancellationToken cancellationToken)
-        => reader.ListAsync(request.UserId, request.IsRevoked, request.Page, request.PageSize, cancellationToken);
+    public Task<PageResult<PasskeyAdminDto>> Handle(ListPasskeysQuery request, CancellationToken cancellationToken)
+        => reader.ListAsync(request.Query, request.UserId, request.IsRevoked, cancellationToken);
 }
 
-internal sealed class ListTrackerAccessRightsQueryHandler(ITrackerAccessRightsAdminReader reader) : IRequestHandler<ListTrackerAccessRightsQuery, IReadOnlyCollection<TrackerAccessAdminDto>>
+internal sealed class ListTrackerAccessRightsQueryHandler(ITrackerAccessRightsAdminReader reader) : IRequestHandler<ListTrackerAccessRightsQuery, PageResult<TrackerAccessAdminDto>>
 {
-    public Task<IReadOnlyCollection<TrackerAccessAdminDto>> Handle(ListTrackerAccessRightsQuery request, CancellationToken cancellationToken)
-        => reader.ListAsync(request.CanUsePrivateTracker, request.Page, request.PageSize, cancellationToken);
+    public Task<PageResult<TrackerAccessAdminDto>> Handle(ListTrackerAccessRightsQuery request, CancellationToken cancellationToken)
+        => reader.ListAsync(request.Query, request.CanUsePrivateTracker, cancellationToken);
 }
 
-internal sealed class ListBansQueryHandler(IBanAdminReader reader) : IRequestHandler<ListBansQuery, IReadOnlyCollection<BanRuleAdminDto>>
+internal sealed class ListBansQueryHandler(IBanAdminReader reader) : IRequestHandler<ListBansQuery, PageResult<BanRuleAdminDto>>
 {
-    public Task<IReadOnlyCollection<BanRuleAdminDto>> Handle(ListBansQuery request, CancellationToken cancellationToken)
-        => reader.ListAsync(request.Scope, request.Page, request.PageSize, cancellationToken);
+    public Task<PageResult<BanRuleAdminDto>> Handle(ListBansQuery request, CancellationToken cancellationToken)
+        => reader.ListAsync(request.Query, request.Scope, cancellationToken);
 }
 
 internal sealed class UpsertTorrentPolicyAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<UpsertTorrentPolicyAdminCommand, TorrentPolicyDto>

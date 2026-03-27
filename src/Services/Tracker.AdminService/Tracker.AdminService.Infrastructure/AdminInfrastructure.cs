@@ -4,6 +4,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using BeeTracker.Caching.Redis;
+using BeeTracker.BuildingBlocks.Application.Queries;
+using BeeTracker.BuildingBlocks.Infrastructure.Data;
 using BeeTracker.Contracts.Admin;
 using BeeTracker.Contracts.Configuration;
 using BeeTracker.Contracts.Runtime;
@@ -239,19 +241,53 @@ public sealed class RedisClusterOverviewReader(IRedisCacheClient redisCacheClien
 
 public sealed class EfAuditRecordReader(TrackerConfigurationDbContext dbContext) : IAuditRecordReader
 {
-    public async Task<IReadOnlyCollection<AuditRecordDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<PageResult<AuditRecordDto>> ListAsync(GridQuery query, CancellationToken cancellationToken)
     {
-        var (normalizedPage, normalizedPageSize) = NormalizePaging(page, pageSize);
-        var offset = (normalizedPage - 1) * normalizedPageSize;
-        var records = await dbContext.AuditRecords
-            .AsNoTracking()
-            .OrderByDescending(static record => record.OccurredAtUtc)
-            .Skip(offset)
-            .Take(normalizedPageSize)
-            .ToListAsync(cancellationToken);
+        query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
+        var normalizedSearch = query.NormalizedSearch;
 
-        return records
-            .Select(static record => new AuditRecordDto(
+        var recordsQuery = dbContext.AuditRecords
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            var pattern = $"%{normalizedSearch}%";
+            recordsQuery = recordsQuery.Where(record =>
+                EF.Functions.ILike(record.ActorId, pattern) ||
+                EF.Functions.ILike(record.ActorRole, pattern) ||
+                EF.Functions.ILike(record.Action, pattern) ||
+                EF.Functions.ILike(record.Severity, pattern) ||
+                EF.Functions.ILike(record.EntityType, pattern) ||
+                EF.Functions.ILike(record.EntityId, pattern) ||
+                EF.Functions.ILike(record.CorrelationId, pattern) ||
+                (record.RequestId != null && EF.Functions.ILike(record.RequestId, pattern)) ||
+                EF.Functions.ILike(record.Result, pattern));
+        }
+
+        recordsQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "success" => recordsQuery.Where(record => record.Result == "success"),
+            "failure" => recordsQuery.Where(record => record.Result == "failure"),
+            "warn" => recordsQuery.Where(record => record.Severity == "warn"),
+            "error" => recordsQuery.Where(record => record.Severity == "error"),
+            _ => recordsQuery
+        };
+
+        var orderedQuery = (query.Sort ?? "occurred:desc").ToLowerInvariant() switch
+        {
+            "action:asc" => recordsQuery.OrderBy(record => record.Action).ThenByDescending(record => record.OccurredAtUtc),
+            "action:desc" => recordsQuery.OrderByDescending(record => record.Action).ThenByDescending(record => record.OccurredAtUtc),
+            "severity:asc" => recordsQuery.OrderBy(record => record.Severity).ThenByDescending(record => record.OccurredAtUtc),
+            "severity:desc" => recordsQuery.OrderByDescending(record => record.Severity).ThenByDescending(record => record.OccurredAtUtc),
+            "actor:asc" => recordsQuery.OrderBy(record => record.ActorId).ThenByDescending(record => record.OccurredAtUtc),
+            "actor:desc" => recordsQuery.OrderByDescending(record => record.ActorId).ThenByDescending(record => record.OccurredAtUtc),
+            "occurred:asc" => recordsQuery.OrderBy(record => record.OccurredAtUtc),
+            _ => recordsQuery.OrderByDescending(record => record.OccurredAtUtc)
+        };
+
+        var (records, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
+        var items = records.Select(static record => new AuditRecordDto(
                 record.Id,
                 new DateTimeOffset(DateTime.SpecifyKind(record.OccurredAtUtc, DateTimeKind.Utc)),
                 record.ActorId,
@@ -264,77 +300,128 @@ public sealed class EfAuditRecordReader(TrackerConfigurationDbContext dbContext)
                 record.RequestId,
                 record.Result,
                 record.IpAddress))
-            .ToArray();
-    }
+            .ToArray()
+            .AsReadOnly();
 
-    private static (int Page, int PageSize) NormalizePaging(int page, int pageSize)
-        => (page < 1 ? 1 : page, Math.Clamp(pageSize, 1, 200));
+        return new PageResult<AuditRecordDto>(items, totalCount, query.Page, query.PageSize);
+    }
 }
 
 public sealed class EfMaintenanceRunReader(TrackerConfigurationDbContext dbContext) : IMaintenanceRunReader
 {
-    public async Task<IReadOnlyCollection<MaintenanceRunDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<PageResult<MaintenanceRunDto>> ListAsync(GridQuery query, CancellationToken cancellationToken)
     {
-        var (normalizedPage, normalizedPageSize) = NormalizePaging(page, pageSize);
-        var offset = (normalizedPage - 1) * normalizedPageSize;
-        var runs = await dbContext.MaintenanceRuns
-            .AsNoTracking()
-            .OrderByDescending(static run => run.RequestedAtUtc)
-            .Skip(offset)
-            .Take(normalizedPageSize)
-            .ToListAsync(cancellationToken);
+        query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
+        var normalizedSearch = query.NormalizedSearch;
 
-        return runs
-            .Select(static run => new MaintenanceRunDto(
+        var runsQuery = dbContext.MaintenanceRuns
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            var pattern = $"%{normalizedSearch}%";
+            runsQuery = runsQuery.Where(run =>
+                EF.Functions.ILike(run.Operation, pattern) ||
+                EF.Functions.ILike(run.RequestedBy, pattern) ||
+                EF.Functions.ILike(run.Status, pattern) ||
+                EF.Functions.ILike(run.CorrelationId, pattern));
+        }
+
+        runsQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "completed" => runsQuery.Where(run => run.Status == "completed"),
+            "failed" => runsQuery.Where(run => run.Status == "failed"),
+            "running" => runsQuery.Where(run => run.Status == "running"),
+            _ => runsQuery
+        };
+
+        var orderedQuery = (query.Sort ?? "requested:desc").ToLowerInvariant() switch
+        {
+            "operation:asc" => runsQuery.OrderBy(run => run.Operation).ThenByDescending(run => run.RequestedAtUtc),
+            "operation:desc" => runsQuery.OrderByDescending(run => run.Operation).ThenByDescending(run => run.RequestedAtUtc),
+            "status:asc" => runsQuery.OrderBy(run => run.Status).ThenByDescending(run => run.RequestedAtUtc),
+            "status:desc" => runsQuery.OrderByDescending(run => run.Status).ThenByDescending(run => run.RequestedAtUtc),
+            "requested:asc" => runsQuery.OrderBy(run => run.RequestedAtUtc),
+            _ => runsQuery.OrderByDescending(run => run.RequestedAtUtc)
+        };
+
+        var (runs, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
+        var items = runs.Select(static run => new MaintenanceRunDto(
                 run.Id,
                 run.Operation,
                 run.RequestedBy,
                 new DateTimeOffset(DateTime.SpecifyKind(run.RequestedAtUtc, DateTimeKind.Utc)),
                 run.Status,
                 run.CorrelationId))
-            .ToArray();
-    }
+            .ToArray()
+            .AsReadOnly();
 
-    private static (int Page, int PageSize) NormalizePaging(int page, int pageSize)
-        => (page < 1 ? 1 : page, Math.Clamp(pageSize, 1, 200));
+        return new PageResult<MaintenanceRunDto>(items, totalCount, query.Page, query.PageSize);
+    }
 }
 
 public sealed class EfTorrentAdminReader(TrackerConfigurationDbContext dbContext) : ITorrentAdminReader
 {
-    public async Task<IReadOnlyCollection<TorrentAdminDto>> ListAsync(string? search, bool? isEnabled, bool? isPrivate, int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<PageResult<TorrentAdminDto>> ListAsync(GridQuery query, bool? isEnabled, bool? isPrivate, CancellationToken cancellationToken)
     {
-        var (normalizedPage, normalizedPageSize) = NormalizePaging(page, pageSize);
-        var offset = (normalizedPage - 1) * normalizedPageSize;
-        var query = dbContext.Torrents
+        query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
+        var normalizedSearch = query.NormalizedSearch;
+
+        var torrentsQuery = dbContext.Torrents
             .AsNoTracking()
             .AsQueryable();
 
-        if (!string.IsNullOrWhiteSpace(search))
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
         {
-            var pattern = $"%{search.Trim()}%";
-            query = query.Where(torrent => EF.Functions.ILike(torrent.InfoHash, pattern));
+            var pattern = $"%{normalizedSearch}%";
+            torrentsQuery = torrentsQuery.Where(torrent => EF.Functions.ILike(torrent.InfoHash, pattern));
         }
 
         if (isEnabled.HasValue)
         {
-            query = query.Where(torrent => torrent.IsEnabled == isEnabled.Value);
+            torrentsQuery = torrentsQuery.Where(torrent => torrent.IsEnabled == isEnabled.Value);
         }
 
         if (isPrivate.HasValue)
         {
-            query = query.Where(torrent => torrent.IsPrivate == isPrivate.Value);
+            torrentsQuery = torrentsQuery.Where(torrent => torrent.IsPrivate == isPrivate.Value);
         }
 
-        var torrents = await query
+        torrentsQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "enabled" => torrentsQuery.Where(torrent => torrent.IsEnabled),
+            "disabled" => torrentsQuery.Where(torrent => !torrent.IsEnabled),
+            "private" => torrentsQuery.Where(torrent => torrent.IsPrivate),
+            "public" => torrentsQuery.Where(torrent => !torrent.IsPrivate),
+            _ => torrentsQuery
+        };
+
+        var orderedQuery = (query.Sort ?? "infohash:asc").ToLowerInvariant() switch
+        {
+            "enabled:asc" => torrentsQuery.OrderBy(torrent => torrent.IsEnabled).ThenBy(torrent => torrent.InfoHash),
+            "enabled:desc" => torrentsQuery.OrderByDescending(torrent => torrent.IsEnabled).ThenBy(torrent => torrent.InfoHash),
+            "private:asc" => torrentsQuery.OrderBy(torrent => torrent.IsPrivate).ThenBy(torrent => torrent.InfoHash),
+            "private:desc" => torrentsQuery.OrderByDescending(torrent => torrent.IsPrivate).ThenBy(torrent => torrent.InfoHash),
+            "interval:asc" => torrentsQuery.OrderBy(torrent => torrent.Policy!.AnnounceIntervalSeconds).ThenBy(torrent => torrent.InfoHash),
+            "interval:desc" => torrentsQuery.OrderByDescending(torrent => torrent.Policy!.AnnounceIntervalSeconds).ThenBy(torrent => torrent.InfoHash),
+            "infohash:desc" => torrentsQuery.OrderByDescending(torrent => torrent.InfoHash),
+            _ => torrentsQuery.OrderBy(torrent => torrent.InfoHash)
+        };
+
+        var totalCount = await orderedQuery.CountAsync(cancellationToken);
+        var torrents = await orderedQuery
             .Include(static torrent => torrent.Policy)
-            .OrderBy(static torrent => torrent.InfoHash)
-            .Skip(offset)
-            .Take(normalizedPageSize)
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
             .ToListAsync(cancellationToken);
 
-        return torrents
+        var items = torrents
             .Select(static torrent => MapTorrent(torrent))
-            .ToArray();
+            .ToArray()
+            .AsReadOnly();
+
+        return new PageResult<TorrentAdminDto>(items, totalCount, query.Page, query.PageSize);
     }
 
     public async Task<TorrentAdminDto?> GetAsync(string infoHash, CancellationToken cancellationToken)
@@ -358,40 +445,58 @@ public sealed class EfTorrentAdminReader(TrackerConfigurationDbContext dbContext
             torrent.Policy?.MaxNumWant ?? 0,
             torrent.Policy?.AllowScrape ?? false,
             torrent.Policy?.RowVersion ?? 0);
-
-    private static (int Page, int PageSize) NormalizePaging(int page, int pageSize)
-        => (page < 1 ? 1 : page, Math.Clamp(pageSize, 1, 200));
 }
 
 public sealed class EfPasskeyAdminReader(TrackerConfigurationDbContext dbContext) : IPasskeyAdminReader
 {
-    public async Task<IReadOnlyCollection<PasskeyAdminDto>> ListAsync(Guid? userId, bool? isRevoked, int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<PageResult<PasskeyAdminDto>> ListAsync(GridQuery query, Guid? userId, bool? isRevoked, CancellationToken cancellationToken)
     {
-        var (normalizedPage, normalizedPageSize) = NormalizePaging(page, pageSize);
-        var offset = (normalizedPage - 1) * normalizedPageSize;
-        var query = dbContext.Passkeys
+        query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
+        var normalizedSearch = query.NormalizedSearch;
+
+        var passkeysQuery = dbContext.Passkeys
             .AsNoTracking()
             .AsQueryable();
 
         if (userId.HasValue)
         {
-            query = query.Where(passkey => passkey.UserId == userId.Value);
+            passkeysQuery = passkeysQuery.Where(passkey => passkey.UserId == userId.Value);
         }
 
         if (isRevoked.HasValue)
         {
-            query = query.Where(passkey => passkey.IsRevoked == isRevoked.Value);
+            passkeysQuery = passkeysQuery.Where(passkey => passkey.IsRevoked == isRevoked.Value);
         }
 
-        var passkeys = await query
-            .OrderBy(static passkey => passkey.UserId)
-            .ThenBy(static passkey => passkey.Passkey)
-            .Skip(offset)
-            .Take(normalizedPageSize)
-            .ToListAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            var pattern = $"%{normalizedSearch}%";
+            passkeysQuery = passkeysQuery.Where(passkey =>
+                EF.Functions.ILike(passkey.UserId.ToString(), pattern) ||
+                EF.Functions.ILike(passkey.Passkey, pattern));
+        }
 
-        return passkeys
-            .Select(static passkey => new PasskeyAdminDto(
+        passkeysQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "revoked" => passkeysQuery.Where(passkey => passkey.IsRevoked),
+            "active" => passkeysQuery.Where(passkey => !passkey.IsRevoked),
+            "expired" => passkeysQuery.Where(passkey => passkey.ExpiresAtUtc.HasValue && passkey.ExpiresAtUtc < DateTime.UtcNow),
+            _ => passkeysQuery
+        };
+
+        var orderedQuery = (query.Sort ?? "userid:asc").ToLowerInvariant() switch
+        {
+            "expires:asc" => passkeysQuery.OrderBy(passkey => passkey.ExpiresAtUtc ?? DateTime.MaxValue).ThenBy(passkey => passkey.UserId),
+            "expires:desc" => passkeysQuery.OrderByDescending(passkey => passkey.ExpiresAtUtc ?? DateTime.MaxValue).ThenBy(passkey => passkey.UserId),
+            "version:asc" => passkeysQuery.OrderBy(passkey => passkey.RowVersion).ThenBy(passkey => passkey.UserId),
+            "version:desc" => passkeysQuery.OrderByDescending(passkey => passkey.RowVersion).ThenBy(passkey => passkey.UserId),
+            "userid:desc" => passkeysQuery.OrderByDescending(passkey => passkey.UserId).ThenByDescending(passkey => passkey.Passkey),
+            _ => passkeysQuery.OrderBy(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey)
+        };
+
+        var (passkeys, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
+
+        return new PageResult<PasskeyAdminDto>(passkeys.Select(static passkey => new PasskeyAdminDto(
                 MaskPasskey(passkey.Passkey),
                 passkey.UserId,
                 passkey.IsRevoked,
@@ -399,38 +504,59 @@ public sealed class EfPasskeyAdminReader(TrackerConfigurationDbContext dbContext
                     ? new DateTimeOffset(DateTime.SpecifyKind(passkey.ExpiresAtUtc.Value, DateTimeKind.Utc))
                     : null,
                 passkey.RowVersion))
-            .ToArray();
+            .ToArray()
+            .AsReadOnly(), totalCount, query.Page, query.PageSize);
     }
 
     private static string MaskPasskey(string passkey)
         => passkey.Length <= 6 ? $"pk:{passkey[0]}...{passkey[^1]}" : $"pk:{passkey[..4]}...{passkey[^2..]}";
-
-    private static (int Page, int PageSize) NormalizePaging(int page, int pageSize)
-        => (page < 1 ? 1 : page, Math.Clamp(pageSize, 1, 200));
 }
 
 public sealed class EfTrackerAccessRightsAdminReader(TrackerConfigurationDbContext dbContext) : ITrackerAccessRightsAdminReader
 {
-    public async Task<IReadOnlyCollection<TrackerAccessAdminDto>> ListAsync(bool? canUsePrivateTracker, int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<PageResult<TrackerAccessAdminDto>> ListAsync(GridQuery query, bool? canUsePrivateTracker, CancellationToken cancellationToken)
     {
-        var (normalizedPage, normalizedPageSize) = NormalizePaging(page, pageSize);
-        var offset = (normalizedPage - 1) * normalizedPageSize;
-        var query = dbContext.Permissions
+        query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
+        var normalizedSearch = query.NormalizedSearch;
+
+        var permissionsQuery = dbContext.Permissions
             .AsNoTracking()
             .AsQueryable();
 
         if (canUsePrivateTracker.HasValue)
         {
-            query = query.Where(permission => permission.CanUsePrivateTracker == canUsePrivateTracker.Value);
+            permissionsQuery = permissionsQuery.Where(permission => permission.CanUsePrivateTracker == canUsePrivateTracker.Value);
         }
 
-        var permissions = await query
-            .OrderBy(static permission => permission.UserId)
-            .Skip(offset)
-            .Take(normalizedPageSize)
-            .ToListAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            var pattern = $"%{normalizedSearch}%";
+            permissionsQuery = permissionsQuery.Where(permission =>
+                EF.Functions.ILike(permission.UserId.ToString(), pattern));
+        }
 
-        return permissions
+        permissionsQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "private" => permissionsQuery.Where(permission => permission.CanUsePrivateTracker),
+            "public" => permissionsQuery.Where(permission => !permission.CanUsePrivateTracker),
+            "seed" => permissionsQuery.Where(permission => permission.CanSeed),
+            "leech" => permissionsQuery.Where(permission => permission.CanLeech),
+            "scrape" => permissionsQuery.Where(permission => permission.CanScrape),
+            _ => permissionsQuery
+        };
+
+        IOrderedQueryable<UserPermissionEntity>? orderedQuery = null;
+        foreach (var term in GridQuerySortParser.Parse(query.Sort))
+        {
+            orderedQuery = ApplyTrackerAccessSort(orderedQuery ?? permissionsQuery, term);
+        }
+
+        orderedQuery ??= permissionsQuery
+            .OrderBy(permission => permission.UserId);
+
+        var (permissions, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
+
+        return new PageResult<TrackerAccessAdminDto>(permissions
             .Select(static permission => new TrackerAccessAdminDto(
                 permission.UserId,
                 permission.CanLeech,
@@ -438,36 +564,75 @@ public sealed class EfTrackerAccessRightsAdminReader(TrackerConfigurationDbConte
                 permission.CanScrape,
                 permission.CanUsePrivateTracker,
                 permission.RowVersion))
-            .ToArray();
+            .ToArray()
+            .AsReadOnly(), totalCount, query.Page, query.PageSize);
     }
 
-    private static (int Page, int PageSize) NormalizePaging(int page, int pageSize)
-        => (page < 1 ? 1 : page, Math.Clamp(pageSize, 1, 200));
+    private static IOrderedQueryable<UserPermissionEntity> ApplyTrackerAccessSort(
+        IQueryable<UserPermissionEntity> source,
+        GridSortTerm term)
+        => (term.Field.ToLowerInvariant(), term.Direction) switch
+        {
+            ("private", GridSortDirection.Asc) => source.OrderBy(permission => permission.CanUsePrivateTracker).ThenBy(permission => permission.UserId),
+            ("private", GridSortDirection.Desc) => source.OrderByDescending(permission => permission.CanUsePrivateTracker).ThenBy(permission => permission.UserId),
+            ("seed", GridSortDirection.Asc) => source.OrderBy(permission => permission.CanSeed).ThenBy(permission => permission.UserId),
+            ("seed", GridSortDirection.Desc) => source.OrderByDescending(permission => permission.CanSeed).ThenBy(permission => permission.UserId),
+            ("leech", GridSortDirection.Asc) => source.OrderBy(permission => permission.CanLeech).ThenBy(permission => permission.UserId),
+            ("leech", GridSortDirection.Desc) => source.OrderByDescending(permission => permission.CanLeech).ThenBy(permission => permission.UserId),
+            ("scrape", GridSortDirection.Asc) => source.OrderBy(permission => permission.CanScrape).ThenBy(permission => permission.UserId),
+            ("scrape", GridSortDirection.Desc) => source.OrderByDescending(permission => permission.CanScrape).ThenBy(permission => permission.UserId),
+            ("version", GridSortDirection.Asc) => source.OrderBy(permission => permission.RowVersion).ThenBy(permission => permission.UserId),
+            ("version", GridSortDirection.Desc) => source.OrderByDescending(permission => permission.RowVersion).ThenBy(permission => permission.UserId),
+            ("userid", GridSortDirection.Desc) => source.OrderByDescending(permission => permission.UserId),
+            _ => source.OrderBy(permission => permission.UserId)
+        };
 }
 
 public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : IBanAdminReader
 {
-    public async Task<IReadOnlyCollection<BanRuleAdminDto>> ListAsync(string? scope, int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<PageResult<BanRuleAdminDto>> ListAsync(GridQuery query, string? scope, CancellationToken cancellationToken)
     {
-        var (normalizedPage, normalizedPageSize) = NormalizePaging(page, pageSize);
-        var offset = (normalizedPage - 1) * normalizedPageSize;
-        var query = dbContext.Bans
+        query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
+        var normalizedSearch = query.NormalizedSearch;
+
+        var bansQuery = dbContext.Bans
             .AsNoTracking()
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(scope))
         {
-            query = query.Where(ban => ban.Scope == scope);
+            bansQuery = bansQuery.Where(ban => ban.Scope == scope);
         }
 
-        var bans = await query
-            .OrderBy(static ban => ban.Scope)
-            .ThenBy(static ban => ban.Subject)
-            .Skip(offset)
-            .Take(normalizedPageSize)
-            .ToListAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            var pattern = $"%{normalizedSearch}%";
+            bansQuery = bansQuery.Where(ban =>
+                EF.Functions.ILike(ban.Scope, pattern) ||
+                EF.Functions.ILike(ban.Subject, pattern) ||
+                EF.Functions.ILike(ban.Reason, pattern));
+        }
 
-        return bans
+        bansQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "active" => bansQuery.Where(ban => !ban.ExpiresAtUtc.HasValue || ban.ExpiresAtUtc > DateTime.UtcNow),
+            "expired" => bansQuery.Where(ban => ban.ExpiresAtUtc.HasValue && ban.ExpiresAtUtc <= DateTime.UtcNow),
+            _ => bansQuery
+        };
+
+        IOrderedQueryable<BanRuleEntity>? orderedQuery = null;
+        foreach (var term in GridQuerySortParser.Parse(query.Sort))
+        {
+            orderedQuery = ApplyBanSort(orderedQuery ?? bansQuery, term);
+        }
+
+        orderedQuery ??= bansQuery
+            .OrderBy(ban => ban.Scope)
+            .ThenBy(ban => ban.Subject);
+
+        var (bans, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
+
+        return new PageResult<BanRuleAdminDto>(bans
             .Select(static ban => new BanRuleAdminDto(
                 ban.Scope,
                 ban.Subject,
@@ -476,11 +641,22 @@ public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : 
                     ? new DateTimeOffset(DateTime.SpecifyKind(ban.ExpiresAtUtc.Value, DateTimeKind.Utc))
                     : null,
                 ban.RowVersion))
-            .ToArray();
+            .ToArray()
+            .AsReadOnly(), totalCount, query.Page, query.PageSize);
     }
 
-    private static (int Page, int PageSize) NormalizePaging(int page, int pageSize)
-        => (page < 1 ? 1 : page, Math.Clamp(pageSize, 1, 200));
+    private static IOrderedQueryable<BanRuleEntity> ApplyBanSort(
+        IQueryable<BanRuleEntity> source,
+        GridSortTerm term)
+        => (term.Field.ToLowerInvariant(), term.Direction) switch
+        {
+            ("subject", GridSortDirection.Asc) => source.OrderBy(ban => ban.Subject).ThenBy(ban => ban.Scope),
+            ("subject", GridSortDirection.Desc) => source.OrderByDescending(ban => ban.Subject).ThenBy(ban => ban.Scope),
+            ("expires", GridSortDirection.Asc) => source.OrderBy(ban => ban.ExpiresAtUtc ?? DateTime.MaxValue).ThenBy(ban => ban.Scope).ThenBy(ban => ban.Subject),
+            ("expires", GridSortDirection.Desc) => source.OrderByDescending(ban => ban.ExpiresAtUtc ?? DateTime.MaxValue).ThenBy(ban => ban.Scope).ThenBy(ban => ban.Subject),
+            ("scope", GridSortDirection.Desc) => source.OrderByDescending(ban => ban.Scope).ThenBy(ban => ban.Subject),
+            _ => source.OrderBy(ban => ban.Scope).ThenBy(ban => ban.Subject)
+        };
 }
 
 #pragma warning disable CS0618

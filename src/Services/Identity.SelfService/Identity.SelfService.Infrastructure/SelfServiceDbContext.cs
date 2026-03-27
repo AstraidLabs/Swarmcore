@@ -17,6 +17,9 @@ public sealed class SelfServiceDbContext(DbContextOptions<SelfServiceDbContext> 
     public DbSet<RolePermissionEntity> RolePermissions => Set<RolePermissionEntity>();
     public DbSet<RoleMetadataEntity> RoleMetadata => Set<RoleMetadataEntity>();
     public DbSet<RbacStateEntity> RbacStates => Set<RbacStateEntity>();
+    public DbSet<AdminIdentityUserReadEntity> AdminIdentityUsers => Set<AdminIdentityUserReadEntity>();
+    public DbSet<AdminIdentityRoleReadEntity> AdminIdentityRoles => Set<AdminIdentityRoleReadEntity>();
+    public DbSet<AdminIdentityUserRoleReadEntity> AdminIdentityUserRoles => Set<AdminIdentityUserRoleReadEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -133,6 +136,34 @@ public sealed class SelfServiceDbContext(DbContextOptions<SelfServiceDbContext> 
             entity.Property(e => e.Version).HasColumnName("version");
             entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc");
         });
+
+        modelBuilder.Entity<AdminIdentityUserReadEntity>(entity =>
+        {
+            entity.ToTable("AspNetUsers", "admin_auth", table => table.ExcludeFromMigrations());
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("Id").HasMaxLength(450);
+            entity.Property(e => e.UserName).HasColumnName("UserName").HasMaxLength(256);
+            entity.Property(e => e.NormalizedUserName).HasColumnName("NormalizedUserName").HasMaxLength(256);
+            entity.Property(e => e.Email).HasColumnName("Email").HasMaxLength(256);
+            entity.Property(e => e.NormalizedEmail).HasColumnName("NormalizedEmail").HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<AdminIdentityRoleReadEntity>(entity =>
+        {
+            entity.ToTable("AspNetRoles", "admin_auth", table => table.ExcludeFromMigrations());
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("Id").HasMaxLength(450);
+            entity.Property(e => e.Name).HasColumnName("Name").HasMaxLength(256);
+            entity.Property(e => e.NormalizedName).HasColumnName("NormalizedName").HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<AdminIdentityUserRoleReadEntity>(entity =>
+        {
+            entity.ToTable("AspNetUserRoles", "admin_auth", table => table.ExcludeFromMigrations());
+            entity.HasKey(e => new { e.UserId, e.RoleId });
+            entity.Property(e => e.UserId).HasColumnName("UserId").HasMaxLength(450);
+            entity.Property(e => e.RoleId).HasColumnName("RoleId").HasMaxLength(450);
+        });
     }
 }
 
@@ -222,6 +253,28 @@ public sealed class RbacStateEntity
     public string Key { get; set; } = string.Empty;
     public long Version { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
+public sealed class AdminIdentityUserReadEntity
+{
+    public string Id { get; set; } = string.Empty;
+    public string? UserName { get; set; }
+    public string? NormalizedUserName { get; set; }
+    public string? Email { get; set; }
+    public string? NormalizedEmail { get; set; }
+}
+
+public sealed class AdminIdentityRoleReadEntity
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? NormalizedName { get; set; }
+}
+
+public sealed class AdminIdentityUserRoleReadEntity
+{
+    public string UserId { get; set; } = string.Empty;
+    public string RoleId { get; set; } = string.Empty;
 }
 
 public sealed class SelfServiceDbContextFactory : IDesignTimeDbContextFactory<SelfServiceDbContext>

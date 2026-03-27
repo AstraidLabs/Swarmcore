@@ -1,4 +1,6 @@
 using BeeTracker.Contracts.Identity;
+using BeeTracker.BuildingBlocks.Application.Queries;
+using BeeTracker.BuildingBlocks.Infrastructure.Data;
 using Identity.SelfService.Application;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -105,45 +107,94 @@ public sealed class RbacService(
 
     // ─── Admin User Management ──────────────────────────────────────────────
 
-    public async Task<PaginatedResult<AdminUserListItemDto>> ListUsersAsync(string? search, int page, int pageSize, CancellationToken ct)
+    public async Task<PaginatedResult<AdminUserListItemDto>> ListUsersAsync(GridQuery request, CancellationToken ct)
     {
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        request = request.Normalize(maxPageSize: 100);
+        var activeState = DomainAccountState.Active.ToString();
+        var normalizedSearch = request.NormalizedSearch?.ToUpperInvariant();
+        var superAdminNormalizedName = DomainSystemRoleNames.SuperAdmin.ToUpperInvariant();
 
-        var query = userManager.Users.AsNoTracking();
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var term = search.Trim().ToUpperInvariant();
-            query = query.Where(u => u.NormalizedUserName!.Contains(term) || u.NormalizedEmail!.Contains(term));
-        }
-
-        var totalCount = await query.CountAsync(ct);
-        var users = await query
-            .OrderBy(u => u.UserName)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
-
-        var items = new List<AdminUserListItemDto>();
-        foreach (var user in users)
-        {
-            var roles = await userManager.GetRolesAsync(user);
-            var profile = await db.AdminUserProfiles.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == user.Id, ct);
-            var accountState = await db.AdminAccountStates.AsNoTracking().FirstOrDefaultAsync(a => a.UserId == user.Id, ct);
-
-            items.Add(new AdminUserListItemDto(
+        IQueryable<AdminUserListRow> userQuery =
+            from user in db.AdminIdentityUsers.AsNoTracking()
+            join profile in db.AdminUserProfiles.AsNoTracking() on user.Id equals profile.UserId into profileJoin
+            from profile in profileJoin.DefaultIfEmpty()
+            join accountState in db.AdminAccountStates.AsNoTracking() on user.Id equals accountState.UserId into stateJoin
+            from accountState in stateJoin.DefaultIfEmpty()
+            select new AdminUserListRow(
                 user.Id,
                 user.UserName ?? string.Empty,
+                user.NormalizedUserName,
                 user.Email ?? string.Empty,
-                profile?.DisplayName ?? user.UserName ?? string.Empty,
-                accountState?.State == DomainAccountState.Active.ToString(),
-                roles.ToList().AsReadOnly(),
-                accountState?.CreatedAtUtc ?? DateTimeOffset.MinValue,
-                accountState?.LastLoginAtUtc));
+                user.NormalizedEmail,
+                profile != null && !string.IsNullOrWhiteSpace(profile.DisplayName) ? profile.DisplayName : (user.UserName ?? string.Empty),
+                accountState != null ? accountState.State : null,
+                accountState != null ? accountState.CreatedAtUtc : DateTimeOffset.MinValue,
+                accountState != null ? accountState.LastLoginAtUtc : null);
+
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            userQuery = userQuery.Where(item =>
+                (item.NormalizedUserName != null && item.NormalizedUserName.Contains(normalizedSearch)) ||
+                (item.NormalizedEmail != null && item.NormalizedEmail.Contains(normalizedSearch)) ||
+                item.DisplayName.ToUpper().Contains(normalizedSearch) ||
+                db.AdminIdentityUserRoles
+                    .Join(db.AdminIdentityRoles, userRole => userRole.RoleId, role => role.Id, (userRole, role) => new { userRole.UserId, role.NormalizedName })
+                    .Any(match => match.UserId == item.Id && match.NormalizedName != null && match.NormalizedName.Contains(normalizedSearch)));
         }
 
-        return new PaginatedResult<AdminUserListItemDto>(items, totalCount, page, pageSize);
+        userQuery = request.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "active" => userQuery.Where(item => item.State == activeState),
+            "inactive" => userQuery.Where(item => item.State != activeState),
+            "superadmin" => userQuery.Where(item =>
+                db.AdminIdentityUserRoles
+                    .Join(db.AdminIdentityRoles, userRole => userRole.RoleId, role => role.Id, (userRole, role) => new { userRole.UserId, role.NormalizedName })
+                    .Any(match => match.UserId == item.Id && match.NormalizedName == superAdminNormalizedName)),
+            _ => userQuery
+        };
+
+        var orderedQuery = ApplyAdminUserSort(
+            userQuery,
+            GridQuerySortParser.Parse(
+                request.Sort,
+                new GridSortTerm("name", GridSortDirection.Asc),
+                new GridSortTerm("created", GridSortDirection.Desc)));
+
+        var (pageRows, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
+
+        if (pageRows.Count == 0)
+            return new PaginatedResult<AdminUserListItemDto>(Array.Empty<AdminUserListItemDto>(), totalCount, request.Page, request.PageSize);
+
+        var pageUserIds = pageRows.Select(item => item.Id).ToList();
+        var roleAssignments = await db.AdminIdentityUserRoles.AsNoTracking()
+            .Where(userRole => pageUserIds.Contains(userRole.UserId))
+            .Join(db.AdminIdentityRoles.AsNoTracking(), userRole => userRole.RoleId, role => role.Id, (userRole, role) => new
+            {
+                userRole.UserId,
+                RoleName = role.Name ?? string.Empty
+            })
+            .ToListAsync(ct);
+
+        var rolesByUserId = roleAssignments
+            .GroupBy(item => item.UserId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<string>)group.Select(item => item.RoleName).OrderBy(name => name).ToList().AsReadOnly());
+
+        var pagedItems = pageRows
+            .Select(item => new AdminUserListItemDto(
+                item.Id,
+                item.UserName,
+                item.Email,
+                item.DisplayName,
+                item.State == activeState,
+                rolesByUserId.TryGetValue(item.Id, out var roles) ? roles : Array.Empty<string>(),
+                item.CreatedAtUtc,
+                item.LastLoginAtUtc))
+            .ToList()
+            .AsReadOnly();
+
+        return new PaginatedResult<AdminUserListItemDto>(pagedItems, totalCount, request.Page, request.PageSize);
     }
 
     public async Task<AdminUserDetailDto?> GetUserDetailAsync(string userId, CancellationToken ct)
@@ -227,27 +278,48 @@ public sealed class RbacService(
 
     // ─── Role Management ────────────────────────────────────────────────────
 
-    public async Task<IReadOnlyList<RoleListItemDto>> ListRolesAsync(CancellationToken ct)
+    public async Task<PaginatedResult<RoleListItemDto>> ListRolesAsync(GridQuery request, CancellationToken ct)
     {
-        var roles = await roleManager.Roles.AsNoTracking().ToListAsync(ct);
-        var items = new List<RoleListItemDto>();
+        request = request.Normalize(maxPageSize: 100);
+        var normalizedSearch = request.NormalizedSearch?.ToUpperInvariant();
 
-        foreach (var role in roles)
-        {
-            var metadata = await db.RoleMetadata.AsNoTracking().FirstOrDefaultAsync(m => m.RoleId == role.Id, ct);
-            var userCount = (await userManager.GetUsersInRoleAsync(role.Name!)).Count;
-
-            items.Add(new RoleListItemDto(
+        IQueryable<RoleListItemDto> roleQuery =
+            from role in db.AdminIdentityRoles.AsNoTracking()
+            join metadata in db.RoleMetadata.AsNoTracking() on role.Id equals metadata.RoleId into metadataJoin
+            from metadata in metadataJoin.DefaultIfEmpty()
+            join userRole in db.AdminIdentityUserRoles.AsNoTracking() on role.Id equals userRole.RoleId into userRoleJoin
+            select new RoleListItemDto(
                 role.Id,
                 role.Name ?? string.Empty,
-                metadata?.Description ?? string.Empty,
-                metadata?.IsSystemRole ?? false,
-                metadata?.Priority ?? 0,
-                userCount,
-                metadata?.CreatedAtUtc ?? DateTimeOffset.MinValue));
+                metadata != null ? metadata.Description : string.Empty,
+                metadata != null && metadata.IsSystemRole,
+                metadata != null ? metadata.Priority : 0,
+                userRoleJoin.Count(),
+                metadata != null ? metadata.CreatedAtUtc : DateTimeOffset.MinValue);
+
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            roleQuery = roleQuery.Where(item =>
+                item.Name.ToUpper().Contains(normalizedSearch) ||
+                item.Description.ToUpper().Contains(normalizedSearch));
         }
 
-        return items.OrderByDescending(r => r.Priority).ThenBy(r => r.Name).ToList().AsReadOnly();
+        roleQuery = request.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "system" => roleQuery.Where(item => item.IsSystemRole),
+            "custom" => roleQuery.Where(item => !item.IsSystemRole),
+            _ => roleQuery
+        };
+
+        var orderedQuery = ApplyRoleSort(
+            roleQuery,
+            GridQuerySortParser.Parse(
+                request.Sort,
+                new GridSortTerm("priority", GridSortDirection.Desc),
+                new GridSortTerm("name", GridSortDirection.Asc)));
+
+        var (pagedItems, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
+        return new PaginatedResult<RoleListItemDto>(pagedItems, totalCount, request.Page, request.PageSize);
     }
 
     public async Task<RoleDetailDto?> GetRoleDetailAsync(string roleId, CancellationToken ct)
@@ -413,26 +485,45 @@ public sealed class RbacService(
 
     // ─── Permission Group Management ────────────────────────────────────────
 
-    public async Task<IReadOnlyList<PermissionGroupListItemDto>> ListPermissionGroupsAsync(CancellationToken ct)
+    public async Task<PaginatedResult<PermissionGroupListItemDto>> ListPermissionGroupsAsync(GridQuery request, CancellationToken ct)
     {
-        var groups = await db.PermissionGroups.AsNoTracking().ToListAsync(ct);
-        var items = new List<PermissionGroupListItemDto>();
+        request = request.Normalize(maxPageSize: 100);
+        var normalizedSearch = request.NormalizedSearch?.ToUpperInvariant();
 
-        foreach (var group in groups)
+        IQueryable<PermissionGroupListItemDto> permissionGroupQuery =
+            from permissionGroup in db.PermissionGroups.AsNoTracking()
+            join permissionItem in db.PermissionGroupItems.AsNoTracking() on permissionGroup.Id equals permissionItem.PermissionGroupId into permissionJoin
+            select new PermissionGroupListItemDto(
+                permissionGroup.Id,
+                permissionGroup.Name,
+                permissionGroup.Description,
+                permissionGroup.IsSystemGroup,
+                permissionJoin.Count(),
+                permissionGroup.CreatedAtUtc);
+
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
         {
-            var permCount = await db.PermissionGroupItems
-                .CountAsync(pgi => pgi.PermissionGroupId == group.Id, ct);
-
-            items.Add(new PermissionGroupListItemDto(
-                group.Id,
-                group.Name,
-                group.Description,
-                group.IsSystemGroup,
-                permCount,
-                group.CreatedAtUtc));
+            permissionGroupQuery = permissionGroupQuery.Where(item =>
+                item.Name.ToUpper().Contains(normalizedSearch) ||
+                item.Description.ToUpper().Contains(normalizedSearch));
         }
 
-        return items.OrderBy(g => g.Name).ToList().AsReadOnly();
+        permissionGroupQuery = request.NormalizedFilter.ToLowerInvariant() switch
+        {
+            "system" => permissionGroupQuery.Where(item => item.IsSystemGroup),
+            "custom" => permissionGroupQuery.Where(item => !item.IsSystemGroup),
+            _ => permissionGroupQuery
+        };
+
+        var orderedQuery = ApplyPermissionGroupSort(
+            permissionGroupQuery,
+            GridQuerySortParser.Parse(
+                request.Sort,
+                new GridSortTerm("name", GridSortDirection.Asc),
+                new GridSortTerm("permissions", GridSortDirection.Desc)));
+
+        var (pagedItems, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
+        return new PaginatedResult<PermissionGroupListItemDto>(pagedItems, totalCount, request.Page, request.PageSize);
     }
 
     public async Task<PermissionGroupDetailDto?> GetPermissionGroupDetailAsync(Guid groupId, CancellationToken ct)
@@ -578,6 +669,108 @@ public sealed class RbacService(
         return activeSuperAdminCount <= 1;
     }
 
+    private static IOrderedQueryable<AdminUserListRow> ApplyAdminUserSort(
+        IQueryable<AdminUserListRow> query,
+        IReadOnlyList<GridSortTerm> sortTerms)
+    {
+        IOrderedQueryable<AdminUserListRow>? ordered = null;
+
+        foreach (var term in sortTerms)
+        {
+            ordered = term.Field switch
+            {
+                "email" => ApplyOrder(ordered, query, item => item.Email, term.Direction),
+                "created" => ApplyOrder(ordered, query, item => item.CreatedAtUtc, term.Direction),
+                "lastlogin" => ApplyOrder(ordered, query, item => item.LastLoginAtUtc ?? DateTimeOffset.MinValue, term.Direction),
+                _ => ApplyOrder(ordered, query, item => item.DisplayName, term.Direction, item => item.UserName)
+            };
+            query = ordered;
+        }
+
+        return ordered ?? query.OrderBy(item => item.DisplayName).ThenBy(item => item.UserName);
+    }
+
+    private static IOrderedQueryable<RoleListItemDto> ApplyRoleSort(
+        IQueryable<RoleListItemDto> query,
+        IReadOnlyList<GridSortTerm> sortTerms)
+    {
+        IOrderedQueryable<RoleListItemDto>? ordered = null;
+
+        foreach (var term in sortTerms)
+        {
+            ordered = term.Field switch
+            {
+                "name" => ApplyOrder(ordered, query, item => item.Name, term.Direction, item => item.Priority),
+                "users" => ApplyOrder(ordered, query, item => item.UserCount, term.Direction, item => item.Name),
+                "created" => ApplyOrder(ordered, query, item => item.CreatedAtUtc, term.Direction, item => item.Name),
+                _ => ApplyOrder(ordered, query, item => item.Priority, term.Direction, item => item.Name)
+            };
+            query = ordered;
+        }
+
+        return ordered ?? query.OrderByDescending(item => item.Priority).ThenBy(item => item.Name);
+    }
+
+    private static IOrderedQueryable<PermissionGroupListItemDto> ApplyPermissionGroupSort(
+        IQueryable<PermissionGroupListItemDto> query,
+        IReadOnlyList<GridSortTerm> sortTerms)
+    {
+        IOrderedQueryable<PermissionGroupListItemDto>? ordered = null;
+
+        foreach (var term in sortTerms)
+        {
+            ordered = term.Field switch
+            {
+                "permissions" => ApplyOrder(ordered, query, item => item.PermissionCount, term.Direction, item => item.Name),
+                "created" => ApplyOrder(ordered, query, item => item.CreatedAtUtc, term.Direction, item => item.Name),
+                _ => ApplyOrder(ordered, query, item => item.Name, term.Direction, item => item.PermissionCount)
+            };
+            query = ordered;
+        }
+
+        return ordered ?? query.OrderBy(item => item.Name).ThenByDescending(item => item.PermissionCount);
+    }
+
+    private static IOrderedQueryable<T> ApplyOrder<T, TPrimary>(
+        IOrderedQueryable<T>? ordered,
+        IQueryable<T> source,
+        System.Linq.Expressions.Expression<Func<T, TPrimary>> keySelector,
+        GridSortDirection direction)
+        => ApplyOrder<T, TPrimary, object>(ordered, source, keySelector, direction, fallbackSelector: null);
+
+    private static IOrderedQueryable<T> ApplyOrder<T, TPrimary, TFallback>(
+        IOrderedQueryable<T>? ordered,
+        IQueryable<T> source,
+        System.Linq.Expressions.Expression<Func<T, TPrimary>> keySelector,
+        GridSortDirection direction,
+        System.Linq.Expressions.Expression<Func<T, TFallback>>? fallbackSelector)
+    {
+        if (ordered is null)
+        {
+            var first = direction == GridSortDirection.Desc
+                ? source.OrderByDescending(keySelector)
+                : source.OrderBy(keySelector);
+
+            if (fallbackSelector is null)
+                return first;
+
+            return direction == GridSortDirection.Desc
+                ? first.ThenByDescending(fallbackSelector)
+                : first.ThenBy(fallbackSelector);
+        }
+
+        var next = direction == GridSortDirection.Desc
+            ? ordered.ThenByDescending(keySelector)
+            : ordered.ThenBy(keySelector);
+
+        if (fallbackSelector is null)
+            return next;
+
+        return direction == GridSortDirection.Desc
+            ? next.ThenByDescending(fallbackSelector)
+            : next.ThenBy(fallbackSelector);
+    }
+
     private async Task<RbacStateEntity> EnsurePermissionSnapshotStateAsync(CancellationToken ct)
     {
         var state = await db.RbacStates.FirstOrDefaultAsync(entry => entry.Key == PermissionSnapshotStateKey, ct);
@@ -597,4 +790,15 @@ public sealed class RbacService(
         await db.SaveChangesAsync(ct);
         return state;
     }
+
+    private sealed record AdminUserListRow(
+        string Id,
+        string UserName,
+        string? NormalizedUserName,
+        string Email,
+        string? NormalizedEmail,
+        string DisplayName,
+        string? State,
+        DateTimeOffset CreatedAtUtc,
+        DateTimeOffset? LastLoginAtUtc);
 }

@@ -30,6 +30,16 @@ type AdminSessionResponse = {
   capabilities: CapabilityDto[];
 };
 
+type PageResult<T> = {
+  items: T[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages?: number;
+  hasPreviousPage?: boolean;
+  hasNextPage?: boolean;
+};
+
 type ClusterOverviewDto = {
   observedAtUtc: string;
   activeNodeCount: number;
@@ -256,6 +266,10 @@ function formatScrape(allowed: boolean, dictionary: I18nDictionary): string {
 
 function formatBool(value: boolean, dictionary: I18nDictionary): string {
   return value ? dictionary.common.yes : dictionary.common.no;
+}
+
+function unwrapPageItems<T>(value: PageResult<T> | T[]): T[] {
+  return Array.isArray(value) ? value : value.items;
 }
 
 function NavigationItemIcon({ icon }: { icon: NavigationLink["icon"] }) {
@@ -1026,7 +1040,6 @@ function DashboardPage({
 
   const readyNodes = overview.nodes.filter((node) => node.ready).length;
   const degradedNodes = overview.nodes.length - readyNodes;
-  const privilegedCapabilities = capabilities.filter((capability) => capability.granted && capability.confirmationSeverity === "high").length;
   const grantedCapabilities = capabilities.filter((capability) => capability.granted);
   const readinessPercent = overview.activeNodeCount > 0
     ? Math.round((readyNodes / overview.activeNodeCount) * 100)
@@ -1035,7 +1048,7 @@ function DashboardPage({
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-4 xl:grid-cols-3">
         <div className="app-stat-card">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.readinessTitle}</p>
           <div className="mt-4 flex items-end justify-between">
@@ -1058,77 +1071,58 @@ function DashboardPage({
             <span className="text-sm text-steel">{capabilityCategories.length} {dashboard.postureDomains}</span>
           </div>
           <p className="mt-3 text-sm leading-6 text-steel">
-            {privilegedCapabilities} {dashboard.postureProtected}
+            Access posture is derived from the current effective permission model.
           </p>
           <div className="app-stat-bar">
-            <div className="app-stat-bar-fill bg-amber-500" style={{ width: `${capabilities.length ? (privilegedCapabilities / capabilities.length) * 100 : 0}%` }} />
+            <div className="app-stat-bar-fill bg-amber-500" style={{ width: `${capabilities.length ? (grantedCapabilities.length / capabilities.length) * 100 : 0}%` }} />
+          </div>
+        </div>
+        <div className="app-stat-card">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.observedSnapshot}</p>
+          <div className="mt-4 flex items-end justify-between">
+            <p className="text-2xl font-bold tracking-tight text-ink">{new Date(overview.observedAtUtc).toLocaleTimeString()}</p>
+            <StatusPill tone={degradedNodes > 0 ? "warn" : "good"}>
+              {degradedNodes > 0 ? dictionary.common.degraded : dictionary.common.ready}
+            </StatusPill>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-steel">
+            {new Date(overview.observedAtUtc).toLocaleDateString()} · {overview.nodes.length} nodes in the current cluster snapshot.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {capabilityCategories.slice(0, 3).map((category) => (
+              <span key={category} className="app-chip">{toTitleCase(category)}</span>
+            ))}
           </div>
         </div>
       </section>
-      <div className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
-        <Card title={dashboard.readinessMapTitle} eyebrow={dashboard.operationsEyebrow}>
-          <div className="grid gap-4 md:grid-cols-2">
-            {overview.nodes.map((node) => (
-              <div key={node.nodeId} className="rounded-3xl border border-slate-200 bg-slate-50/80 px-5 py-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold text-ink">{node.nodeId}</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.18em] text-steel/70">{node.region}</p>
-                  </div>
-                  <StatusPill tone={node.ready ? "good" : "warn"}>{node.ready ? dictionary.common.ready : dictionary.common.degraded}</StatusPill>
+      <Card title={dashboard.readinessMapTitle} eyebrow={dashboard.operationsEyebrow}>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {overview.nodes.map((node) => (
+            <div key={node.nodeId} className="rounded-3xl border border-slate-200 bg-slate-50/80 px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-ink">{node.nodeId}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-steel/70">{node.region}</p>
                 </div>
-                <div className="mt-6 h-28 rounded-2xl bg-white px-4 py-4">
-                  <div className="flex h-full items-end gap-2">
-                    {[30, 58, 42, 72, 38, 61, node.ready ? 68 : 24].map((value, index) => (
-                      <div key={`${node.nodeId}-${index}`} className="flex-1 rounded-full bg-slate-200/90">
-                        <div
-                          className={`rounded-full ${index === 6 ? (node.ready ? "bg-brand" : "bg-ember") : "bg-slate-300"}`}
-                          style={{ height: `${value}%` }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <p className="mt-4 text-sm text-steel">{dashboard.lastHeartbeat} {new Date(node.observedAtUtc).toLocaleTimeString()}</p>
+                <StatusPill tone={node.ready ? "good" : "warn"}>{node.ready ? dictionary.common.ready : dictionary.common.degraded}</StatusPill>
               </div>
-            ))}
-          </div>
-        </Card>
-        <div className="space-y-6">
-          <Card title={dashboard.whyTitle} eyebrow={dashboard.productEyebrow}>
-            <div className="space-y-4 text-sm leading-6 text-steel">
-              <p>{dashboard.whyBody}</p>
-              <div className="app-subtle-panel">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.observedSnapshot}</p>
-                <p className="mt-2 text-sm text-ink">{new Date(overview.observedAtUtc).toLocaleString()}</p>
-                <p className="mt-2 text-sm text-steel">{dashboard.snapshotBody}</p>
-              </div>
-              <ul className="space-y-2 text-ink">
-                <li>{dashboard.bulletRuntime}</li>
-                <li>{dashboard.bulletOperator}</li>
-                <li>{dashboard.bulletConfig}</li>
-              </ul>
-            </div>
-          </Card>
-          <Card title={dashboard.capabilitiesTitle} eyebrow={dashboard.capabilitiesEyebrow}>
-            <div className="space-y-3">
-              {grantedCapabilities.map((capability) => (
-                <div key={capability.action} className="rounded-[22px] border border-slate-200/80 bg-slate-50/50 px-4 py-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="font-medium text-ink">{capability.displayName}</p>
-                      <p className="text-sm text-steel">{toTitleCase(capability.category)}</p>
+              <div className="mt-6 h-28 rounded-2xl bg-white px-4 py-4">
+                <div className="flex h-full items-end gap-2">
+                  {[30, 58, 42, 72, 38, 61, node.ready ? 68 : 24].map((value, index) => (
+                    <div key={`${node.nodeId}-${index}`} className="flex-1 rounded-full bg-slate-200/90">
+                      <div
+                        className={`rounded-full ${index === 6 ? (node.ready ? "bg-brand" : "bg-ember") : "bg-slate-300"}`}
+                        style={{ height: `${value}%` }}
+                      />
                     </div>
-                    <StatusPill tone={capability.confirmationSeverity === "high" ? "warn" : "neutral"}>
-                      {capability.confirmationSeverity}
-                    </StatusPill>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+              <p className="mt-4 text-sm text-steel">{dashboard.lastHeartbeat} {new Date(node.observedAtUtc).toLocaleTimeString()}</p>
             </div>
-          </Card>
+          ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
@@ -1170,13 +1164,14 @@ function TorrentsPage({
   useEffect(() => {
     let isMounted = true;
 
-    apiRequest<TorrentAdminDto[]>("/api/admin/torrents?page=1&pageSize=50", accessToken, onReauthenticate)
-      .then((value) => {
-        if (isMounted) {
-          setItems(value);
-          setSelectedInfoHashes((current) => current.filter((infoHash) => value.some((item) => item.infoHash === infoHash)));
-        }
-      })
+    apiRequest<PageResult<TorrentAdminDto> | TorrentAdminDto[]>("/api/admin/torrents?page=1&pageSize=50", accessToken, onReauthenticate)
+        .then((value) => {
+          const items = unwrapPageItems(value);
+          if (isMounted) {
+            setItems(items);
+            setSelectedInfoHashes((current) => current.filter((infoHash) => items.some((item) => item.infoHash === infoHash)));
+          }
+        })
       .catch((requestError) => {
         if (isMounted) {
           setError(requestError instanceof Error ? requestError.message : labels.loadError);
@@ -1227,8 +1222,8 @@ function TorrentsPage({
 
       setResult(result);
       setStatus(formatText(labels.lifecycleStatus, { succeeded: result.succeededCount, total: result.totalCount }));
-      const refreshed = await apiRequest<TorrentAdminDto[]>("/api/admin/torrents?page=1&pageSize=50", accessToken, onReauthenticate);
-      setItems(refreshed);
+        const refreshed = await apiRequest<PageResult<TorrentAdminDto> | TorrentAdminDto[]>("/api/admin/torrents?page=1&pageSize=50", accessToken, onReauthenticate);
+        setItems(unwrapPageItems(refreshed));
       setSelectedInfoHashes([]);
       clearBulkTorrentPolicySelection();
     } catch (requestError) {
@@ -1916,8 +1911,8 @@ function PasskeysPage({
   const canRotate = hasGrantedCapability(capabilities, "admin.rotate.passkey");
 
   const reload = async () => {
-    const value = await apiRequest<PasskeyAdminDto[]>("/api/admin/passkeys?page=1&pageSize=50", accessToken, onReauthenticate);
-    setItems(value);
+      const value = await apiRequest<PageResult<PasskeyAdminDto> | PasskeyAdminDto[]>("/api/admin/passkeys?page=1&pageSize=50", accessToken, onReauthenticate);
+      setItems(unwrapPageItems(value));
   };
 
   useEffect(() => {
@@ -2113,8 +2108,8 @@ function BansPage({
   const canDelete = hasGrantedCapability(capabilities, "admin.delete.ban");
 
   const reload = async () => {
-    const value = await apiRequest<BanRuleAdminDto[]>("/api/admin/bans?page=1&pageSize=50", accessToken, onReauthenticate);
-    setItems(value);
+      const value = await apiRequest<PageResult<BanRuleAdminDto> | BanRuleAdminDto[]>("/api/admin/bans?page=1&pageSize=50", accessToken, onReauthenticate);
+      setItems(unwrapPageItems(value));
   };
 
   useEffect(() => {
@@ -2375,9 +2370,10 @@ function TrackerAccessPage({
   const trackerAccessItems = result?.trackerAccessItems ?? result?.permissionItems ?? [];
 
   const reload = async () => {
-    const value = await apiRequest<TrackerAccessAdminDto[]>("/api/admin/tracker-access?page=1&pageSize=50", accessToken, onReauthenticate);
-    setItems(value);
-    setSelectedUserIds((current) => current.filter((userId) => value.some((item) => item.userId === userId)));
+      const value = await apiRequest<PageResult<TrackerAccessAdminDto> | TrackerAccessAdminDto[]>("/api/admin/tracker-access?page=1&pageSize=50", accessToken, onReauthenticate);
+      const items = unwrapPageItems(value);
+      setItems(items);
+      setSelectedUserIds((current) => current.filter((userId) => items.some((item) => item.userId === userId)));
   };
 
   useEffect(() => {
@@ -2649,12 +2645,12 @@ function AuditPage({
   useEffect(() => {
     let isMounted = true;
 
-    apiRequest<AuditRecordDto[]>("/api/admin/audit?page=1&pageSize=25", accessToken, onReauthenticate)
-      .then((value) => {
-        if (isMounted) {
-          setItems(value);
-        }
-      })
+    apiRequest<PageResult<AuditRecordDto> | AuditRecordDto[]>("/api/admin/audit?page=1&pageSize=25", accessToken, onReauthenticate)
+        .then((value) => {
+          if (isMounted) {
+            setItems(unwrapPageItems(value));
+          }
+        })
       .catch((requestError) => {
         if (isMounted) {
           setError(requestError instanceof Error ? requestError.message : labels.loadError);
@@ -2988,10 +2984,7 @@ function Shell({
                     )}
                     {section.links.length > 1 && sectionMenuOpen === section.id ? (
                       <div className="app-navbar-dropdown">
-                        <div className="border-b border-slate-200/80 px-4 py-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9a7300]">{section.label}</p>
-                        </div>
-                        <div className="grid gap-2 p-3">
+                        <div className="grid gap-1.5 p-2">
                           {section.links.map((link) => (
                             <NavLink
                               key={link.to}
@@ -3023,6 +3016,15 @@ function Shell({
                   className="app-profile-trigger"
                   aria-expanded={profileMenuOpen}
                 >
+                  <div className="app-profile-trigger-hive" aria-hidden="true">
+                    {Array.from({ length: 3 }, (_, index) => (
+                      <span
+                        key={`profile-trigger-hive-${index}`}
+                        className="app-profile-trigger-hive-cell"
+                        style={{ ["--profile-trigger-hive-index" as string]: index } as React.CSSProperties}
+                      />
+                    ))}
+                  </div>
                   <div className="app-profile-avatar">
                     <span>{displayName.slice(0, 2).toUpperCase()}</span>
                   </div>
@@ -3130,23 +3132,27 @@ function Shell({
             </div>
           ) : null}
         </nav>
-        <main className="mx-auto max-w-[1620px] space-y-6 px-4 md:px-6">
-          <section className="app-page-header">
-            <div className="app-toolbar-body">
-              <div className="max-w-3xl">
-                <div className="app-breadcrumb">
-                  <span className="app-breadcrumb-pill">{dictionary.common.dashboard}</span>
-                  <span>{routeMeta.eyebrow}</span>
-                  <span>/</span>
-                  <span className="font-semibold text-ink">{routeMeta.title}</span>
-                </div>
-                <h2 className="mt-4 text-[2.6rem] font-extrabold tracking-tight text-ink">{routeMeta.title}</h2>
-                <p className="mt-3 text-sm leading-7 text-steel">{routeMeta.description}</p>
+        <main className="space-y-6 px-4 md:px-6">
+          <section className="app-page-header-shell">
+            <div className="app-page-header">
+              <div className="app-page-header-hive" aria-hidden="true">
+                {Array.from({ length: 10 }, (_, index) => (
+                  <span
+                    key={`hive-cell-${index}`}
+                    className="app-page-header-hive-cell"
+                    style={{ ["--hive-index" as string]: index } as React.CSSProperties}
+                  />
+                ))}
               </div>
-              <div className="flex flex-wrap items-start gap-3">
-                <div className="app-header-badge">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">{dictionary.common.sessionRole}</p>
-                  <p className="mt-1 text-sm font-semibold text-ink">{role}</p>
+              <div className="app-toolbar-body">
+                <div className="max-w-3xl">
+                  <div className="app-breadcrumb">
+                    <span>{routeMeta.eyebrow}</span>
+                    <span>/</span>
+                    <span className="font-semibold text-ink">{routeMeta.title}</span>
+                  </div>
+                  <h2 className="mt-3 text-[2.2rem] font-extrabold tracking-tight text-ink md:text-[2.4rem]">{routeMeta.title}</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-steel">{routeMeta.description}</p>
                 </div>
               </div>
             </div>

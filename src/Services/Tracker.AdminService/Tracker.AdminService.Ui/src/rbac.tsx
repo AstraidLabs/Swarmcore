@@ -1,8 +1,151 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+type PageProps = {
+  accessToken: string;
+  onReauthenticate: (fresh?: boolean) => Promise<void>;
+  permissions: string[];
+};
+
+type UpdateProfileRequest = {
+  displayName: string;
+  timeZone: string;
+};
+
+type AdminProfileDetailResponse = {
+  userId: string;
+  userName: string;
+  email: string;
+  displayName: string;
+  timeZone: string;
+  isActive: boolean;
+  accountState: string;
+  roles: string[];
+  effectivePermissions: string[];
+  createdAtUtc: string;
+  lastLoginAtUtc?: string | null;
+};
+
+type PaginatedResult<T> = {
+  items: T[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+};
+
+type AdminUserListItemDto = {
+  userId: string;
+  userName: string;
+  email: string;
+  displayName: string;
+  isActive: boolean;
+  roles: string[];
+  createdAtUtc: string;
+  lastLoginAtUtc?: string | null;
+};
+
+type AdminUserDetailDto = {
+  userId: string;
+  userName: string;
+  email: string;
+  displayName: string;
+  isActive: boolean;
+  timeZone: string;
+  roles: string[];
+  effectivePermissions: string[];
+  createdAtUtc: string;
+  lastLoginAtUtc?: string | null;
+};
+
+type CreateAdminUserRequest = {
+  userName: string;
+  email: string;
+  password: string;
+  displayName: string;
+  roles: string[];
+};
+
+type UpdateAdminUserRequest = {
+  displayName: string;
+  email: string;
+};
+
+type RoleListItemDto = {
+  roleId: string;
+  name: string;
+  description: string;
+  isSystemRole: boolean;
+  priority: number;
+  userCount: number;
+  createdAtUtc: string;
+};
+
+type RoleDetailDto = {
+  roleId: string;
+  name: string;
+  description: string;
+  isSystemRole: boolean;
+  priority: number;
+  permissionGroupIds: string[];
+  directPermissionKeys: string[];
+  effectivePermissionKeys: string[];
+  createdAtUtc: string;
+  updatedAtUtc: string;
+};
+
+type PermissionGroupListItemDto = {
+  id: string;
+  name: string;
+  description: string;
+  isSystemGroup: boolean;
+  permissionCount: number;
+  createdAtUtc: string;
+};
+
+type PermissionGroupDetailDto = {
+  id: string;
+  name: string;
+  description: string;
+  isSystemGroup: boolean;
+  permissionKeys: string[];
+  createdAtUtc: string;
+  updatedAtUtc: string;
+};
+
+type PermissionDefinitionDto = {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  category: string;
+  isSystemPermission: boolean;
+};
+
+type CreateRoleRequest = {
+  name: string;
+  description: string;
+  priority: number;
+};
+
+type UpdateRoleRequest = {
+  description: string;
+  priority: number;
+};
+
+type CreatePermissionGroupRequest = {
+  name: string;
+  description: string;
+};
+
+type UpdatePermissionGroupRequest = {
+  name: string;
+  description: string;
+};
+
+type SortDirection = "asc" | "desc";
+
 export const permissionKeys = {
-  auditView: "admin.audit.view",
+  dashboardView: "admin.dashboard.view",
   profileView: "admin.profile.view",
   profileEdit: "admin.profile.edit",
   usersView: "admin.users.view",
@@ -20,308 +163,1646 @@ export const permissionKeys = {
   permissionGroupsView: "admin.permission_groups.view",
   permissionGroupsCreate: "admin.permission_groups.create",
   permissionGroupsEdit: "admin.permission_groups.edit",
-  permissionGroupsDelete: "admin.permission_groups.delete"
+  permissionGroupsDelete: "admin.permission_groups.delete",
+  permissionCatalogView: "admin.permission_catalog.view",
+  auditView: "admin.audit.view"
 } as const;
 
-export function hasPermission(permissions: string[], permission: string) {
-  return permissions.includes(permission);
+function compareValues(left: string | number | boolean, right: string | number | boolean, direction: SortDirection) {
+  const multiplier = direction === "asc" ? 1 : -1;
+  if (typeof left === "number" && typeof right === "number") {
+    return (left - right) * multiplier;
+  }
+
+  const leftValue = typeof left === "boolean" ? Number(left) : String(left).toLowerCase();
+  const rightValue = typeof right === "boolean" ? Number(right) : String(right).toLowerCase();
+  if (leftValue < rightValue) return -1 * multiplier;
+  if (leftValue > rightValue) return 1 * multiplier;
+  return 0;
 }
 
-export function sortPermissionKeys(permissions: string[]) {
-  return [...permissions].sort((left, right) => left.localeCompare(right));
+async function requestJson<T>(
+  path: string,
+  accessToken: string,
+  onReauthenticate: (fresh?: boolean) => Promise<void>,
+  init?: RequestInit
+): Promise<T> {
+  const headers = new Headers(init?.headers ?? {});
+  headers.set("Authorization", `Bearer ${accessToken}`);
+  if (init?.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetch(path, { ...init, headers });
+  if (response.status === 401) {
+    await onReauthenticate(true);
+    throw new Error("Session refresh required.");
+  }
+  if (!response.ok) {
+    try {
+      const payload = await response.json();
+      throw new Error(payload?.message ?? payload?.detail ?? payload?.title ?? response.statusText);
+    } catch {
+      throw new Error(response.statusText || "Request failed.");
+    }
+  }
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  return response.json() as Promise<T>;
+}
+
+export function hasPermission(grantedPermissions: string[], requiredPermission: string) {
+  return grantedPermissions.some((item) => item.localeCompare(requiredPermission, undefined, { sensitivity: "accent" }) === 0);
+}
+
+export function sortPermissionKeys(permissionList: string[]) {
+  return [...permissionList].sort((left, right) => left.localeCompare(right));
 }
 
 export function computeInheritedPermissions(effectivePermissions: string[], directPermissions: string[]) {
-  const direct = new Set(directPermissions);
-  return sortPermissionKeys(effectivePermissions.filter((permission) => !direct.has(permission)));
+  const directPermissionSet = new Set(directPermissions);
+  return sortPermissionKeys(effectivePermissions.filter((item) => !directPermissionSet.has(item)));
 }
 
-type PageProps = {
-  accessToken: string;
-  onReauthenticate: (fresh: boolean) => Promise<void>;
-  permissions: string[];
-};
+function formatDateTime(value?: string | null) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("cs-CZ");
+}
 
-type ApiError = { message?: string; details?: string[] };
-type Paged<T> = { items: T[] };
-type Permission = { key: string; category: string };
-type AdminProfile = { userName: string; email: string; displayName: string; timeZone: string; accountState: string; roles: string[]; effectivePermissions: string[] };
-type UserItem = { userId: string; userName: string; email: string; displayName: string; isActive: boolean; roles: string[] };
-type UserDetail = UserItem & { effectivePermissions: string[] };
-type RoleItem = { roleId: string; name: string; description: string; isSystemRole: boolean; priority: number; userCount: number };
-type RoleDetail = RoleItem & { permissionGroupIds: string[]; directPermissionKeys: string[]; effectivePermissionKeys: string[] };
-type GroupItem = { id: string; name: string; description: string; isSystemGroup: boolean };
-type GroupDetail = GroupItem & { permissionKeys: string[] };
+function formatDate(value?: string | null) {
+  if (!value) return "N/A";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("cs-CZ");
+}
 
-function Card({ title, eyebrow, children }: { title: string; eyebrow?: string; children: ReactNode }) {
+function Modal({
+  title,
+  description,
+  open,
+  onClose,
+  width = "wide",
+  children
+}: {
+  title: string;
+  description?: string;
+  open: boolean;
+  onClose: () => void;
+  width?: "medium" | "wide" | "xwide";
+  children: ReactNode;
+}) {
+  if (!open) return null;
+
   return (
-    <section className="app-card">
-      <div className="app-card-header">
-        {eyebrow ? <p className="app-kicker">{eyebrow}</p> : null}
-        <h2 className="mt-2 text-[1.7rem] font-bold tracking-tight text-ink">{title}</h2>
+    <div className="app-modal-overlay" onClick={onClose}>
+      <div className={`app-modal-card app-modal-card-${width}`} onClick={(event) => event.stopPropagation()}>
+        <div className="app-card-header flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <div className="app-kicker">Modal</div>
+            <h2 className="text-2xl font-bold text-ink">{title}</h2>
+            {description ? <p className="text-sm text-steel">{description}</p> : null}
+          </div>
+          <button type="button" className="app-icon-button" aria-label="Close modal" onClick={onClose}>
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+              <path d="m6 6 12 12" />
+              <path d="M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+        <div className="app-card-body">{children}</div>
       </div>
-      <div className="app-card-body">{children}</div>
-    </section>
+    </div>
   );
 }
 
-function Pill({ children, tone = "default" }: { children: string; tone?: "default" | "soft" }) {
-  return <span className={tone === "soft" ? "app-chip-soft" : "app-chip"}>{children}</span>;
-}
-
-function Notice({ tone, children }: { tone: "info" | "success" | "warn"; children: ReactNode }) {
-  return <div className={tone === "info" ? "app-notice-info" : tone === "success" ? "app-notice-success" : "app-notice-warn"}>{children}</div>;
-}
-
-function Workbench({
-  catalog,
-  editor,
-  inspector
-}: {
-  catalog: ReactNode;
-  editor: ReactNode;
-  inspector: ReactNode;
-}) {
-  return <div className="grid gap-6 xl:grid-cols-[0.78fr,1fr,0.88fr]">{catalog}{editor}{inspector}</div>;
-}
-
-function SelectionButton({
-  active,
+function CatalogToolbar({
   title,
   description,
-  meta,
-  onClick
+  totalCount,
+  search,
+  onSearchChange,
+  sortValue,
+  onSortChange,
+  sortOptions,
+  pageSize,
+  onPageSizeChange,
+  filter,
+  onFilterChange,
+  filterOptions,
+  createLabel,
+  onCreate
 }: {
-  active: boolean;
   title: string;
   description: string;
-  meta?: string;
+  totalCount: number;
+  search: string;
+  onSearchChange: (value: string) => void;
+  sortValue: string;
+  onSortChange: (value: string) => void;
+  sortOptions: Array<{ value: string; label: string }>;
+  pageSize: number;
+  onPageSizeChange: (value: number) => void;
+  filter: string;
+  onFilterChange: (value: string) => void;
+  filterOptions: Array<{ value: string; label: string }>;
+  createLabel: string;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="app-card">
+      <div className="app-card-header app-catalog-header">
+        <div className="space-y-1">
+          <div className="app-kicker">Catalog</div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-xl font-bold text-ink">{title}</h2>
+            <span className="app-chip">{totalCount} results</span>
+          </div>
+          <p className="text-sm text-steel">{description}</p>
+        </div>
+        <button type="button" className="app-button-primary" onClick={onCreate}>
+          {createLabel}
+        </button>
+      </div>
+      <div className="app-card-body">
+        <div className="app-catalog-toolbar">
+          <input
+            className="app-input"
+            value={search}
+            placeholder="Search catalog"
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+          <select className="app-input" value={filter} onChange={(event) => onFilterChange(event.target.value)}>
+            {filterOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <select className="app-input" value={sortValue} onChange={(event) => onSortChange(event.target.value)}>
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <select className="app-input" value={String(pageSize)} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
+            {[6, 9, 12, 18, 24].map((option) => (
+              <option key={option} value={option}>
+                {option} per page
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaginationFooter({
+  page,
+  pageCount,
+  totalCount,
+  pageSize,
+  onPageChange
+}: {
+  page: number;
+  pageCount: number;
+  totalCount: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (pageCount <= 1) {
+    return (
+      <div className="app-catalog-pagination">
+        <p className="text-sm text-steel">
+          {totalCount} record{totalCount === 1 ? "" : "s"} - {pageSize} per page
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-catalog-pagination">
+      <p className="text-sm text-steel">
+        Page {Math.min(page, pageCount)} of {pageCount} - {totalCount} records - {pageSize} per page
+      </p>
+      <div className="flex items-center gap-2">
+        <button type="button" className="app-button-secondary py-2.5" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+          Previous
+        </button>
+        <button type="button" className="app-button-secondary py-2.5" disabled={page >= pageCount} onClick={() => onPageChange(page + 1)}>
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SortHeaderButton({
+  label,
+  active,
+  direction,
+  onClick
+}: {
+  label: string;
+  active: boolean;
+  direction: SortDirection;
   onClick: () => void;
 }) {
   return (
-    <button type="button" onClick={onClick} className={`app-selection-card ${active ? "app-selection-card-active" : ""}`}>
-      <p className="text-base font-semibold text-ink">{title}</p>
-      <p className="mt-1 text-sm leading-6 text-steel">{description}</p>
-      {meta ? <p className="mt-3 text-xs uppercase tracking-[0.18em] text-steel/60">{meta}</p> : null}
+    <button type="button" className="inline-flex items-center gap-2 font-semibold transition hover:text-white" onClick={onClick}>
+      <span>{label}</span>
+      <span className={`text-[10px] ${active ? "text-honey-200" : "text-white/35"}`}>{active ? (direction === "asc" ? "↑" : "↓") : "↕"}</span>
     </button>
   );
 }
 
-function AccessDeniedPanel({ permission }: { permission: string }) {
+function TableStateRow({
+  colSpan,
+  title,
+  message
+}: {
+  colSpan: number;
+  title: string;
+  message: string;
+}) {
   return (
-    <Card title="Access denied" eyebrow="Authorization">
-      <div className="app-section-stack">
-        <Notice tone="warn">The current admin session does not have the permission required to open this page.</Notice>
-        <div className="flex flex-wrap gap-2">
-          <Pill>{permission}</Pill>
+    <tr>
+      <td colSpan={colSpan} className="px-5 py-12">
+        <div className="app-table-state">
+          <div className="text-base font-semibold text-ink">{title}</div>
+          <div className="text-sm text-steel">{message}</div>
         </div>
-        <p className="text-sm leading-7 text-steel">
-          Ask a SuperAdmin to grant the permission, or continue in a section already available in the current session.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <Link to="/" className="app-button-primary">Go to dashboard</Link>
-          <Link to="/profile" className="app-button-secondary">Open profile</Link>
-        </div>
-      </div>
-    </Card>
+      </td>
+    </tr>
   );
 }
 
-function PermissionList({ title, permissions, empty }: { title: string; permissions: string[]; empty: string }) {
+function PreviewDrawer({
+  open,
+  title,
+  subtitle,
+  onClose,
+  children
+}: {
+  open: boolean;
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
   return (
-    <div className="app-section-stack">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-ink">{title}</h3>
-        <span className="text-xs uppercase tracking-[0.18em] text-steel/55">{permissions.length}</span>
-      </div>
-      {permissions.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {sortPermissionKeys(permissions).map((permission) => <Pill key={`${title}-${permission}`}>{permission}</Pill>)}
+    <div className={`app-preview-drawer ${open ? "app-preview-drawer-open" : ""}`} aria-hidden={!open}>
+      <div className="app-preview-drawer-card">
+        <div className="app-preview-drawer-header">
+          <div className="space-y-1">
+            <div className="app-kicker">Quick preview</div>
+            <div className="text-xl font-bold text-ink">{title}</div>
+            {subtitle ? <div className="text-sm text-steel">{subtitle}</div> : null}
+          </div>
+          <button type="button" className="app-icon-button" aria-label="Close preview" onClick={onClose}>
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+              <path d="m6 6 12 12" />
+              <path d="M18 6 6 18" />
+            </svg>
+          </button>
         </div>
-      ) : (
-        <div className="app-empty-state">{empty}</div>
-      )}
+        <div className="app-preview-drawer-body">{children}</div>
+      </div>
     </div>
   );
 }
 
-function PermissionBreakdown({ detail, groups }: { detail: RoleDetail; groups: GroupItem[] }) {
-  const inherited = computeInheritedPermissions(detail.effectivePermissionKeys, detail.directPermissionKeys);
-  const groupNames = groups.filter((group) => detail.permissionGroupIds.includes(group.id)).map((group) => group.name).sort((left, right) => left.localeCompare(right));
-
+function ConfirmActionModal({
+  open,
+  title,
+  description,
+  confirmLabel,
+  tone = "danger",
+  onConfirm,
+  onClose
+}: {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  tone?: "danger" | "primary";
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
   return (
-    <div className="app-section-stack">
-      <div className="app-subtle-panel">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-steel/55">Impact</p>
-        <p className="mt-3 text-sm leading-7 text-steel">
-          Review what this role gets directly versus what it inherits through permission groups before saving privileged changes.
-        </p>
+    <Modal open={open} onClose={onClose} title={title} description={description} width="medium">
+      <div className="flex justify-end gap-3">
+        <button type="button" className="app-button-secondary" onClick={onClose}>Cancel</button>
+        <button type="button" className={tone === "danger" ? "app-button-danger" : "app-button-primary"} onClick={onConfirm}>
+          {confirmLabel}
+        </button>
       </div>
-      <PermissionList title="Assigned groups" permissions={groupNames} empty="No permission groups are attached to this role." />
-      <PermissionList title="Direct permissions" permissions={detail.directPermissionKeys} empty="No direct permissions are assigned." />
-      <PermissionList title="Inherited permissions" permissions={inherited} empty="No inherited permissions are currently resolved." />
-      <PermissionList title="Effective permissions" permissions={detail.effectivePermissionKeys} empty="The role does not resolve any effective permissions." />
-    </div>
+    </Modal>
   );
 }
 
-async function request<T>(path: string, accessToken: string, onReauthenticate: (fresh: boolean) => Promise<void>, init?: RequestInit) {
-  const response = await fetch(path, { ...init, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...(init?.headers ?? {}) } });
-  if (response.status === 401) { await onReauthenticate(true); throw new Error("Admin authentication is required."); }
-  if (!response.ok) {
-    const error = (await response.json().catch(() => ({}))) as ApiError;
-    throw new Error(error.details?.join(" ") ?? error.message ?? `Request failed (${response.status}).`);
+function PermissionList({ permissions }: { permissions: string[] }) {
+  if (permissions.length === 0) {
+    return <div className="app-empty-state">No permissions in this selection.</div>;
   }
-  if (response.status === 204) return null as T;
-  return response.json() as Promise<T>;
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {permissions.map((permission) => (
+        <span key={permission} className="app-chip">
+          {permission}
+        </span>
+      ))}
+    </div>
+  );
 }
 
-export function PermissionGate({ permissions, permission, children }: { permissions: string[]; permission: string; children: ReactNode }) {
-  if (!hasPermission(permissions, permission)) return <AccessDeniedPanel permission={permission} />;
-  return <>{children}</>;
+function PermissionBreakdown({
+  directPermissions,
+  effectivePermissions
+}: {
+  directPermissions: string[];
+  effectivePermissions: string[];
+}) {
+  const inheritedPermissions = useMemo(
+    () => computeInheritedPermissions(effectivePermissions, directPermissions),
+    [directPermissions, effectivePermissions]
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-ink">Direct permissions</h3>
+        <PermissionList permissions={sortPermissionKeys(directPermissions)} />
+      </div>
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-ink">Inherited permissions</h3>
+        <PermissionList permissions={inheritedPermissions} />
+      </div>
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-ink">Effective union</h3>
+        <PermissionList permissions={sortPermissionKeys(effectivePermissions)} />
+      </div>
+    </div>
+  );
 }
 
-export function ProfilePage({ accessToken, onReauthenticate, permissions }: PageProps) {
-  const [profile, setProfile] = useState<AdminProfile | null>(null);
-  const [displayName, setDisplayName] = useState("");
-  const [timeZone, setTimeZone] = useState("UTC");
-  const [error, setError] = useState<string | null>(null);
+export function PermissionGate({
+  permissions,
+  permission,
+  children
+}: {
+  permissions: string[];
+  permission: string;
+  children: ReactNode;
+}) {
+  if (hasPermission(permissions, permission)) {
+    return <>{children}</>;
+  }
+
+  return (
+    <div className="app-card">
+      <div className="app-card-body space-y-4">
+        <div className="space-y-2">
+          <div className="app-kicker">Authorization</div>
+          <h2 className="text-2xl font-bold text-ink">Access denied</h2>
+          <p className="text-sm text-steel">The current session does not have the permission required to open this screen.</p>
+        </div>
+        <div className="app-subtle-panel">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-steel/60">Missing permission</div>
+          <div className="mt-2 font-mono text-sm text-ink">{permission}</div>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Link className="app-button-primary" to="/">Go to dashboard</Link>
+          <Link className="app-button-secondary" to="/profile">Open profile</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ProfilePage({ accessToken, onReauthenticate }: PageProps) {
+  const [profile, setProfile] = useState<AdminProfileDetailResponse | null>(null);
+  const [form, setForm] = useState<UpdateProfileRequest>({ displayName: "", timeZone: "UTC" });
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    request<AdminProfile>("/api/admin/rbac/profile", accessToken, onReauthenticate)
-      .then((value) => { setProfile(value); setDisplayName(value.displayName); setTimeZone(value.timeZone); })
-      .catch((value) => setError(value instanceof Error ? value.message : "Unable to load profile."));
+    requestJson<AdminProfileDetailResponse>("/api/admin/rbac/profile", accessToken, onReauthenticate)
+      .then((value) => {
+        setProfile(value);
+        setForm({ displayName: value.displayName, timeZone: value.timeZone });
+      })
+      .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to load profile."));
   }, [accessToken, onReauthenticate]);
 
   const save = async () => {
+    setError(null);
+    setMessage(null);
     try {
-      setError(null);
-      await request("/api/admin/rbac/profile", accessToken, onReauthenticate, { method: "PUT", body: JSON.stringify({ displayName, timeZone }) });
+      await requestJson("/api/admin/rbac/profile", accessToken, onReauthenticate, {
+        method: "PUT",
+        body: JSON.stringify(form)
+      });
+      const refreshed = await requestJson<AdminProfileDetailResponse>("/api/admin/rbac/profile", accessToken, onReauthenticate);
+      setProfile(refreshed);
       setMessage("Profile updated.");
-    } catch (value) {
-      setError(value instanceof Error ? value.message : "Profile update failed.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update profile.");
     }
   };
 
   return (
-    <Workbench
-      catalog={<Card title="Current admin" eyebrow="Identity">{profile ? <div className="app-section-stack text-sm text-steel"><div className="app-subtle-panel"><p className="text-xl font-bold text-ink">{profile.displayName}</p><p className="mt-1">{profile.email}</p></div><p><span className="font-semibold text-ink">User:</span> {profile.userName}</p><p><span className="font-semibold text-ink">State:</span> {profile.accountState}</p><div className="flex flex-wrap gap-2">{profile.roles.map((role) => <Pill key={role} tone="soft">{role}</Pill>)}</div></div> : <div className="app-empty-state">Loading profile…</div>}</Card>}
-      editor={<Card title="Profile settings" eyebrow="Self-service"><div className="app-section-stack">{error ? <Notice tone="warn">{error}</Notice> : null}{message ? <Notice tone="success">{message}</Notice> : null}<div className="app-form-grid"><input className="app-input" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Display name" /><input className="app-input" value={timeZone} onChange={(event) => setTimeZone(event.target.value)} placeholder="Time zone" /></div><button type="button" onClick={() => void save()} disabled={!hasPermission(permissions, permissionKeys.profileEdit)} className="app-button-primary disabled:opacity-50">Save profile</button></div></Card>}
-      inspector={<Card title="Effective session permissions" eyebrow="Authorization"><PermissionList title="Granted permissions" permissions={profile?.effectivePermissions ?? []} empty="No effective permissions were returned for the current session." /></Card>}
-    />
+    <div className="app-page-stack">
+      <div className="app-card">
+        <div className="app-card-header">
+          <div className="app-kicker">Self-service</div>
+          <h1 className="text-4xl font-extrabold tracking-tight text-ink">Admin profile</h1>
+        </div>
+        <div className="app-card-body app-form-grid">
+          <div className="space-y-3">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">Display name</span>
+              <input className="app-input" value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">Time zone</span>
+              <input className="app-input" value={form.timeZone} onChange={(event) => setForm((current) => ({ ...current, timeZone: event.target.value }))} />
+            </label>
+            <button type="button" className="app-button-primary" onClick={save}>Save profile</button>
+            {message ? <div className="app-notice-success">{message}</div> : null}
+            {error ? <div className="app-notice-warn">{error}</div> : null}
+          </div>
+          <div className="space-y-4">
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Identity</div>
+              <div className="text-sm text-steel">User name</div>
+              <div className="font-semibold text-ink">{profile?.userName ?? "Loading..."}</div>
+              <div className="text-sm text-steel">Email</div>
+              <div className="font-semibold text-ink">{profile?.email ?? "Loading..."}</div>
+            </div>
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Effective permissions</div>
+              <PermissionList permissions={sortPermissionKeys(profile?.effectivePermissions ?? [])} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
-export function AdminUsersPage({ accessToken, onReauthenticate, permissions }: PageProps) {
-  const [users, setUsers] = useState<UserItem[]>([]);
-  const [roles, setRoles] = useState<RoleItem[]>([]);
-  const [detail, setDetail] = useState<UserDetail | null>(null);
+export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
+  const [items, setItems] = useState<AdminUserListItemDto[]>([]);
+  const [roleOptions, setRoleOptions] = useState<RoleListItemDto[]>([]);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [previewUserId, setPreviewUserId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [sortValue, setSortValue] = useState("name:asc");
+  const [pageSize, setPageSize] = useState(9);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [createModel, setCreateModel] = useState({ userName: "", email: "", password: "", displayName: "", roles: [] as string[] });
-  const [editModel, setEditModel] = useState({ displayName: "", email: "", roles: [] as string[], resetPassword: "" });
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editingDetail, setEditingDetail] = useState<AdminUserDetailDto | null>(null);
+  const [confirmBulkMode, setConfirmBulkMode] = useState<"activate" | "deactivate" | null>(null);
+  const [createForm, setCreateForm] = useState<CreateAdminUserRequest>({ userName: "", email: "", password: "", displayName: "", roles: [] });
+  const [editForm, setEditForm] = useState({ displayName: "", email: "", roles: [] as string[], resetPassword: "" });
+  const deferredSearch = useDeferredValue(search);
 
-  const load = async (userId?: string) => {
-    const [loadedUsers, loadedRoles] = await Promise.all([request<Paged<UserItem>>("/api/admin/rbac/users?page=1&pageSize=50", accessToken, onReauthenticate), request<RoleItem[]>("/api/admin/rbac/roles", accessToken, onReauthenticate)]);
-    setUsers(loadedUsers.items);
-    setRoles(loadedRoles);
-    const selected = userId ?? detail?.userId ?? loadedUsers.items[0]?.userId;
-    if (selected) {
-      const loadedDetail = await request<UserDetail>(`/api/admin/rbac/users/${selected}`, accessToken, onReauthenticate);
-      setDetail(loadedDetail);
-      setEditModel({ displayName: loadedDetail.displayName, email: loadedDetail.email, roles: loadedDetail.roles, resetPassword: "" });
+  const load = async () => {
+    setIsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        filter,
+        sort: sortValue
+      });
+      if (deferredSearch.trim()) {
+        params.set("search", deferredSearch.trim());
+      }
+
+      const [users, roles] = await Promise.all([
+        requestJson<PaginatedResult<AdminUserListItemDto>>(`/api/admin/rbac/users?${params.toString()}`, accessToken, onReauthenticate),
+        requestJson<PaginatedResult<RoleListItemDto>>("/api/admin/rbac/roles?page=1&pageSize=250&filter=all&sort=name:asc", accessToken, onReauthenticate)
+      ]);
+      setItems(users.items);
+      setTotalCount(users.totalCount);
+      setRoleOptions(roles.items);
+      setSelectedUserIds((current) => current.filter((id) => users.items.some((item) => item.userId === id)));
+      setPreviewUserId((current) => (current && users.items.some((item) => item.userId === current) ? current : null));
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    load().catch((value) => setError(value instanceof Error ? value.message : "Unable to load admin users."));
-  }, [accessToken, onReauthenticate]);
+    load().catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to load admin users."));
+  }, [accessToken, deferredSearch, filter, onReauthenticate, page, pageSize, sortValue]);
 
-  const toggleRole = (rolesToChange: string[], role: string) => rolesToChange.includes(role) ? rolesToChange.filter((item) => item !== role) : [...rolesToChange, role];
-  const run = async (action: () => Promise<void>, success: string) => {
-    try { setError(null); await action(); setMessage(success); await load(detail?.userId); }
-    catch (value) { setError(value instanceof Error ? value.message : success); }
+  useEffect(() => setPage(1), [deferredSearch, filter, sortValue, pageSize]);
+  const [activeSortField, activeSortDirection] = sortValue.split(":") as [string, SortDirection];
+  const selectedRecords = items.filter((item) => selectedUserIds.includes(item.userId));
+  const selectedActiveIds = selectedRecords.filter((item) => item.isActive).map((item) => item.userId);
+  const selectedInactiveIds = selectedRecords.filter((item) => !item.isActive).map((item) => item.userId);
+  const allPageSelected = items.length > 0 && items.every((item) => selectedUserIds.includes(item.userId));
+  const previewUser = items.find((item) => item.userId === previewUserId) ?? null;
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
+
+  const toggleRole = (currentRoles: string[], role: string) =>
+    currentRoles.includes(role) ? currentRoles.filter((item) => item !== role) : [...currentRoles, role];
+
+  const openEdit = async (userId: string) => {
+    const detail = await requestJson<AdminUserDetailDto>(`/api/admin/rbac/users/${encodeURIComponent(userId)}`, accessToken, onReauthenticate);
+    setEditingDetail(detail);
+    setEditForm({ displayName: detail.displayName, email: detail.email, roles: detail.roles, resetPassword: "" });
+    setEditingUserId(userId);
   };
 
-  return (
-    <Workbench
-      catalog={<Card title="Admin users" eyebrow="Catalog"><div className="app-section-stack">{message ? <Notice tone="success">{message}</Notice> : null}{error ? <Notice tone="warn">{error}</Notice> : null}{users.length > 0 ? users.map((user) => <SelectionButton key={user.userId} active={detail?.userId === user.userId} title={user.displayName} description={`${user.userName} · ${user.email}`} meta={user.roles.join(", ")} onClick={() => void load(user.userId)} />) : <div className="app-empty-state">No admin users are currently provisioned.</div>}</div></Card>}
-      editor={<Card title="Selected user" eyebrow="Editor">{detail ? <div className="app-section-stack"><div className="app-form-grid"><input className="app-input" value={editModel.displayName} onChange={(event) => setEditModel({ ...editModel, displayName: event.target.value })} /><input className="app-input" value={editModel.email} onChange={(event) => setEditModel({ ...editModel, email: event.target.value })} /></div><div className="flex flex-wrap gap-2">{roles.map((role) => <label key={role.roleId} className="app-checkbox-chip"><input type="checkbox" checked={editModel.roles.includes(role.name)} onChange={() => setEditModel({ ...editModel, roles: toggleRole(editModel.roles, role.name) })} />{role.name}</label>)}</div><div className="flex flex-wrap gap-3"><button type="button" onClick={() => void run(async () => { await request(`/api/admin/rbac/users/${detail.userId}`, accessToken, onReauthenticate, { method: "PUT", body: JSON.stringify({ displayName: editModel.displayName, email: editModel.email }) }); await request(`/api/admin/rbac/users/${detail.userId}/roles`, accessToken, onReauthenticate, { method: "PUT", body: JSON.stringify({ roles: editModel.roles }) }); }, "Admin user updated.")} disabled={!hasPermission(permissions, permissionKeys.usersEdit)} className="app-button-primary disabled:opacity-50">Save user</button><button type="button" onClick={() => void run(async () => { await request(`/api/admin/rbac/users/${detail.userId}/activate`, accessToken, onReauthenticate, { method: "POST", body: "{}" }); }, "User activated.")} disabled={!hasPermission(permissions, permissionKeys.usersActivate)} className="app-button-secondary disabled:opacity-50">Activate</button><button type="button" onClick={() => void run(async () => { await request(`/api/admin/rbac/users/${detail.userId}/deactivate`, accessToken, onReauthenticate, { method: "POST", body: "{}" }); }, "User deactivated.")} disabled={!hasPermission(permissions, permissionKeys.usersDeactivate)} className="app-button-secondary disabled:opacity-50">Deactivate</button></div><div className="flex gap-3"><input className="app-input" placeholder="New password" value={editModel.resetPassword} onChange={(event) => setEditModel({ ...editModel, resetPassword: event.target.value })} /><button type="button" onClick={() => void run(async () => { await request(`/api/admin/rbac/users/${detail.userId}/reset-password`, accessToken, onReauthenticate, { method: "POST", body: JSON.stringify({ newPassword: editModel.resetPassword }) }); setEditModel((current) => ({ ...current, resetPassword: "" })); }, "Password reset completed.")} disabled={!hasPermission(permissions, permissionKeys.usersResetPassword)} className="app-button-danger disabled:opacity-50">Reset</button></div></div> : <div className="app-empty-state">Select an admin user to edit roles, account state and password workflow.</div>}</Card>}
-      inspector={<div className="app-page-stack"><Card title="Provision new admin" eyebrow="Create"><div className="app-section-stack"><div className="app-form-grid"><input className="app-input" placeholder="User name" value={createModel.userName} onChange={(event) => setCreateModel({ ...createModel, userName: event.target.value })} /><input className="app-input" placeholder="Display name" value={createModel.displayName} onChange={(event) => setCreateModel({ ...createModel, displayName: event.target.value })} /><input className="app-input" placeholder="Email" value={createModel.email} onChange={(event) => setCreateModel({ ...createModel, email: event.target.value })} /><input className="app-input" placeholder="Temporary password" value={createModel.password} onChange={(event) => setCreateModel({ ...createModel, password: event.target.value })} /></div><div className="flex flex-wrap gap-2">{roles.map((role) => <label key={role.roleId} className="app-checkbox-chip"><input type="checkbox" checked={createModel.roles.includes(role.name)} onChange={() => setCreateModel({ ...createModel, roles: toggleRole(createModel.roles, role.name) })} />{role.name}</label>)}</div><button type="button" onClick={() => void run(async () => { await request("/api/admin/rbac/users", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createModel) }); setCreateModel({ userName: "", email: "", password: "", displayName: "", roles: [] }); }, "Admin user created.")} disabled={!hasPermission(permissions, permissionKeys.usersCreate)} className="app-button-primary disabled:opacity-50">Create admin user</button></div></Card><Card title="Effective permissions" eyebrow="Impact"><PermissionList title="Selected user permissions" permissions={detail?.effectivePermissions ?? []} empty="Select an admin user to review effective permissions." /></Card></div>}
-    />
-  );
-}
-
-export function RolesPage({ accessToken, onReauthenticate, permissions }: PageProps) {
-  const [roles, setRoles] = useState<RoleItem[]>([]);
-  const [groups, setGroups] = useState<GroupItem[]>([]);
-  const [catalog, setCatalog] = useState<Permission[]>([]);
-  const [detail, setDetail] = useState<RoleDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [createModel, setCreateModel] = useState({ name: "", description: "", priority: 100 });
-  const [editModel, setEditModel] = useState({ description: "", priority: 100, groups: [] as string[], permissions: [] as string[] });
-
-  const load = async (roleId?: string) => {
-    const [loadedRoles, loadedGroups, loadedCatalog] = await Promise.all([request<RoleItem[]>("/api/admin/rbac/roles", accessToken, onReauthenticate), request<GroupItem[]>("/api/admin/rbac/permission-groups", accessToken, onReauthenticate), request<Permission[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)]);
-    setRoles(loadedRoles); setGroups(loadedGroups); setCatalog(loadedCatalog);
-    const selected = roleId ?? detail?.roleId ?? loadedRoles[0]?.roleId;
-    if (selected) {
-      const loadedDetail = await request<RoleDetail>(`/api/admin/rbac/roles/${selected}`, accessToken, onReauthenticate);
-      setDetail(loadedDetail);
-      setEditModel({ description: loadedDetail.description, priority: loadedDetail.priority, groups: loadedDetail.permissionGroupIds, permissions: loadedDetail.directPermissionKeys });
+  const saveCreate = async () => {
+    try {
+      await requestJson("/api/admin/rbac/users", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createForm) });
+      setCreateOpen(false);
+      setCreateForm({ userName: "", email: "", password: "", displayName: "", roles: [] });
+      setMessage("Admin user created.");
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create admin user.");
     }
   };
 
-  useEffect(() => { load().catch((value) => setError(value instanceof Error ? value.message : "Unable to load roles.")); }, [accessToken, onReauthenticate]);
-  const flip = (items: string[], value: string) => items.includes(value) ? items.filter((item) => item !== value) : [...items, value];
-  const run = async (action: () => Promise<void>, success: string) => {
-    try { setError(null); await action(); setMessage(success); await load(detail?.roleId); }
-    catch (value) { setError(value instanceof Error ? value.message : success); }
-  };
-
-  return (
-    <Workbench
-      catalog={<Card title="Roles" eyebrow="Catalog"><div className="app-section-stack">{message ? <Notice tone="success">{message}</Notice> : null}{error ? <Notice tone="warn">{error}</Notice> : null}{roles.map((role) => <SelectionButton key={role.roleId} active={detail?.roleId === role.roleId} title={role.name} description={role.description} meta={`${role.userCount} users · priority ${role.priority}`} onClick={() => void load(role.roleId)} />)}</div></Card>}
-      editor={<Card title="Role editor" eyebrow="Permissions model">{detail ? <div className="app-section-stack"><div className="app-form-grid"><input className="app-input-muted" value={detail.name} disabled /><input className="app-input" type="number" value={editModel.priority} onChange={(event) => setEditModel({ ...editModel, priority: Number(event.target.value) })} /></div><textarea className="app-input min-h-28" value={editModel.description} onChange={(event) => setEditModel({ ...editModel, description: event.target.value })} /><div className="app-section-stack"><h3 className="text-sm font-semibold text-ink">Permission groups</h3><div className="flex flex-wrap gap-2">{groups.map((group) => <label key={group.id} className="app-checkbox-chip"><input type="checkbox" checked={editModel.groups.includes(group.id)} onChange={() => setEditModel({ ...editModel, groups: flip(editModel.groups, group.id) })} />{group.name}</label>)}</div></div><div className="app-section-stack"><h3 className="text-sm font-semibold text-ink">Direct permissions</h3><div className="app-permission-grid">{catalog.map((permission) => <label key={permission.key} className="app-permission-item"><input type="checkbox" checked={editModel.permissions.includes(permission.key)} onChange={() => setEditModel({ ...editModel, permissions: flip(editModel.permissions, permission.key) })} className="mr-2" />{permission.key}</label>)}</div></div><div className="flex flex-wrap gap-3"><button type="button" onClick={() => void run(async () => { await request(`/api/admin/rbac/roles/${detail.roleId}`, accessToken, onReauthenticate, { method: "PUT", body: JSON.stringify({ description: editModel.description, priority: editModel.priority }) }); await request(`/api/admin/rbac/roles/${detail.roleId}/permission-groups`, accessToken, onReauthenticate, { method: "PUT", body: JSON.stringify({ permissionGroupIds: editModel.groups }) }); await request(`/api/admin/rbac/roles/${detail.roleId}/permissions`, accessToken, onReauthenticate, { method: "PUT", body: JSON.stringify({ permissionKeys: editModel.permissions }) }); }, "Role updated.")} disabled={!hasPermission(permissions, permissionKeys.rolesEdit)} className="app-button-primary disabled:opacity-50">Save role</button><button type="button" onClick={() => void run(async () => { await request(`/api/admin/rbac/roles/${detail.roleId}`, accessToken, onReauthenticate, { method: "DELETE" }); setDetail(null); }, "Role deleted.")} disabled={detail.isSystemRole || !hasPermission(permissions, permissionKeys.rolesDelete)} className="app-button-danger disabled:opacity-50">Delete role</button></div></div> : <div className="app-empty-state">Select a role to edit description, grouping and direct permissions.</div>}</Card>}
-      inspector={<div className="app-page-stack"><Card title="Create role" eyebrow="Model access"><div className="app-section-stack"><div className="app-form-grid"><input className="app-input" placeholder="Role name" value={createModel.name} onChange={(event) => setCreateModel({ ...createModel, name: event.target.value })} /><input className="app-input" placeholder="Description" value={createModel.description} onChange={(event) => setCreateModel({ ...createModel, description: event.target.value })} /><input className="app-input" type="number" value={createModel.priority} onChange={(event) => setCreateModel({ ...createModel, priority: Number(event.target.value) })} /></div><button type="button" onClick={() => void run(async () => { await request("/api/admin/rbac/roles", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createModel) }); setCreateModel({ name: "", description: "", priority: 100 }); }, "Role created.")} disabled={!hasPermission(permissions, permissionKeys.rolesCreate)} className="app-button-primary disabled:opacity-50">Create role</button></div></Card><Card title="Permission impact" eyebrow="Inspector">{detail ? <PermissionBreakdown detail={detail} groups={groups} /> : <div className="app-empty-state">Select a role to review direct, inherited and effective permissions.</div>}</Card></div>}
-    />
-  );
-}
-
-export function PermissionGroupsPage({ accessToken, onReauthenticate, permissions }: PageProps) {
-  const [groups, setGroups] = useState<GroupItem[]>([]);
-  const [catalog, setCatalog] = useState<Permission[]>([]);
-  const [detail, setDetail] = useState<GroupDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [createModel, setCreateModel] = useState({ name: "", description: "" });
-  const [editModel, setEditModel] = useState({ name: "", description: "", permissions: [] as string[] });
-
-  const load = async (groupId?: string) => {
-    const [loadedGroups, loadedCatalog] = await Promise.all([request<GroupItem[]>("/api/admin/rbac/permission-groups", accessToken, onReauthenticate), request<Permission[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)]);
-    setGroups(loadedGroups); setCatalog(loadedCatalog);
-    const selected = groupId ?? detail?.id ?? loadedGroups[0]?.id;
-    if (selected) {
-      const loadedDetail = await request<GroupDetail>(`/api/admin/rbac/permission-groups/${selected}`, accessToken, onReauthenticate);
-      setDetail(loadedDetail);
-      setEditModel({ name: loadedDetail.name, description: loadedDetail.description, permissions: loadedDetail.permissionKeys });
+  const saveEdit = async () => {
+    if (!editingUserId) return;
+    try {
+      await requestJson(`/api/admin/rbac/users/${encodeURIComponent(editingUserId)}`, accessToken, onReauthenticate, {
+        method: "PUT",
+        body: JSON.stringify({ displayName: editForm.displayName, email: editForm.email } satisfies UpdateAdminUserRequest)
+      });
+      await requestJson(`/api/admin/rbac/users/${encodeURIComponent(editingUserId)}/roles`, accessToken, onReauthenticate, {
+        method: "PUT",
+        body: JSON.stringify({ roles: editForm.roles })
+      });
+      if (editForm.resetPassword.trim()) {
+        await requestJson(`/api/admin/rbac/users/${encodeURIComponent(editingUserId)}/reset-password`, accessToken, onReauthenticate, {
+          method: "POST",
+          body: JSON.stringify({ newPassword: editForm.resetPassword })
+        });
+      }
+      setEditingUserId(null);
+      setEditingDetail(null);
+      setMessage("Admin user updated.");
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update admin user.");
     }
   };
 
-  useEffect(() => { load().catch((value) => setError(value instanceof Error ? value.message : "Unable to load permission groups.")); }, [accessToken, onReauthenticate]);
-  const flip = (items: string[], value: string) => items.includes(value) ? items.filter((item) => item !== value) : [...items, value];
-  const run = async (action: () => Promise<void>, success: string) => {
-    try { setError(null); await action(); setMessage(success); await load(detail?.id); }
-    catch (value) { setError(value instanceof Error ? value.message : success); }
+  const changeActivation = async (userIds: string[], activate: boolean) => {
+    try {
+      if (userIds.length === 1) {
+        await requestJson(`/api/admin/rbac/users/${encodeURIComponent(userIds[0])}/${activate ? "activate" : "deactivate"}`, accessToken, onReauthenticate, { method: "POST" });
+      } else {
+        await requestJson(`/api/admin/rbac/users/bulk-${activate ? "activate" : "deactivate"}`, accessToken, onReauthenticate, {
+          method: "POST",
+          body: JSON.stringify({ userIds })
+        });
+      }
+      setMessage(activate ? "Admin user activation updated." : "Admin user deactivation updated.");
+      setSelectedUserIds([]);
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update account state.");
+    }
+  };
+
+  const toggleSort = (field: string) => {
+    setSortValue((current) => {
+      const [currentField, currentDirection] = current.split(":") as [string, SortDirection];
+      if (currentField === field) {
+        return `${field}:${currentDirection === "asc" ? "desc" : "asc"}`;
+      }
+      const defaultDirection: SortDirection = field === "created" || field === "lastLogin" ? "desc" : "asc";
+      return `${field}:${defaultDirection}`;
+    });
+  };
+
+  const toggleUserSelection = (userId: string) => {
+    setSelectedUserIds((current) => current.includes(userId) ? current.filter((item) => item !== userId) : [...current, userId]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedUserIds((current) => {
+      if (allPageSelected) {
+        return current.filter((id) => !items.some((item) => item.userId === id));
+      }
+      const next = new Set(current);
+      items.forEach((item) => next.add(item.userId));
+      return [...next];
+    });
   };
 
   return (
-    <Workbench
-      catalog={<Card title="Permission groups" eyebrow="Catalog"><div className="app-section-stack">{message ? <Notice tone="success">{message}</Notice> : null}{error ? <Notice tone="warn">{error}</Notice> : null}{groups.map((group) => <SelectionButton key={group.id} active={detail?.id === group.id} title={group.name} description={group.description} meta={group.isSystemGroup ? "system group" : "custom group"} onClick={() => void load(group.id)} />)}</div></Card>}
-      editor={<Card title="Permission group editor" eyebrow="Assignments">{detail ? <div className="app-section-stack"><div className="app-form-grid"><input className={detail.isSystemGroup ? "app-input-muted" : "app-input"} value={editModel.name} onChange={(event) => setEditModel({ ...editModel, name: event.target.value })} disabled={detail.isSystemGroup} /><input className="app-input" value={editModel.description} onChange={(event) => setEditModel({ ...editModel, description: event.target.value })} /></div><div className="app-permission-grid">{catalog.map((permission) => <label key={permission.key} className="app-permission-item"><input type="checkbox" checked={editModel.permissions.includes(permission.key)} onChange={() => setEditModel({ ...editModel, permissions: flip(editModel.permissions, permission.key) })} className="mr-2" />{permission.key}</label>)}</div><div className="flex flex-wrap gap-3"><button type="button" onClick={() => void run(async () => { await request(`/api/admin/rbac/permission-groups/${detail.id}`, accessToken, onReauthenticate, { method: "PUT", body: JSON.stringify({ name: editModel.name, description: editModel.description }) }); await request(`/api/admin/rbac/permission-groups/${detail.id}/permissions`, accessToken, onReauthenticate, { method: "PUT", body: JSON.stringify({ permissionKeys: editModel.permissions }) }); }, "Permission group updated.")} disabled={!hasPermission(permissions, permissionKeys.permissionGroupsEdit)} className="app-button-primary disabled:opacity-50">Save group</button><button type="button" onClick={() => void run(async () => { await request(`/api/admin/rbac/permission-groups/${detail.id}`, accessToken, onReauthenticate, { method: "DELETE" }); setDetail(null); }, "Permission group deleted.")} disabled={detail.isSystemGroup || !hasPermission(permissions, permissionKeys.permissionGroupsDelete)} className="app-button-danger disabled:opacity-50">Delete group</button></div></div> : <div className="app-empty-state">Select a permission group to manage its reusable permission bundle.</div>}</Card>}
-      inspector={<div className="app-page-stack"><Card title="Create permission group" eyebrow="New bundle"><div className="app-section-stack"><div className="app-form-grid"><input className="app-input" placeholder="Group name" value={createModel.name} onChange={(event) => setCreateModel({ ...createModel, name: event.target.value })} /><input className="app-input" placeholder="Description" value={createModel.description} onChange={(event) => setCreateModel({ ...createModel, description: event.target.value })} /></div><button type="button" onClick={() => void run(async () => { await request("/api/admin/rbac/permission-groups", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createModel) }); setCreateModel({ name: "", description: "" }); }, "Permission group created.")} disabled={!hasPermission(permissions, permissionKeys.permissionGroupsCreate)} className="app-button-primary disabled:opacity-50">Create group</button></div></Card><Card title="Selected bundle" eyebrow="Inspector"><PermissionList title="Permissions in group" permissions={detail?.permissionKeys ?? []} empty="Select a permission group to review the bundled permissions." /></Card></div>}
-    />
+    <div className="app-page-stack">
+      <CatalogToolbar
+        title="Admin users"
+        description="Search, filter and sort the admin catalog. Create and edit actions open in a focused modal."
+        totalCount={totalCount}
+        search={search}
+        onSearchChange={setSearch}
+        sortValue={sortValue}
+        onSortChange={setSortValue}
+        sortOptions={[
+          { value: "name:asc", label: "Name A-Z" },
+          { value: "created:desc", label: "Newest first" },
+          { value: "lastLogin:desc", label: "Recent activity" },
+          { value: "email:asc", label: "Email A-Z" }
+        ]}
+        pageSize={pageSize}
+        onPageSizeChange={setPageSize}
+        filter={filter}
+        onFilterChange={setFilter}
+        filterOptions={[
+          { value: "all", label: "All users" },
+          { value: "active", label: "Active only" },
+          { value: "inactive", label: "Inactive only" },
+          { value: "superadmin", label: "SuperAdmins" }
+        ]}
+        createLabel="Create admin user"
+        onCreate={() => setCreateOpen(true)}
+      />
+      {message ? <div className="app-notice-success">{message}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
+      {selectedUserIds.length > 0 ? (
+        <div className="app-selection-summary">
+          <div className="text-sm font-medium text-ink">{selectedUserIds.length} selected</div>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="app-button-secondary py-2.5" onClick={() => setSelectedUserIds([])}>
+              Clear selection
+            </button>
+            <button type="button" className="app-button-secondary py-2.5" disabled={selectedInactiveIds.length === 0} onClick={() => setConfirmBulkMode("activate")}>
+              Activate selected ({selectedInactiveIds.length})
+            </button>
+            <button type="button" className="app-button-danger py-2.5" disabled={selectedActiveIds.length === 0} onClick={() => setConfirmBulkMode("deactivate")}>
+              Deactivate selected ({selectedActiveIds.length})
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="px-5 py-4">
+                  <input type="checkbox" checked={allPageSelected} aria-label="Select current page" onChange={toggleCurrentPageSelection} />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="User" active={activeSortField === "name"} direction={activeSortDirection} onClick={() => toggleSort("name")} />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Email" active={activeSortField === "email"} direction={activeSortDirection} onClick={() => toggleSort("email")} />
+                </th>
+                <th className="px-5 py-4">Roles</th>
+                <th className="px-5 py-4">Status</th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Created" active={activeSortField === "created"} direction={activeSortDirection} onClick={() => toggleSort("created")} />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Last login" active={activeSortField === "lastLogin"} direction={activeSortDirection} onClick={() => toggleSort("lastLogin")} />
+                </th>
+                <th className="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={8} title="Loading admin users" message="Fetching the latest catalog and role assignments." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={8} title="Unable to load admin users" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={8} title="No users match this view" message="Try a broader search, different filter or larger page size." />
+              ) : items.map((item) => (
+                <tr key={item.userId} className="app-table-row border-t border-slate-200/80 align-top">
+                  <td className="px-5 py-4">
+                    <input type="checkbox" checked={selectedUserIds.includes(item.userId)} aria-label={`Select ${item.userName}`} onChange={() => toggleUserSelection(item.userId)} />
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="font-semibold text-ink">{item.displayName || item.userName}</div>
+                    <div className="text-xs text-steel">{item.userName}</div>
+                  </td>
+                  <td className="px-5 py-4 text-steel">{item.email}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      {item.roles.map((role) => (
+                        <span key={role} className="app-chip">{role}</span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className={item.isActive ? "app-chip-soft" : "app-chip"}>{item.isActive ? "Active" : "Inactive"}</span>
+                  </td>
+                  <td className="px-5 py-4 text-steel">{formatDate(item.createdAtUtc)}</td>
+                  <td className="px-5 py-4 text-steel">{formatDateTime(item.lastLoginAtUtc)}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex justify-end gap-2">
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.userId).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to open user editor."))}>Edit</button>
+                      <button type="button" className={item.isActive ? "app-button-danger px-4 py-2.5" : "app-button-secondary px-4 py-2.5"} onClick={() => changeActivation([item.userId], !item.isActive)}>
+                        {item.isActive ? "Deactivate" : "Activate"}
+                      </button>
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setPreviewUserId(item.userId)}>
+                        Preview
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <PaginationFooter page={page} pageCount={pageCount} totalCount={totalCount} pageSize={pageSize} onPageChange={setPage} />
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create admin user" description="Provision a new admin account and assign initial roles.">
+        <div className="space-y-4">
+          <div className="app-form-grid">
+            <input className="app-input" placeholder="User name" value={createForm.userName} onChange={(event) => setCreateForm((current) => ({ ...current, userName: event.target.value }))} />
+            <input className="app-input" placeholder="Display name" value={createForm.displayName} onChange={(event) => setCreateForm((current) => ({ ...current, displayName: event.target.value }))} />
+            <input className="app-input" placeholder="Email" value={createForm.email} onChange={(event) => setCreateForm((current) => ({ ...current, email: event.target.value }))} />
+            <input className="app-input" placeholder="Temporary password" value={createForm.password} onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))} />
+          </div>
+          <div className="space-y-3">
+            <div className="text-sm font-semibold text-ink">Roles</div>
+            <div className="flex flex-wrap gap-2">
+              {roleOptions.map((role) => (
+                <label key={role.roleId} className="app-checkbox-chip">
+                  <input type="checkbox" checked={createForm.roles.includes(role.name)} onChange={() => setCreateForm((current) => ({ ...current, roles: toggleRole(current.roles, role.name) }))} />
+                  <span>{role.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" className="app-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button type="button" className="app-button-primary" onClick={saveCreate}>Create admin user</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={editingUserId !== null} onClose={() => setEditingUserId(null)} title="Edit admin user" description="Update profile data, role assignments and lifecycle controls." width="xwide">
+        <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+          <div className="space-y-4">
+            <div className="app-form-grid">
+              <input className="app-input" value={editingDetail?.userName ?? ""} disabled />
+              <input className="app-input" value={editForm.displayName} onChange={(event) => setEditForm((current) => ({ ...current, displayName: event.target.value }))} />
+              <input className="app-input md:col-span-2" value={editForm.email} onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))} />
+            </div>
+            <div className="space-y-3">
+              <div className="text-sm font-semibold text-ink">Assigned roles</div>
+              <div className="flex flex-wrap gap-2">
+                {roleOptions.map((role) => (
+                  <label key={role.roleId} className="app-checkbox-chip">
+                    <input type="checkbox" checked={editForm.roles.includes(role.name)} onChange={() => setEditForm((current) => ({ ...current, roles: toggleRole(current.roles, role.name) }))} />
+                    <span>{role.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-ink">Reset password</div>
+              <input className="app-input" placeholder="Leave empty to keep current password" value={editForm.resetPassword} onChange={(event) => setEditForm((current) => ({ ...current, resetPassword: event.target.value }))} />
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" className="app-button-primary" onClick={saveEdit}>Save changes</button>
+              {editingDetail ? (
+                <button
+                  type="button"
+                  className={editingDetail.isActive ? "app-button-danger" : "app-button-secondary"}
+                  onClick={() => changeActivation([editingDetail.userId], !editingDetail.isActive)}
+                >
+                  {editingDetail.isActive ? "Deactivate user" : "Activate user"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Identity</div>
+              <div className="text-sm text-steel">Created</div>
+              <div className="font-semibold text-ink">{formatDateTime(editingDetail?.createdAtUtc)}</div>
+              <div className="text-sm text-steel">Last login</div>
+              <div className="font-semibold text-ink">{formatDateTime(editingDetail?.lastLoginAtUtc)}</div>
+              <div className="text-sm text-steel">Time zone</div>
+              <div className="font-semibold text-ink">{editingDetail?.timeZone ?? "N/A"}</div>
+            </div>
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Effective permissions</div>
+              <PermissionList permissions={sortPermissionKeys(editingDetail?.effectivePermissions ?? [])} />
+            </div>
+          </div>
+        </div>
+      </Modal>
+      <ConfirmActionModal
+        open={confirmBulkMode === "activate"}
+        title="Activate selected users"
+        description={`This will activate ${selectedInactiveIds.length} selected account(s).`}
+        confirmLabel="Activate selected"
+        tone="primary"
+        onClose={() => setConfirmBulkMode(null)}
+        onConfirm={() => {
+          setConfirmBulkMode(null);
+          void changeActivation(selectedInactiveIds, true);
+        }}
+      />
+      <ConfirmActionModal
+        open={confirmBulkMode === "deactivate"}
+        title="Deactivate selected users"
+        description={`This will deactivate ${selectedActiveIds.length} selected account(s).`}
+        confirmLabel="Deactivate selected"
+        onClose={() => setConfirmBulkMode(null)}
+        onConfirm={() => {
+          setConfirmBulkMode(null);
+          void changeActivation(selectedActiveIds, false);
+        }}
+      />
+      <PreviewDrawer open={previewUser !== null} title={previewUser?.displayName || previewUser?.userName || ""} subtitle={previewUser?.email} onClose={() => setPreviewUserId(null)}>
+        {previewUser ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Identity</div>
+                <div className="text-sm text-steel">User name</div>
+                <div className="font-semibold text-ink">{previewUser.userName}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Status</div>
+                <div className="font-semibold text-ink">{previewUser.isActive ? "Active" : "Inactive"}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Created</div>
+                <div className="font-semibold text-ink">{formatDate(previewUser.createdAtUtc)}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Last login</div>
+                <div className="font-semibold text-ink">{formatDateTime(previewUser.lastLoginAtUtc)}</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-ink">Assigned roles</div>
+              <div className="flex flex-wrap gap-2">
+                {previewUser.roles.map((role) => (
+                  <span key={role} className="app-chip">{role}</span>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" className="app-button-primary" onClick={() => void openEdit(previewUser.userId)}>Edit user</button>
+              <button type="button" className={previewUser.isActive ? "app-button-danger" : "app-button-secondary"} onClick={() => void changeActivation([previewUser.userId], !previewUser.isActive)}>
+                {previewUser.isActive ? "Deactivate" : "Activate"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </PreviewDrawer>
+    </div>
+  );
+}
+
+export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
+  const [items, setItems] = useState<RoleListItemDto[]>([]);
+  const [groups, setGroups] = useState<PermissionGroupListItemDto[]>([]);
+  const [permissions, setPermissions] = useState<PermissionDefinitionDto[]>([]);
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
+  const [previewRoleId, setPreviewRoleId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [sortValue, setSortValue] = useState("priority:desc");
+  const [pageSize, setPageSize] = useState(9);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingRole, setEditingRole] = useState<RoleDetailDto | null>(null);
+  const [confirmDeleteRolesOpen, setConfirmDeleteRolesOpen] = useState(false);
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const [createForm, setCreateForm] = useState<CreateRoleRequest>({ name: "", description: "", priority: 100 });
+  const [editForm, setEditForm] = useState({ description: "", priority: 100, permissionGroupIds: [] as string[], directPermissionKeys: [] as string[] });
+  const deferredSearch = useDeferredValue(search);
+  const deferredPermissionSearch = useDeferredValue(permissionSearch);
+
+  const load = async () => {
+    setIsLoading(true);
+    try {
+      const query = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        filter,
+        sort: sortValue
+      });
+      if (deferredSearch.trim()) {
+        query.set("search", deferredSearch.trim());
+      }
+
+      const [roleResult, groupResult, permissionItems] = await Promise.all([
+        requestJson<PaginatedResult<RoleListItemDto>>(`/api/admin/rbac/roles?${query.toString()}`, accessToken, onReauthenticate),
+        requestJson<PaginatedResult<PermissionGroupListItemDto>>("/api/admin/rbac/permission-groups?page=1&pageSize=250&filter=all&sort=name:asc", accessToken, onReauthenticate),
+        requestJson<PermissionDefinitionDto[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)
+      ]);
+      setItems(roleResult.items);
+      setTotalCount(roleResult.totalCount);
+      setGroups(groupResult.items);
+      setPermissions(permissionItems);
+      setSelectedRoleIds((current) => current.filter((id) => roleResult.items.some((item) => item.roleId === id)));
+      setPreviewRoleId((current) => (current && roleResult.items.some((item) => item.roleId === current) ? current : null));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load().catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to load roles."));
+  }, [accessToken, deferredSearch, filter, onReauthenticate, page, pageSize, sortValue]);
+
+  useEffect(() => setPage(1), [deferredSearch, filter, sortValue, pageSize]);
+  const [activeSortField, activeSortDirection] = sortValue.split(":") as [string, SortDirection];
+  const selectedRoles = items.filter((item) => selectedRoleIds.includes(item.roleId));
+  const selectedDeletableRoleIds = selectedRoles.filter((item) => !item.isSystemRole).map((item) => item.roleId);
+  const allPageSelected = items.length > 0 && items.every((item) => selectedRoleIds.includes(item.roleId));
+  const previewRole = items.find((item) => item.roleId === previewRoleId) ?? null;
+  const filteredPermissionOptions = useMemo(() => {
+    const normalizedSearch = deferredPermissionSearch.trim().toLowerCase();
+    return permissions.filter((item) => !normalizedSearch || [item.key, item.name, item.category].join(" ").toLowerCase().includes(normalizedSearch));
+  }, [deferredPermissionSearch, permissions]);
+
+  const toggleString = (values: string[], value: string) =>
+    values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+
+  const openEdit = async (roleId: string) => {
+    const detail = await requestJson<RoleDetailDto>(`/api/admin/rbac/roles/${encodeURIComponent(roleId)}`, accessToken, onReauthenticate);
+    setEditingRole(detail);
+    setEditForm({
+      description: detail.description,
+      priority: detail.priority,
+      permissionGroupIds: detail.permissionGroupIds,
+      directPermissionKeys: detail.directPermissionKeys
+    });
+  };
+
+  const createRole = async () => {
+    try {
+      await requestJson("/api/admin/rbac/roles", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createForm) });
+      setCreateOpen(false);
+      setCreateForm({ name: "", description: "", priority: 100 });
+      setMessage("Role created.");
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create role.");
+    }
+  };
+
+  const saveRole = async () => {
+    if (!editingRole) return;
+    try {
+      await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(editingRole.roleId)}`, accessToken, onReauthenticate, {
+        method: "PUT",
+        body: JSON.stringify({ description: editForm.description, priority: editForm.priority } satisfies UpdateRoleRequest)
+      });
+      await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(editingRole.roleId)}/permission-groups`, accessToken, onReauthenticate, {
+        method: "PUT",
+        body: JSON.stringify({ permissionGroupIds: editForm.permissionGroupIds })
+      });
+      await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(editingRole.roleId)}/permissions`, accessToken, onReauthenticate, {
+        method: "PUT",
+        body: JSON.stringify({ permissionKeys: editForm.directPermissionKeys })
+      });
+      setEditingRole(null);
+      setMessage("Role updated.");
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update role.");
+    }
+  };
+
+  const deleteRoles = async (roleIds: string[]) => {
+    if (roleIds.length === 0) return;
+    try {
+      if (roleIds.length === 1) {
+        await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(roleIds[0])}`, accessToken, onReauthenticate, { method: "DELETE" });
+      } else {
+        await requestJson("/api/admin/rbac/roles/bulk-delete", accessToken, onReauthenticate, {
+          method: "POST",
+          body: JSON.stringify({ roleIds })
+        });
+      }
+      setMessage(roleIds.length === 1 ? "Role deleted." : `${roleIds.length} roles deleted.`);
+      setSelectedRoleIds([]);
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to delete selected roles.");
+    }
+  };
+
+  const toggleSort = (field: string) => {
+    setSortValue((current) => {
+      const [currentField, currentDirection] = current.split(":") as [string, SortDirection];
+      if (currentField === field) {
+        return `${field}:${currentDirection === "asc" ? "desc" : "asc"}`;
+      }
+      return `${field}:${field === "priority" || field === "users" ? "desc" : "asc"}`;
+    });
+  };
+
+  const toggleRoleSelection = (roleId: string) => {
+    setSelectedRoleIds((current) => current.includes(roleId) ? current.filter((item) => item !== roleId) : [...current, roleId]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedRoleIds((current) => {
+      if (allPageSelected) {
+        return current.filter((id) => !items.some((item) => item.roleId === id));
+      }
+      const next = new Set(current);
+      items.forEach((item) => next.add(item.roleId));
+      return [...next];
+    });
+  };
+
+  return (
+    <div className="app-page-stack">
+      <CatalogToolbar
+        title="Roles"
+        description="Search, filter and compare role metadata in the grid, then open focused modal editing."
+        totalCount={totalCount}
+        search={search}
+        onSearchChange={setSearch}
+        sortValue={sortValue}
+        onSortChange={setSortValue}
+        sortOptions={[
+          { value: "priority:desc", label: "Priority high to low" },
+          { value: "name:asc", label: "Name A-Z" },
+          { value: "users:desc", label: "Most assigned first" }
+        ]}
+        pageSize={pageSize}
+        onPageSizeChange={setPageSize}
+        filter={filter}
+        onFilterChange={setFilter}
+        filterOptions={[
+          { value: "all", label: "All roles" },
+          { value: "system", label: "System roles" },
+          { value: "custom", label: "Custom roles" }
+        ]}
+        createLabel="Create role"
+        onCreate={() => setCreateOpen(true)}
+      />
+      {message ? <div className="app-notice-success">{message}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
+      {selectedRoleIds.length > 0 ? (
+        <div className="app-selection-summary">
+          <div className="text-sm font-medium text-ink">{selectedRoleIds.length} selected</div>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="app-button-secondary py-2.5" onClick={() => setSelectedRoleIds([])}>
+              Clear selection
+            </button>
+            <button
+              type="button"
+              className="app-button-danger py-2.5"
+              disabled={selectedDeletableRoleIds.length === 0}
+              onClick={() => setConfirmDeleteRolesOpen(true)}
+            >
+              Delete selected ({selectedDeletableRoleIds.length})
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="px-5 py-4">
+                  <input type="checkbox" checked={allPageSelected} aria-label="Select current page" onChange={toggleCurrentPageSelection} />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Role" active={activeSortField === "name"} direction={activeSortDirection} onClick={() => toggleSort("name")} />
+                </th>
+                <th className="px-5 py-4">Description</th>
+                <th className="px-5 py-4">Type</th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Priority" active={activeSortField === "priority"} direction={activeSortDirection} onClick={() => toggleSort("priority")} />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Users" active={activeSortField === "users"} direction={activeSortDirection} onClick={() => toggleSort("users")} />
+                </th>
+                <th className="px-5 py-4">Created</th>
+                <th className="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={8} title="Loading roles" message="Refreshing the role catalog and permission references." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={8} title="Unable to load roles" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={8} title="No roles match this view" message="Try a broader search, a different filter or another sort order." />
+              ) : items.map((item) => (
+                <tr key={item.roleId} className="app-table-row border-t border-slate-200/80 align-top">
+                  <td className="px-5 py-4">
+                    <input type="checkbox" checked={selectedRoleIds.includes(item.roleId)} aria-label={`Select ${item.name}`} onChange={() => toggleRoleSelection(item.roleId)} />
+                  </td>
+                  <td className="px-5 py-4 font-semibold text-ink">{item.name}</td>
+                  <td className="px-5 py-4 text-steel">{item.description}</td>
+                  <td className="px-5 py-4">
+                    <span className={item.isSystemRole ? "app-chip-soft" : "app-chip"}>{item.isSystemRole ? "System" : "Custom"}</span>
+                  </td>
+                  <td className="px-5 py-4 text-steel">{item.priority}</td>
+                  <td className="px-5 py-4 text-steel">{item.userCount}</td>
+                  <td className="px-5 py-4 text-steel">{formatDate(item.createdAtUtc)}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex justify-end gap-2">
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.roleId).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to open role editor."))}>Edit</button>
+                      <button
+                        type="button"
+                        className={item.isSystemRole ? "app-button-secondary px-4 py-2.5 opacity-60" : "app-button-danger px-4 py-2.5"}
+                        disabled={item.isSystemRole}
+                        onClick={() => {
+                          setSelectedRoleIds([item.roleId]);
+                          setConfirmDeleteRolesOpen(true);
+                        }}
+                      >
+                        {item.isSystemRole ? "Protected" : "Delete"}
+                      </button>
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setPreviewRoleId(item.roleId)}>
+                        Preview
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <PaginationFooter page={page} pageCount={Math.max(1, Math.ceil(totalCount / pageSize))} totalCount={totalCount} pageSize={pageSize} onPageChange={setPage} />
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create role" description="Create the role first, then refine its bundle and direct grants.">
+        <div className="space-y-4">
+          <div className="app-form-grid">
+            <input className="app-input" placeholder="Role name" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
+            <input className="app-input" type="number" placeholder="Priority" value={createForm.priority} onChange={(event) => setCreateForm((current) => ({ ...current, priority: Number(event.target.value) }))} />
+            <textarea className="app-input md:col-span-2 min-h-[140px]" placeholder="Description" value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" className="app-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button type="button" className="app-button-primary" onClick={createRole}>Create role</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={editingRole !== null} onClose={() => setEditingRole(null)} title="Edit role" description="Manage role metadata, assigned groups and direct permissions." width="xwide">
+        <div className="grid gap-6 xl:grid-cols-[1fr,1fr]">
+          <div className="space-y-4">
+            <div className="app-form-grid">
+              <input className="app-input" value={editingRole?.name ?? ""} disabled />
+              <input className="app-input" type="number" value={editForm.priority} onChange={(event) => setEditForm((current) => ({ ...current, priority: Number(event.target.value) }))} />
+              <textarea className="app-input md:col-span-2 min-h-[140px]" value={editForm.description} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} />
+            </div>
+            <div className="space-y-3">
+              <div className="text-sm font-semibold text-ink">Permission groups</div>
+              <div className="flex flex-wrap gap-2">
+                {groups.map((group) => (
+                  <label key={group.id} className="app-checkbox-chip">
+                    <input type="checkbox" checked={editForm.permissionGroupIds.includes(group.id)} onChange={() => setEditForm((current) => ({ ...current, permissionGroupIds: toggleString(current.permissionGroupIds, group.id) }))} />
+                    <span>{group.name}</span>
+                  </label>
+                ))}
+          </div>
+        </div>
+      </div>
+          <div className="space-y-4">
+            <label className="space-y-2">
+              <span className="text-sm font-semibold text-ink">Filter permission catalog</span>
+              <input className="app-input" value={permissionSearch} onChange={(event) => setPermissionSearch(event.target.value)} placeholder="Search permissions by key, name or category" />
+            </label>
+            <div className="app-permission-grid max-h-[420px] overflow-auto pr-1">
+              {filteredPermissionOptions.map((permission) => (
+                <label key={permission.id} className="app-permission-item flex items-start gap-3">
+                  <input type="checkbox" checked={editForm.directPermissionKeys.includes(permission.key)} onChange={() => setEditForm((current) => ({ ...current, directPermissionKeys: toggleString(current.directPermissionKeys, permission.key) }))} />
+                  <span className="space-y-1">
+                    <span className="block font-medium text-ink">{permission.name}</span>
+                    <span className="block text-xs text-steel">{permission.key}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mt-6 space-y-4">
+          <PermissionBreakdown directPermissions={editForm.directPermissionKeys} effectivePermissions={editingRole?.effectivePermissionKeys ?? []} />
+          <div className="flex justify-end gap-3">
+            <button type="button" className="app-button-secondary" onClick={() => setEditingRole(null)}>Cancel</button>
+            <button type="button" className="app-button-primary" onClick={saveRole}>Save role</button>
+          </div>
+        </div>
+      </Modal>
+      <ConfirmActionModal
+        open={confirmDeleteRolesOpen}
+        title="Delete selected roles"
+        description={`This will permanently delete ${selectedDeletableRoleIds.length} custom role(s). System roles stay protected.`}
+        confirmLabel="Delete selected"
+        onClose={() => setConfirmDeleteRolesOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteRolesOpen(false);
+          void deleteRoles(selectedDeletableRoleIds);
+        }}
+      />
+      <PreviewDrawer open={previewRole !== null} title={previewRole?.name ?? ""} subtitle={previewRole?.description} onClose={() => setPreviewRoleId(null)}>
+        {previewRole ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Type</div>
+                <div className="font-semibold text-ink">{previewRole.isSystemRole ? "System role" : "Custom role"}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Priority</div>
+                <div className="font-semibold text-ink">{previewRole.priority}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Users</div>
+                <div className="font-semibold text-ink">{previewRole.userCount}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Created</div>
+                <div className="font-semibold text-ink">{formatDate(previewRole.createdAtUtc)}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" className="app-button-primary" onClick={() => void openEdit(previewRole.roleId)}>Edit role</button>
+            </div>
+          </div>
+        ) : null}
+      </PreviewDrawer>
+    </div>
+  );
+}
+
+export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProps) {
+  const [items, setItems] = useState<PermissionGroupListItemDto[]>([]);
+  const [permissions, setPermissions] = useState<PermissionDefinitionDto[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [previewGroupId, setPreviewGroupId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [sortValue, setSortValue] = useState("name:asc");
+  const [pageSize, setPageSize] = useState(9);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<PermissionGroupDetailDto | null>(null);
+  const [confirmDeleteGroupsOpen, setConfirmDeleteGroupsOpen] = useState(false);
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const [createForm, setCreateForm] = useState<CreatePermissionGroupRequest>({ name: "", description: "" });
+  const [editForm, setEditForm] = useState({ name: "", description: "", permissionKeys: [] as string[] });
+  const deferredSearch = useDeferredValue(search);
+  const deferredPermissionSearch = useDeferredValue(permissionSearch);
+
+  const load = async () => {
+    setIsLoading(true);
+    try {
+      const query = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        filter,
+        sort: sortValue
+      });
+      if (deferredSearch.trim()) {
+        query.set("search", deferredSearch.trim());
+      }
+
+      const [groupResult, permissionItems] = await Promise.all([
+        requestJson<PaginatedResult<PermissionGroupListItemDto>>(`/api/admin/rbac/permission-groups?${query.toString()}`, accessToken, onReauthenticate),
+        requestJson<PermissionDefinitionDto[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)
+      ]);
+      setItems(groupResult.items);
+      setTotalCount(groupResult.totalCount);
+      setPermissions(permissionItems);
+      setSelectedGroupIds((current) => current.filter((id) => groupResult.items.some((item) => item.id === id)));
+      setPreviewGroupId((current) => (current && groupResult.items.some((item) => item.id === current) ? current : null));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load().catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to load permission groups."));
+  }, [accessToken, deferredSearch, filter, onReauthenticate, page, pageSize, sortValue]);
+
+  useEffect(() => setPage(1), [deferredSearch, filter, sortValue, pageSize]);
+  const [activeSortField, activeSortDirection] = sortValue.split(":") as [string, SortDirection];
+  const selectedGroups = items.filter((item) => selectedGroupIds.includes(item.id));
+  const selectedDeletableGroupIds = selectedGroups.filter((item) => !item.isSystemGroup).map((item) => item.id);
+  const allPageSelected = items.length > 0 && items.every((item) => selectedGroupIds.includes(item.id));
+  const previewGroup = items.find((item) => item.id === previewGroupId) ?? null;
+  const filteredPermissionOptions = useMemo(() => {
+    const normalizedSearch = deferredPermissionSearch.trim().toLowerCase();
+    return permissions.filter((item) => !normalizedSearch || [item.key, item.name, item.category].join(" ").toLowerCase().includes(normalizedSearch));
+  }, [deferredPermissionSearch, permissions]);
+
+  const openEdit = async (groupId: string) => {
+    const detail = await requestJson<PermissionGroupDetailDto>(`/api/admin/rbac/permission-groups/${groupId}`, accessToken, onReauthenticate);
+    setEditingGroup(detail);
+    setEditForm({ name: detail.name, description: detail.description, permissionKeys: detail.permissionKeys });
+  };
+
+  const togglePermission = (permissionKey: string) =>
+    setEditForm((current) => ({
+      ...current,
+      permissionKeys: current.permissionKeys.includes(permissionKey)
+        ? current.permissionKeys.filter((item) => item !== permissionKey)
+        : [...current.permissionKeys, permissionKey]
+    }));
+
+  const createGroup = async () => {
+    try {
+      await requestJson("/api/admin/rbac/permission-groups", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createForm) });
+      setCreateOpen(false);
+      setCreateForm({ name: "", description: "" });
+      setMessage("Permission group created.");
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create permission group.");
+    }
+  };
+
+  const saveGroup = async () => {
+    if (!editingGroup) return;
+    try {
+      await requestJson(`/api/admin/rbac/permission-groups/${editingGroup.id}`, accessToken, onReauthenticate, {
+        method: "PUT",
+        body: JSON.stringify({ name: editForm.name, description: editForm.description } satisfies UpdatePermissionGroupRequest)
+      });
+      await requestJson(`/api/admin/rbac/permission-groups/${editingGroup.id}/permissions`, accessToken, onReauthenticate, {
+        method: "PUT",
+        body: JSON.stringify({ permissionKeys: editForm.permissionKeys })
+      });
+      setEditingGroup(null);
+      setMessage("Permission group updated.");
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update permission group.");
+    }
+  };
+
+  const deleteGroups = async (groupIds: string[]) => {
+    if (groupIds.length === 0) return;
+    try {
+      if (groupIds.length === 1) {
+        await requestJson(`/api/admin/rbac/permission-groups/${groupIds[0]}`, accessToken, onReauthenticate, { method: "DELETE" });
+      } else {
+        await requestJson("/api/admin/rbac/permission-groups/bulk-delete", accessToken, onReauthenticate, {
+          method: "POST",
+          body: JSON.stringify({ groupIds })
+        });
+      }
+      setMessage(groupIds.length === 1 ? "Permission group deleted." : `${groupIds.length} permission groups deleted.`);
+      setSelectedGroupIds([]);
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to delete selected permission groups.");
+    }
+  };
+
+  const toggleSort = (field: string) => {
+    setSortValue((current) => {
+      const [currentField, currentDirection] = current.split(":") as [string, SortDirection];
+      if (currentField === field) {
+        return `${field}:${currentDirection === "asc" ? "desc" : "asc"}`;
+      }
+      return `${field}:${field === "permissions" ? "desc" : "asc"}`;
+    });
+  };
+
+  const toggleGroupSelection = (groupId: string) => {
+    setSelectedGroupIds((current) => current.includes(groupId) ? current.filter((item) => item !== groupId) : [...current, groupId]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedGroupIds((current) => {
+      if (allPageSelected) {
+        return current.filter((id) => !items.some((item) => item.id === id));
+      }
+      const next = new Set(current);
+      items.forEach((item) => next.add(item.id));
+      return [...next];
+    });
+  };
+
+  return (
+    <div className="app-page-stack">
+      <CatalogToolbar
+        title="Permission groups"
+        description="Search, filter and compare reusable bundles in the grid, then open focused modal editing."
+        totalCount={totalCount}
+        search={search}
+        onSearchChange={setSearch}
+        sortValue={sortValue}
+        onSortChange={setSortValue}
+        sortOptions={[
+          { value: "name:asc", label: "Name A-Z" },
+          { value: "permissions:desc", label: "Most permissions first" }
+        ]}
+        pageSize={pageSize}
+        onPageSizeChange={setPageSize}
+        filter={filter}
+        onFilterChange={setFilter}
+        filterOptions={[
+          { value: "all", label: "All groups" },
+          { value: "system", label: "System groups" },
+          { value: "custom", label: "Custom groups" }
+        ]}
+        createLabel="Create group"
+        onCreate={() => setCreateOpen(true)}
+      />
+      {message ? <div className="app-notice-success">{message}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
+      {selectedGroupIds.length > 0 ? (
+        <div className="app-selection-summary">
+          <div className="text-sm font-medium text-ink">{selectedGroupIds.length} selected</div>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="app-button-secondary py-2.5" onClick={() => setSelectedGroupIds([])}>
+              Clear selection
+            </button>
+            <button
+              type="button"
+              className="app-button-danger py-2.5"
+              disabled={selectedDeletableGroupIds.length === 0}
+              onClick={() => setConfirmDeleteGroupsOpen(true)}
+            >
+              Delete selected ({selectedDeletableGroupIds.length})
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="px-5 py-4">
+                  <input type="checkbox" checked={allPageSelected} aria-label="Select current page" onChange={toggleCurrentPageSelection} />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Group" active={activeSortField === "name"} direction={activeSortDirection} onClick={() => toggleSort("name")} />
+                </th>
+                <th className="px-5 py-4">Description</th>
+                <th className="px-5 py-4">Type</th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Permissions" active={activeSortField === "permissions"} direction={activeSortDirection} onClick={() => toggleSort("permissions")} />
+                </th>
+                <th className="px-5 py-4">Created</th>
+                <th className="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={7} title="Loading permission groups" message="Refreshing the bundle catalog and permission definitions." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={7} title="Unable to load permission groups" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={7} title="No permission groups match this view" message="Try a broader search or switch the current filter." />
+              ) : items.map((item) => (
+                <tr key={item.id} className="app-table-row border-t border-slate-200/80 align-top">
+                  <td className="px-5 py-4">
+                    <input type="checkbox" checked={selectedGroupIds.includes(item.id)} aria-label={`Select ${item.name}`} onChange={() => toggleGroupSelection(item.id)} />
+                  </td>
+                  <td className="px-5 py-4 font-semibold text-ink">{item.name}</td>
+                  <td className="px-5 py-4 text-steel">{item.description}</td>
+                  <td className="px-5 py-4">
+                    <span className={item.isSystemGroup ? "app-chip-soft" : "app-chip"}>{item.isSystemGroup ? "System" : "Custom"}</span>
+                  </td>
+                  <td className="px-5 py-4 text-steel">{item.permissionCount}</td>
+                  <td className="px-5 py-4 text-steel">{formatDate(item.createdAtUtc)}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex justify-end gap-2">
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.id).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to open group editor."))}>Edit</button>
+                      <button
+                        type="button"
+                        className={item.isSystemGroup ? "app-button-secondary px-4 py-2.5 opacity-60" : "app-button-danger px-4 py-2.5"}
+                        disabled={item.isSystemGroup}
+                        onClick={() => {
+                          setSelectedGroupIds([item.id]);
+                          setConfirmDeleteGroupsOpen(true);
+                        }}
+                      >
+                        {item.isSystemGroup ? "Protected" : "Delete"}
+                      </button>
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setPreviewGroupId(item.id)}>
+                        Preview
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <PaginationFooter page={page} pageCount={Math.max(1, Math.ceil(totalCount / pageSize))} totalCount={totalCount} pageSize={pageSize} onPageChange={setPage} />
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create permission group" description="Create the bundle first, then attach permissions from the shared catalog.">
+        <div className="space-y-4">
+          <div className="app-form-grid">
+            <input className="app-input" placeholder="Group name" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
+            <input className="app-input" placeholder="Description" value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" className="app-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button type="button" className="app-button-primary" onClick={createGroup}>Create group</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={editingGroup !== null} onClose={() => setEditingGroup(null)} title="Edit permission group" description="Manage bundle metadata and permission assignments." width="xwide">
+        <div className="space-y-4">
+          <div className="app-form-grid">
+            <input className="app-input" value={editForm.name} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} />
+            <input className="app-input" value={editForm.description} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} />
+          </div>
+          <label className="space-y-2">
+            <span className="text-sm font-semibold text-ink">Filter permission catalog</span>
+            <input className="app-input" value={permissionSearch} onChange={(event) => setPermissionSearch(event.target.value)} placeholder="Search permissions by key, name or category" />
+          </label>
+          <div className="app-permission-grid max-h-[460px] overflow-auto pr-1">
+            {filteredPermissionOptions.map((permission) => (
+              <label key={permission.id} className="app-permission-item flex items-start gap-3">
+                <input type="checkbox" checked={editForm.permissionKeys.includes(permission.key)} onChange={() => togglePermission(permission.key)} />
+                <span className="space-y-1">
+                  <span className="block font-medium text-ink">{permission.name}</span>
+                  <span className="block text-xs text-steel">{permission.key}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-ink">Permissions in group</div>
+            <PermissionList permissions={sortPermissionKeys(editForm.permissionKeys)} />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" className="app-button-secondary" onClick={() => setEditingGroup(null)}>Cancel</button>
+            <button type="button" className="app-button-primary" onClick={saveGroup}>Save group</button>
+          </div>
+        </div>
+      </Modal>
+      <ConfirmActionModal
+        open={confirmDeleteGroupsOpen}
+        title="Delete selected permission groups"
+        description={`This will permanently delete ${selectedDeletableGroupIds.length} custom group(s). System groups stay protected.`}
+        confirmLabel="Delete selected"
+        onClose={() => setConfirmDeleteGroupsOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteGroupsOpen(false);
+          void deleteGroups(selectedDeletableGroupIds);
+        }}
+      />
+      <PreviewDrawer open={previewGroup !== null} title={previewGroup?.name ?? ""} subtitle={previewGroup?.description} onClose={() => setPreviewGroupId(null)}>
+        {previewGroup ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Type</div>
+                <div className="font-semibold text-ink">{previewGroup.isSystemGroup ? "System group" : "Custom group"}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Permissions</div>
+                <div className="font-semibold text-ink">{previewGroup.permissionCount}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Created</div>
+                <div className="font-semibold text-ink">{formatDate(previewGroup.createdAtUtc)}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" className="app-button-primary" onClick={() => void openEdit(previewGroup.id)}>Edit group</button>
+            </div>
+          </div>
+        ) : null}
+      </PreviewDrawer>
+    </div>
   );
 }

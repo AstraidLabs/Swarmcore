@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BeeTracker.BuildingBlocks.Abstractions\BeeTracker.BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\BeeTracker.BuildingBlocks.Application\BeeTracker.BuildingBlocks.Application.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -9,5 +10,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
+  </ItemGroup>
 
 </Project>
