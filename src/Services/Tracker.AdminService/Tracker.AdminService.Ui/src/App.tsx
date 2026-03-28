@@ -12,16 +12,19 @@ import {
 import { User, UserManager, WebStorageStateStore } from "oidc-client-ts";
 import { type I18nDictionary, supportedLocales, useI18n } from "./i18n";
 import {
+  AdminUserEditorPage,
   AdminUsersPage,
   PermissionGate,
+  PermissionGroupEditorPage,
   PermissionGroupsPage,
   ProfilePage,
+  RoleEditorPage,
   RolesPage,
   hasPermission,
   permissionKeys
 } from "./rbac";
 import { buildGridQueryString, type CatalogQueryState, type PageResult } from "./catalog";
-import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, Modal, PaginationFooter, PreviewDrawer, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
+import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, Modal, ModalDismissButton, PaginationFooter, PreviewDrawer, RowActionsMenu, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
 
 type AdminUiConfig = {
   authority: string;
@@ -1248,15 +1251,15 @@ function TorrentsPage({
                   <td className="px-5 py-4 text-steel">{item.announceIntervalSeconds}s</td>
                   <td className="px-5 py-4 text-steel">{item.defaultNumWant} / {item.maxNumWant}</td>
                   <td className="px-5 py-4 text-right">
-                    <div className="flex justify-end gap-3">
-                      <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.infoHash }))}>Preview</button>
+                    <div className="flex justify-end items-center gap-2">
                       {canEditPolicy ? (
                         <Link className="app-button-secondary py-2.5 no-underline" to={`/torrents/${item.infoHash}`}>
                           {labels.openPolicy}
                         </Link>
                       ) : (
-                        <span className="text-ink/40">{dictionary.common.readOnly}</span>
+                        <span className="app-chip-muted">Read only</span>
                       )}
+                      <RowActionsMenu items={[{ label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.infoHash })) }]} />
                     </div>
                   </td>
                 </CatalogTableRow>
@@ -2036,7 +2039,7 @@ function PasskeysPage({
                   <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
-                    <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.passkeyMask }))}>Preview</button>
+                    <RowActionsMenu items={[{ label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.passkeyMask })) }]} />
                   </td>
                 </CatalogTableRow>
               ))}
@@ -2056,7 +2059,7 @@ function PasskeysPage({
             <input className="app-input" type="datetime-local" value={rotateExpiryInput} onChange={(event) => setRotateExpiryInput(event.target.value)} />
           </label>
           <div className="flex flex-wrap justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
+            <ModalDismissButton onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</ModalDismissButton>
             <button type="button" className="app-button-secondary" disabled={!canRevoke || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/revoke", "revoke")}>{labels.revoke}</button>
             <button type="button" className="app-button-primary" disabled={!canRotate || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/rotate", "rotate")}>{labels.rotate}</button>
           </div>
@@ -2376,9 +2379,21 @@ function BansPage({
                   <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
-                    <div className="flex justify-end gap-3">
+                    <div className="flex justify-end items-center gap-2">
                       <button type="button" className="app-button-secondary py-2.5" onClick={() => fillForm(item)}>Edit</button>
-                      <button type="button" className="app-button-danger py-2.5" disabled={!canDelete} onClick={() => { fillForm(item); setConfirmDeleteOpen(true); }}>Delete</button>
+                      <RowActionsMenu
+                        items={[
+                          {
+                            label: "Delete",
+                            tone: "danger",
+                            disabled: !canDelete,
+                            onClick: () => {
+                              fillForm(item);
+                              setConfirmDeleteOpen(true);
+                            }
+                          }
+                        ]}
+                      />
                     </div>
                   </td>
                 </CatalogTableRow>
@@ -2416,7 +2431,7 @@ function BansPage({
                 {labels.expireBan}
               </button>
             ) : null}
-            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
+            <ModalDismissButton onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</ModalDismissButton>
             <button type="button" className="app-button-primary" disabled={!canWrite || isSubmitting || !form.scope.trim() || !form.subject.trim() || !form.reason.trim()} onClick={() => void saveBan()}>
               {form.expectedVersion ? labels.saveBan : "Create rule"}
             </button>
@@ -2762,9 +2777,9 @@ function TrackerAccessPage({
                   <td className="px-5 py-4"><StatusPill tone={item.canUsePrivateTracker ? "good" : "neutral"}>{formatBool(item.canUsePrivateTracker, dictionary)}</StatusPill></td>
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
-                    <div className="flex justify-end gap-3">
-                      <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.userId }))}>Preview</button>
+                    <div className="flex justify-end items-center gap-2">
                       <button type="button" className="app-button-secondary py-2.5" onClick={() => loadUser(item)}>{labels.edit}</button>
+                      <RowActionsMenu items={[{ label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.userId })) }]} />
                     </div>
                   </td>
                 </CatalogTableRow>
@@ -2788,7 +2803,7 @@ function TrackerAccessPage({
             <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />{labels.canUsePrivateTracker}</label>
           </div>
           <div className="flex flex-wrap justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => { setIsBulkModalOpen(false); setView((current) => ({ ...current, modal: null, id: null })); }}>Cancel</button>
+            <ModalDismissButton onClose={() => { setIsBulkModalOpen(false); setView((current) => ({ ...current, modal: null, id: null })); }}>Cancel</ModalDismissButton>
             <button type="button" disabled={!canWrite || isSubmitting || (editorMode === "single" ? !form.userId.trim() : selectedUserIds.length === 0)} className="app-button-primary" onClick={() => void (editorMode === "bulk" ? bulkApplyPermissions() : savePermissions())}>
               {editorMode === "bulk" ? `${labels.applySelected} (${selectedUserIds.length})` : labels.savePermissions}
             </button>
@@ -2967,9 +2982,7 @@ function AuditPage({
                     </div>
                   </td>
                   <td className="px-5 py-4 text-right">
-                    <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.id }))}>
-                      View
-                    </button>
+                    <RowActionsMenu items={[{ label: "View", onClick: () => setView((current) => ({ ...current, preview: item.id })) }]} />
                   </td>
                 </CatalogTableRow>
               ))}
@@ -3193,9 +3206,7 @@ function MaintenancePage({
                       </div>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.id }))}>
-                        View
-                      </button>
+                      <RowActionsMenu items={[{ label: "View", onClick: () => setView((current) => ({ ...current, preview: item.id })) }]} />
                     </td>
                   </CatalogTableRow>
                 ))
@@ -3680,8 +3691,8 @@ function Shell({
                     <span>/</span>
                     <span className="font-semibold text-ink">{routeMeta.title}</span>
                   </div>
-                  <h2 className="mt-3 text-[2.2rem] font-extrabold tracking-tight text-ink md:text-[2.4rem]">{routeMeta.title}</h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-steel">{routeMeta.description}</p>
+                  <h2 className="mt-1.5 text-[1.75rem] font-extrabold tracking-tight text-ink md:text-[1.95rem]">{routeMeta.title}</h2>
+                  <p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-steel">{routeMeta.description}</p>
                 </div>
               </div>
             </div>
@@ -3947,6 +3958,22 @@ function AuthenticatedAdminApp({
           }
         />
         <Route
+          path="/admin-users/new"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.usersCreate}>
+              <AdminUserEditorPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/admin-users/:id/edit"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.usersEdit}>
+              <AdminUserEditorPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
           path="/roles"
           element={
             <PermissionGate permissions={session.permissions} permission={permissionKeys.rolesView}>
@@ -3955,10 +3982,42 @@ function AuthenticatedAdminApp({
           }
         />
         <Route
+          path="/roles/new"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.rolesCreate}>
+              <RoleEditorPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/roles/:id/edit"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.rolesEdit}>
+              <RoleEditorPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
           path="/permission-groups"
           element={
             <PermissionGate permissions={session.permissions} permission={permissionKeys.permissionGroupsView}>
               <PermissionGroupsPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/permission-groups/new"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.permissionGroupsCreate}>
+              <PermissionGroupEditorPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/permission-groups/:id/edit"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.permissionGroupsEdit}>
+              <PermissionGroupEditorPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
             </PermissionGate>
           }
         />

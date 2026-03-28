@@ -1,4 +1,4 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   normalizeCatalogQueryState,
@@ -87,6 +87,17 @@ export function CatalogTableRow({
   );
 }
 
+function dismissClick(event: ReactMouseEventLike, onClose: () => void) {
+  event.preventDefault();
+  event.stopPropagation();
+  onClose();
+}
+
+type ReactMouseEventLike = {
+  preventDefault: () => void;
+  stopPropagation: () => void;
+};
+
 export function CopyValueButton({
   value,
   label = "Copy value"
@@ -115,12 +126,18 @@ export function CopyValueButton({
   };
 
   return (
-    <button type="button" className="app-copy-button" aria-label={label} title={copied ? "Copied" : label} onClick={handleClick}>
+    <button
+      type="button"
+      className={`app-copy-button ${copied ? "app-copy-button-copied" : ""}`.trim()}
+      aria-label={copied ? "Copied" : label}
+      title={copied ? "Copied" : label}
+      onClick={handleClick}
+    >
       <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-none stroke-current" strokeWidth="1.7" aria-hidden="true">
         <rect x="7" y="7" width="9" height="9" rx="2" />
         <path d="M5 13H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
       </svg>
-      <span>{copied ? "Copied" : "Copy"}</span>
+      <span className="sr-only">{copied ? "Copied" : label}</span>
     </button>
   );
 }
@@ -141,6 +158,27 @@ function useEscapeDismiss(open: boolean, onClose: () => void) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
+}
+
+function useOutsideDismiss<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const ref = useRef<T | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [open, onClose]);
+
+  return ref;
 }
 
 export function Modal({
@@ -171,16 +209,50 @@ export function Modal({
             <h2 className="text-2xl font-bold text-ink">{title}</h2>
             {description ? <p className="text-sm text-steel">{description}</p> : null}
           </div>
-          <button type="button" className="app-icon-button" aria-label="Close modal" onClick={onClose}>
-            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <button
+            type="button"
+            className="app-modal-close-button"
+            aria-label="Close modal"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => dismissClick(event, onClose)}
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2">
               <path d="m6 6 12 12" />
               <path d="M18 6 6 18" />
             </svg>
+            <span>Close</span>
           </button>
         </div>
         <div className="app-card-body">{children}</div>
       </div>
     </div>
+  );
+}
+
+export function ModalDismissButton({
+  onClose,
+  children = "Cancel",
+  className = "app-button-secondary"
+}: {
+  onClose: () => void;
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={className}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onClick={(event) => dismissClick(event, onClose)}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -224,16 +296,16 @@ export function CatalogToolbar({
   return (
     <div className="app-card">
       <div className="app-card-header app-catalog-header">
-        <div className="space-y-1">
-          <div className="app-kicker">Catalog</div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-bold text-ink">{title}</h2>
+        <div className="app-catalog-summary">
+          <h2 className="sr-only">{title}</h2>
+          <div className="app-catalog-summary-row">
+            <span className="app-kicker">Catalog</span>
             <span className="app-chip">{totalCount} result{totalCount === 1 ? "" : "s"}</span>
           </div>
           {description ? <p className="app-catalog-description">{description}</p> : null}
         </div>
         {createLabel && onCreate ? (
-          <div className="flex items-center gap-2">
+          <div className="app-toolbar-actions">
             <button
               type="button"
               className={`app-density-toggle ${density === "dense" ? "app-density-toggle-active" : ""}`}
@@ -374,13 +446,88 @@ export function TableStateRow({
 }) {
   return (
     <tr>
-      <td colSpan={colSpan} className="px-5 py-10">
+      <td colSpan={colSpan} className="px-3 py-3">
         <div className="app-table-state">
-          <div className="text-base font-semibold text-ink">{title}</div>
-          <div className="text-sm text-steel">{message}</div>
+          <div className="text-sm font-semibold text-ink">{title}</div>
+          <div className="text-xs text-steel">{message}</div>
         </div>
       </td>
     </tr>
+  );
+}
+
+export type RowActionItem = {
+  label: string;
+  onClick: () => void;
+  tone?: "default" | "danger";
+  disabled?: boolean;
+};
+
+export function RowActionsMenu({
+  label = "More actions",
+  items
+}: {
+  label?: string;
+  items: RowActionItem[];
+}) {
+  const enabledItems = items.filter((item) => !item.disabled);
+  const [open, setOpen] = useState(false);
+  const menuRef = useOutsideDismiss<HTMLDivElement>(open, () => setOpen(false));
+  useEscapeDismiss(open, () => setOpen(false));
+
+  if (enabledItems.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="app-row-actions" ref={menuRef}>
+      <button
+        type="button"
+        className="app-row-actions-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+      >
+        <svg viewBox="0 0 20 20" className="h-4 w-4 fill-current" aria-hidden="true">
+          <circle cx="5" cy="10" r="1.6" />
+          <circle cx="10" cy="10" r="1.6" />
+          <circle cx="15" cy="10" r="1.6" />
+        </svg>
+      </button>
+      {open ? (
+        <div className="app-row-actions-menu" role="menu">
+          {enabledItems.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              className={`app-row-actions-item ${item.tone === "danger" ? "app-row-actions-item-danger" : ""}`.trim()}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setOpen(false);
+                item.onClick();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

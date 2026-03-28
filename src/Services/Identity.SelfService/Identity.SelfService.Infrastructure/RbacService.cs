@@ -512,24 +512,26 @@ public sealed class RbacService(
     public async Task<PaginatedResult<PermissionGroupListItemDto>> ListPermissionGroupsAsync(GridQuery request, PermissionGroupCatalogFilter filter, CancellationToken ct)
     {
         request = request.Normalize(maxPageSize: 100);
-        var normalizedSearch = request.NormalizedSearch?.ToUpperInvariant();
+        var searchPattern = request.ToSqlLikePattern();
 
-        IQueryable<PermissionGroupListItemDto> permissionGroupQuery =
+        IQueryable<PermissionGroupListQueryRow> permissionGroupQuery =
             from permissionGroup in db.PermissionGroups.AsNoTracking()
             join permissionItem in db.PermissionGroupItems.AsNoTracking() on permissionGroup.Id equals permissionItem.PermissionGroupId into permissionJoin
-            select new PermissionGroupListItemDto(
-                permissionGroup.Id,
-                permissionGroup.Name,
-                permissionGroup.Description,
-                permissionGroup.IsSystemGroup,
-                permissionJoin.Count(),
-                permissionGroup.CreatedAtUtc);
+            select new PermissionGroupListQueryRow
+            {
+                Id = permissionGroup.Id,
+                Name = permissionGroup.Name,
+                Description = permissionGroup.Description,
+                IsSystemGroup = permissionGroup.IsSystemGroup,
+                PermissionCount = permissionJoin.Count(),
+                CreatedAtUtc = permissionGroup.CreatedAtUtc
+            };
 
-        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        if (!string.IsNullOrWhiteSpace(searchPattern))
         {
             permissionGroupQuery = permissionGroupQuery.Where(item =>
-                item.Name.ToUpper().Contains(normalizedSearch) ||
-                item.Description.ToUpper().Contains(normalizedSearch));
+                EF.Functions.ILike(item.Name, searchPattern) ||
+                EF.Functions.ILike(item.Description, searchPattern));
         }
 
         permissionGroupQuery = filter switch
@@ -543,7 +545,19 @@ public sealed class RbacService(
             permissionGroupQuery,
             RbacCatalogProfiles.PermissionGroups.ParseSort(request.Sort));
 
-        var (pagedItems, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
+        var (pageRows, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
+
+        var pagedItems = pageRows
+            .Select(item => new PermissionGroupListItemDto(
+                item.Id,
+                item.Name,
+                item.Description,
+                item.IsSystemGroup,
+                item.PermissionCount,
+                item.CreatedAtUtc))
+            .ToList()
+            .AsReadOnly();
+
         return new PaginatedResult<PermissionGroupListItemDto>(pagedItems, totalCount, request.Page, request.PageSize);
     }
 
@@ -732,11 +746,11 @@ public sealed class RbacService(
         return ordered ?? query.OrderByDescending(item => item.Priority ?? 0).ThenBy(item => item.Name);
     }
 
-    private static IOrderedQueryable<PermissionGroupListItemDto> ApplyPermissionGroupSort(
-        IQueryable<PermissionGroupListItemDto> query,
+    private static IOrderedQueryable<PermissionGroupListQueryRow> ApplyPermissionGroupSort(
+        IQueryable<PermissionGroupListQueryRow> query,
         IReadOnlyList<GridSortTerm> sortTerms)
     {
-        IOrderedQueryable<PermissionGroupListItemDto>? ordered = null;
+        IOrderedQueryable<PermissionGroupListQueryRow>? ordered = null;
 
         foreach (var term in sortTerms)
         {
@@ -834,5 +848,15 @@ public sealed class RbacService(
         public int? Priority { get; init; }
         public int? UserCount { get; init; }
         public DateTimeOffset? CreatedAtUtc { get; init; }
+    }
+
+    private sealed class PermissionGroupListQueryRow
+    {
+        public Guid Id { get; init; }
+        public required string Name { get; init; }
+        public required string Description { get; init; }
+        public bool IsSystemGroup { get; init; }
+        public int PermissionCount { get; init; }
+        public DateTimeOffset CreatedAtUtc { get; init; }
     }
 }

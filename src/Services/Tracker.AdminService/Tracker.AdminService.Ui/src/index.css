@@ -67,7 +67,7 @@ body {
   }
 
   .app-button-secondary {
-    @apply rounded-[22px] border border-slate-200 bg-white/90 px-5 py-3.5 text-sm font-semibold text-ink transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply rounded-[20px] border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-ink transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60;
   }
 
   .app-button-tertiary {
@@ -75,7 +75,7 @@ body {
   }
 
   .app-button-danger {
-    @apply rounded-[22px] border border-rose-200 bg-rose-50 px-5 py-3.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60;
   }
 
   .app-notice-info {
@@ -294,7 +294,7 @@ body {
   }
 
   .app-page-header-shell {
-    @apply -mt-1 -mx-4 pb-2 md:-mx-6;
+    @apply -mt-1 -mx-4 pb-0 md:-mx-6;
   }
 
   .app-page-header::before {
@@ -307,12 +307,16 @@ body {
     opacity: 0.95;
   }
 
+  .app-toolbar-body {
+    @apply px-4 py-3 md:px-6 md:py-4;
+  }
+
   .app-page-header-hive {
     position: absolute;
     top: 0.2rem;
     right: 0;
     bottom: 0;
-    width: min(36%, 420px);
+    width: min(30%, 340px);
     pointer-events: none;
     overflow: hidden;
     z-index: 0;
@@ -431,7 +435,7 @@ body {
   }
 
   .app-toolbar-body {
-    @apply relative z-[1] flex flex-col gap-3 px-4 py-2 md:px-6;
+    @apply relative z-[1] flex flex-col gap-2 px-4 py-1.5 md:px-6;
   }
 
   .app-breadcrumb {
@@ -487,11 +491,15 @@ body {
   }
 
   .app-chip {
-    @apply inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-steel;
+    @apply inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-steel;
   }
 
   .app-chip-soft {
-    @apply inline-flex items-center rounded-full border border-brand/15 bg-brand/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-brand;
+    @apply inline-flex items-center rounded-full border border-brand/15 bg-brand/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-brand;
+  }
+
+  .app-chip-muted {
+    @apply inline-flex items-center rounded-full border border-slate-200 bg-slate-100/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-steel/80;
   }
 
   .app-checkbox-chip {
@@ -511,11 +519,17 @@ body {
   }
 
   .app-data-table {
-    @apply overflow-hidden rounded-[28px] border border-slate-200/80 bg-white;
+    @apply relative overflow-visible rounded-[24px] border border-slate-200/80 bg-white;
+  }
+
+  .app-data-table > .overflow-x-auto {
+    overflow-x: auto;
+    overflow-y: visible;
+    border-radius: inherit;
   }
 
   .app-table-head {
-    @apply bg-[#172033] text-left text-[10px] uppercase tracking-[0.06em] text-white/70;
+    @apply bg-[#172033] text-left text-[10px] uppercase tracking-[0.04em] text-white/70;
   }
 
   .app-data-table thead th {
@@ -554,19 +568,31 @@ body {
   }
 
   .app-catalog-toolbar {
-    @apply grid gap-2.5 xl:grid-cols-[minmax(0,2.75fr),minmax(160px,0.85fr),minmax(170px,0.9fr),minmax(145px,0.7fr)];
+    @apply grid gap-2 xl:grid-cols-[minmax(0,3.2fr),minmax(150px,0.8fr),minmax(170px,0.85fr),minmax(136px,0.62fr)];
   }
 
   .app-catalog-header {
-    @apply flex flex-col gap-1.5 xl:flex-row xl:items-center xl:justify-between;
+    @apply flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between;
+  }
+
+  .app-catalog-summary {
+    @apply min-w-0 space-y-0;
+  }
+
+  .app-catalog-summary-row {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .app-toolbar-actions {
+    @apply flex items-center gap-2 self-start xl:self-center;
   }
 
   .app-catalog-description {
-    @apply text-sm text-steel/90;
+    @apply text-[12px] leading-5 text-steel/70;
   }
 
   .app-density-toggle {
-    @apply rounded-full border border-slate-200 bg-white/90 px-3 py-2 text-xs font-semibold text-steel transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink;
+    @apply rounded-full border border-slate-200 bg-white/90 px-2.5 py-1.5 text-[11px] font-semibold text-steel transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink;
   }
 
   .app-density-toggle-active {
@@ -590,15 +616,15 @@ body {
   }
 
   .app-catalog-pagination {
-    @apply flex flex-col gap-2 rounded-[18px] border border-slate-200/80 bg-white/70 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between;
+    @apply flex flex-col gap-2 rounded-[18px] border border-slate-200/80 bg-white/70 px-4 py-1.5 sm:flex-row sm:items-center sm:justify-between;
   }
 
   .app-selection-summary {
-    @apply flex flex-col gap-2 rounded-[18px] border border-slate-200/80 bg-white/80 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between;
+    @apply flex flex-col gap-2 rounded-[18px] border border-slate-200/80 bg-white/80 px-4 py-2 sm:flex-row sm:items-center sm:justify-between;
   }
 
   .app-table-state {
-    @apply flex flex-col items-center justify-center gap-2 rounded-[20px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-6 text-center;
+    @apply flex flex-col items-center justify-center gap-1 rounded-[14px] border border-dashed border-slate-200 bg-slate-50/65 px-3 py-2.5 text-center;
   }
 
   .app-preview-drawer {
@@ -622,11 +648,19 @@ body {
   }
 
   .app-copy-button {
-    @apply inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-slate-50/85 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-steel transition hover:border-slate-300 hover:bg-white hover:text-ink;
+    @apply inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200/75 bg-white/90 text-steel/80 transition hover:border-slate-300 hover:bg-white hover:text-ink;
+  }
+
+  .app-copy-button-copied {
+    @apply border-brand/25 bg-brand/5 text-brand;
   }
 
   .app-inline-id {
-    @apply mt-1 flex flex-wrap items-center gap-2 text-xs text-steel;
+    @apply mt-0.5 flex flex-wrap items-center gap-1 text-[9px] text-steel/75;
+  }
+
+  .app-inline-id .font-mono {
+    @apply tracking-[-0.01em];
   }
 
   .app-data-table table th,
@@ -634,23 +668,54 @@ body {
     vertical-align: middle;
   }
 
+  .app-data-table table th:last-child,
+  .app-data-table table td:last-child {
+    white-space: nowrap;
+    width: 1%;
+  }
+
   .app-data-table table td .app-button-secondary,
   .app-data-table table td .app-button-danger,
   .app-data-table table td .app-button-primary {
-    @apply py-2;
+    @apply rounded-[16px] px-3 py-1.5 text-sm;
   }
 
   .app-card-header.app-catalog-header {
-    @apply px-4 py-3.5;
+    @apply px-4 py-1.5;
   }
 
   .app-card:has(.app-catalog-toolbar) .app-card-body {
-    @apply px-4 py-2.5;
+    @apply px-4 py-1;
+  }
+
+  .app-catalog-toolbar .app-input {
+    @apply rounded-[15px] px-3 py-1.5 text-sm;
+  }
+
+  .app-row-actions {
+    @apply relative inline-flex;
+  }
+
+  .app-row-actions-trigger {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-steel transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink;
+  }
+
+  .app-row-actions-menu {
+    @apply absolute right-0 top-9 z-30 min-w-[168px] rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  }
+
+  .app-row-actions-item {
+    @apply flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-medium text-ink transition hover:bg-slate-50;
+  }
+
+  .app-row-actions-item-danger {
+    @apply text-rose-700 hover:bg-rose-50;
   }
 
   :root[data-catalog-density="dense"] .app-data-table table th,
   :root[data-catalog-density="dense"] .app-data-table table td {
-    @apply px-4 py-3;
+    @apply px-3 py-1.5;
   }
 
   :root[data-catalog-density="dense"] .app-catalog-toolbar {
@@ -659,12 +724,12 @@ body {
 
   :root[data-catalog-density="dense"] .app-catalog-pagination,
   :root[data-catalog-density="dense"] .app-selection-summary {
-    @apply py-2;
+    @apply py-1.5;
   }
 
   :root[data-catalog-density="comfortable"] .app-data-table table th,
   :root[data-catalog-density="comfortable"] .app-data-table table td {
-    @apply px-5 py-4;
+    @apply px-4 py-2.5;
   }
 
   .app-modal-overlay {
@@ -686,4 +751,12 @@ body {
   .app-modal-card-xwide {
     @apply max-w-6xl;
   }
-}
+
+  .app-modal-close-button {
+    @apply inline-flex h-11 min-w-[5.5rem] shrink-0 items-center justify-center gap-2 rounded-full border border-slate-300 bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:border-slate-950 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300;
+  }
+
+  .app-modal-close-button svg {
+    @apply shrink-0;
+  }
+  }

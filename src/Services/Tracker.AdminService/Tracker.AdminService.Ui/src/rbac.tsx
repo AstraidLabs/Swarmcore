@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { type PageResult } from "./catalog";
-import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, Modal, PaginationFooter, PreviewDrawer, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
+import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, Modal, ModalDismissButton, PaginationFooter, PreviewDrawer, RowActionsMenu, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
 
 type PageProps = {
   accessToken: string;
@@ -176,6 +176,22 @@ function compareValues(left: string | number | boolean, right: string | number |
   if (leftValue < rightValue) return -1 * multiplier;
   if (leftValue > rightValue) return 1 * multiplier;
   return 0;
+}
+
+function buildReturnTo(pathname: string, search: string) {
+  return `${pathname}${search}`;
+}
+
+function sanitizeReturnTo(returnTo: string | null, fallback: string) {
+  if (!returnTo || !returnTo.startsWith("/")) {
+    return fallback;
+  }
+
+  return returnTo;
+}
+
+function toggleStringValue(values: string[], value: string) {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
 async function requestJson<T>(
@@ -385,6 +401,41 @@ export function ProfilePage({ accessToken, onReauthenticate }: PageProps) {
   );
 }
 
+function RbacEditorLayout({
+  eyebrow,
+  title,
+  description,
+  error,
+  message,
+  children
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  error?: string | null;
+  message?: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="app-page-stack">
+      <div className="app-card">
+        <div className="app-card-header">
+          <div className="space-y-1">
+            <div className="app-kicker">{eyebrow}</div>
+            <h2 className="text-2xl font-bold text-ink">{title}</h2>
+            <p className="text-sm text-steel">{description}</p>
+          </div>
+        </div>
+        <div className="app-card-body space-y-4">
+          {message ? <div className="app-notice-success">{message}</div> : null}
+          {error ? <div className="app-notice-warn">{error}</div> : null}
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
   const [view, setView] = useCatalogViewState({
     search: "",
@@ -393,19 +444,16 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
     page: 1,
     pageSize: 25
   });
+  const navigate = useNavigate();
+  const location = useLocation();
   const { query, preview: previewUserId, modal, id: routeUserId } = view;
   const [items, setItems] = useState<AdminUserListItemDto[]>([]);
-  const [roleOptions, setRoleOptions] = useState<RoleListItemDto[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [editingDetail, setEditingDetail] = useState<AdminUserDetailDto | null>(null);
   const [confirmBulkMode, setConfirmBulkMode] = useState<"activate" | "deactivate" | null>(null);
-  const [createForm, setCreateForm] = useState<CreateAdminUserRequest>({ userName: "", email: "", password: "", displayName: "", roles: [] });
-  const [editForm, setEditForm] = useState({ displayName: "", email: "", roles: [] as string[], resetPassword: "" });
   const deferredSearch = useDeferredValue(query.search);
 
   const load = async () => {
@@ -421,13 +469,9 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
         params.set("search", deferredSearch.trim());
       }
 
-      const [users, roles] = await Promise.all([
-        requestJson<PaginatedResult<AdminUserListItemDto>>(`/api/admin/rbac/users?${params.toString()}`, accessToken, onReauthenticate),
-        requestJson<PaginatedResult<RoleListItemDto>>("/api/admin/rbac/roles?page=1&pageSize=250&filter=all&sort=name:asc", accessToken, onReauthenticate)
-      ]);
+      const users = await requestJson<PaginatedResult<AdminUserListItemDto>>(`/api/admin/rbac/users?${params.toString()}`, accessToken, onReauthenticate);
       setItems(users.items);
       setTotalCount(users.totalCount);
-      setRoleOptions(roles.items);
       setSelectedUserIds((current) => current.filter((id) => users.items.some((item) => item.userId === id)));
     } finally {
       setIsLoading(false);
@@ -446,27 +490,12 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
   }, [isLoading, items, previewUserId, setView]);
 
   useEffect(() => {
-    if (modal === "create") {
-      setEditingUserId(null);
-      setEditingDetail(null);
+    if (!modal && !routeUserId) {
       return;
     }
 
-    if (modal !== "edit" || !routeUserId) {
-      setEditingUserId(null);
-      setEditingDetail(null);
-      return;
-    }
-
-    if (editingUserId === routeUserId && editingDetail) {
-      return;
-    }
-
-    openEdit(routeUserId).catch((requestError) => {
-      setError(requestError instanceof Error ? requestError.message : "Unable to open user editor.");
-      setView((current) => ({ ...current, modal: null, id: null }));
-    });
-  }, [editingDetail, editingUserId, modal, routeUserId, setView]);
+    setView((current) => ({ ...current, modal: null, id: null }));
+  }, [modal, routeUserId, setView]);
 
   const [activeSortField, activeSortDirection] = query.sort.split(":") as [string, SortDirection];
   const selectedRecords = items.filter((item) => selectedUserIds.includes(item.userId));
@@ -476,54 +505,8 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
   const previewUser = items.find((item) => item.userId === previewUserId) ?? null;
   const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
 
-  const toggleRole = (currentRoles: string[], role: string) =>
-    currentRoles.includes(role) ? currentRoles.filter((item) => item !== role) : [...currentRoles, role];
-
   const openEdit = async (userId: string) => {
-    const detail = await requestJson<AdminUserDetailDto>(`/api/admin/rbac/users/${encodeURIComponent(userId)}`, accessToken, onReauthenticate);
-    setEditingDetail(detail);
-    setEditForm({ displayName: detail.displayName, email: detail.email, roles: detail.roles, resetPassword: "" });
-    setEditingUserId(userId);
-    setView((current) => ({ ...current, modal: "edit", id: userId, preview: current.preview === userId ? null : current.preview }));
-  };
-
-  const saveCreate = async () => {
-    try {
-      await requestJson("/api/admin/rbac/users", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createForm) });
-      setView((current) => ({ ...current, modal: null, id: null }));
-      setCreateForm({ userName: "", email: "", password: "", displayName: "", roles: [] });
-      setMessage("Admin user created.");
-      await load();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to create admin user.");
-    }
-  };
-
-  const saveEdit = async () => {
-    if (!editingUserId) return;
-    try {
-      await requestJson(`/api/admin/rbac/users/${encodeURIComponent(editingUserId)}`, accessToken, onReauthenticate, {
-        method: "PUT",
-        body: JSON.stringify({ displayName: editForm.displayName, email: editForm.email } satisfies UpdateAdminUserRequest)
-      });
-      await requestJson(`/api/admin/rbac/users/${encodeURIComponent(editingUserId)}/roles`, accessToken, onReauthenticate, {
-        method: "PUT",
-        body: JSON.stringify({ roles: editForm.roles })
-      });
-      if (editForm.resetPassword.trim()) {
-        await requestJson(`/api/admin/rbac/users/${encodeURIComponent(editingUserId)}/reset-password`, accessToken, onReauthenticate, {
-          method: "POST",
-          body: JSON.stringify({ newPassword: editForm.resetPassword })
-        });
-      }
-      setEditingUserId(null);
-      setEditingDetail(null);
-      setView((current) => ({ ...current, modal: null, id: null }));
-      setMessage("Admin user updated.");
-      await load();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to update admin user.");
-    }
+    navigate(`/admin-users/${encodeURIComponent(userId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
   };
 
   const changeActivation = async (userIds: string[], activate: boolean) => {
@@ -599,7 +582,7 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
           { value: "superadmin", label: "SuperAdmins" }
         ]}
         createLabel="Create admin user"
-        onCreate={() => setView((current) => ({ ...current, modal: "create", id: null, preview: null }))}
+        onCreate={() => navigate(`/admin-users/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}
       />
       {message ? <div className="app-notice-success">{message}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -681,12 +664,16 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-2">
                       <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.userId).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to open user editor."))}>Edit</button>
-                      <button type="button" className={item.isActive ? "app-button-danger px-4 py-2.5" : "app-button-secondary px-4 py-2.5"} onClick={() => changeActivation([item.userId], !item.isActive)}>
-                        {item.isActive ? "Deactivate" : "Activate"}
-                      </button>
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.userId }))}>
-                        Preview
-                      </button>
+                      <RowActionsMenu
+                        items={[
+                          { label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.userId })) },
+                          {
+                            label: item.isActive ? "Deactivate" : "Activate",
+                            onClick: () => changeActivation([item.userId], !item.isActive),
+                            tone: item.isActive ? "danger" : "default"
+                          }
+                        ]}
+                      />
                     </div>
                   </td>
                 </CatalogTableRow>
@@ -704,100 +691,6 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
         onPageChange={(value) => setView((current) => ({ ...current, query: { ...current.query, page: value } }))}
       />
 
-      <Modal
-        open={modal === "create"}
-        onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}
-        title="Create admin user"
-        description="Provision a new admin account and assign initial roles."
-      >
-        <div className="space-y-4">
-          <div className="app-form-grid">
-            <input className="app-input" placeholder="User name" value={createForm.userName} onChange={(event) => setCreateForm((current) => ({ ...current, userName: event.target.value }))} />
-            <input className="app-input" placeholder="Display name" value={createForm.displayName} onChange={(event) => setCreateForm((current) => ({ ...current, displayName: event.target.value }))} />
-            <input className="app-input" placeholder="Email" value={createForm.email} onChange={(event) => setCreateForm((current) => ({ ...current, email: event.target.value }))} />
-            <input className="app-input" placeholder="Temporary password" value={createForm.password} onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))} />
-          </div>
-          <div className="space-y-3">
-            <div className="text-sm font-semibold text-ink">Roles</div>
-            <div className="flex flex-wrap gap-2">
-              {roleOptions.map((role) => (
-                <label key={role.roleId} className="app-checkbox-chip">
-                  <input type="checkbox" checked={createForm.roles.includes(role.name)} onChange={() => setCreateForm((current) => ({ ...current, roles: toggleRole(current.roles, role.name) }))} />
-                  <span>{role.name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
-            <button type="button" className="app-button-primary" onClick={saveCreate}>Create admin user</button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal
-        open={modal === "edit" && editingUserId !== null}
-        onClose={() => {
-          setEditingUserId(null);
-          setEditingDetail(null);
-          setView((current) => ({ ...current, modal: null, id: null }));
-        }}
-        title="Edit admin user"
-        description="Update profile data, role assignments and lifecycle controls."
-        width="xwide"
-      >
-        <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-          <div className="space-y-4">
-            <div className="app-form-grid">
-              <input className="app-input" value={editingDetail?.userName ?? ""} disabled />
-              <input className="app-input" value={editForm.displayName} onChange={(event) => setEditForm((current) => ({ ...current, displayName: event.target.value }))} />
-              <input className="app-input md:col-span-2" value={editForm.email} onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))} />
-            </div>
-            <div className="space-y-3">
-              <div className="text-sm font-semibold text-ink">Assigned roles</div>
-              <div className="flex flex-wrap gap-2">
-                {roleOptions.map((role) => (
-                  <label key={role.roleId} className="app-checkbox-chip">
-                    <input type="checkbox" checked={editForm.roles.includes(role.name)} onChange={() => setEditForm((current) => ({ ...current, roles: toggleRole(current.roles, role.name) }))} />
-                    <span>{role.name}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="text-sm font-semibold text-ink">Reset password</div>
-              <input className="app-input" placeholder="Leave empty to keep current password" value={editForm.resetPassword} onChange={(event) => setEditForm((current) => ({ ...current, resetPassword: event.target.value }))} />
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button type="button" className="app-button-primary" onClick={saveEdit}>Save changes</button>
-              {editingDetail ? (
-                <button
-                  type="button"
-                  className={editingDetail.isActive ? "app-button-danger" : "app-button-secondary"}
-                  onClick={() => changeActivation([editingDetail.userId], !editingDetail.isActive)}
-                >
-                  {editingDetail.isActive ? "Deactivate user" : "Activate user"}
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div className="space-y-4">
-            <div className="app-subtle-panel space-y-2">
-              <div className="app-kicker">Identity</div>
-              <div className="text-sm text-steel">Created</div>
-              <div className="font-semibold text-ink">{formatDateTime(editingDetail?.createdAtUtc)}</div>
-              <div className="text-sm text-steel">Last login</div>
-              <div className="font-semibold text-ink">{formatDateTime(editingDetail?.lastLoginAtUtc)}</div>
-              <div className="text-sm text-steel">Time zone</div>
-              <div className="font-semibold text-ink">{editingDetail?.timeZone ?? "N/A"}</div>
-            </div>
-            <div className="app-subtle-panel space-y-2">
-              <div className="app-kicker">Effective permissions</div>
-              <PermissionList permissions={sortPermissionKeys(editingDetail?.effectivePermissions ?? [])} />
-            </div>
-          </div>
-        </div>
-      </Modal>
       <ConfirmActionModal
         open={confirmBulkMode === "activate"}
         title="Activate selected users"
@@ -869,6 +762,246 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
   );
 }
 
+export function AdminUserEditorPage({ accessToken, onReauthenticate }: PageProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  const userId = params.id ?? null;
+  const isCreate = userId === null;
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/admin-users");
+  const [detail, setDetail] = useState<AdminUserDetailDto | null>(null);
+  const [roleOptions, setRoleOptions] = useState<RoleListItemDto[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    userName: "",
+    email: "",
+    displayName: "",
+    password: "",
+    roles: [] as string[]
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const requests: Promise<unknown>[] = [
+          requestJson<PaginatedResult<RoleListItemDto>>("/api/admin/rbac/roles?page=1&pageSize=250&filter=all&sort=name:asc", accessToken, onReauthenticate)
+        ];
+
+        if (!isCreate && userId) {
+          requests.push(requestJson<AdminUserDetailDto>(`/api/admin/rbac/users/${encodeURIComponent(userId)}`, accessToken, onReauthenticate));
+        }
+
+        const [rolesResult, loadedDetail] = await Promise.all(requests);
+        if (cancelled) {
+          return;
+        }
+
+        setRoleOptions((rolesResult as PaginatedResult<RoleListItemDto>).items);
+
+        if (!isCreate && loadedDetail) {
+          const userDetail = loadedDetail as AdminUserDetailDto;
+          setDetail(userDetail);
+          setForm({
+            userName: userDetail.userName,
+            email: userDetail.email,
+            displayName: userDetail.displayName,
+            password: "",
+            roles: userDetail.roles
+          });
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(requestError instanceof Error ? requestError.message : `Unable to load ${isCreate ? "user editor" : "admin user"}.`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isCreate, onReauthenticate, userId]);
+
+  const toggleRole = (roleName: string) => {
+    setForm((current) => ({ ...current, roles: toggleStringValue(current.roles, roleName) }));
+  };
+
+  const save = async () => {
+    setError(null);
+    setMessage(null);
+    setIsSaving(true);
+    try {
+      if (isCreate) {
+        await requestJson("/api/admin/rbac/users", accessToken, onReauthenticate, {
+          method: "POST",
+          body: JSON.stringify({
+            userName: form.userName,
+            email: form.email,
+            password: form.password,
+            displayName: form.displayName,
+            roles: form.roles
+          } satisfies CreateAdminUserRequest)
+        });
+      } else if (userId) {
+        await requestJson(`/api/admin/rbac/users/${encodeURIComponent(userId)}`, accessToken, onReauthenticate, {
+          method: "PUT",
+          body: JSON.stringify({
+            displayName: form.displayName,
+            email: form.email
+          } satisfies UpdateAdminUserRequest)
+        });
+
+        await requestJson(`/api/admin/rbac/users/${encodeURIComponent(userId)}/roles`, accessToken, onReauthenticate, {
+          method: "PUT",
+          body: JSON.stringify({ roles: form.roles })
+        });
+
+        if (form.password.trim()) {
+          await requestJson(`/api/admin/rbac/users/${encodeURIComponent(userId)}/reset-password`, accessToken, onReauthenticate, {
+            method: "POST",
+            body: JSON.stringify({ newPassword: form.password.trim() })
+          });
+        }
+      }
+
+      navigate(returnTo);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : `Unable to ${isCreate ? "create" : "save"} admin user.`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <RbacEditorLayout
+      eyebrow="RBAC"
+      title={isCreate ? "Create admin user" : `Edit ${detail?.displayName || detail?.userName || "admin user"}`}
+      description={isCreate ? "Provision a new administrator account and assign its initial roles." : "Update identity, role membership and optional password rotation from a dedicated editor."}
+      error={error}
+      message={message}
+    >
+      <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+        <div className="space-y-4">
+          <div className="app-form-grid">
+            <label className="space-y-2">
+              <span className="text-sm font-semibold text-ink">User name</span>
+              <input
+                className="app-input"
+                value={form.userName}
+                disabled={!isCreate || isLoading}
+                onChange={(event) => setForm((current) => ({ ...current, userName: event.target.value }))}
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-semibold text-ink">Email</span>
+              <input
+                className="app-input"
+                value={form.email}
+                disabled={isLoading}
+                onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+              />
+            </label>
+            <label className="space-y-2 md:col-span-2">
+              <span className="text-sm font-semibold text-ink">Display name</span>
+              <input
+                className="app-input"
+                value={form.displayName}
+                disabled={isLoading}
+                onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))}
+              />
+            </label>
+            <label className="space-y-2 md:col-span-2">
+              <span className="text-sm font-semibold text-ink">{isCreate ? "Temporary password" : "Reset password"}</span>
+              <input
+                className="app-input"
+                type="password"
+                value={form.password}
+                disabled={isLoading}
+                placeholder={isCreate ? "Set the initial password" : "Leave empty to keep the current password"}
+                onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+              />
+            </label>
+          </div>
+
+          <div className="space-y-3">
+            <div className="text-sm font-semibold text-ink">Assigned roles</div>
+            <div className="flex flex-wrap gap-2">
+              {roleOptions.map((role) => (
+                <label key={role.roleId} className="app-checkbox-chip">
+                  <input
+                    type="checkbox"
+                    disabled={isLoading}
+                    checked={form.roles.includes(role.name)}
+                    onChange={() => toggleRole(role.name)}
+                  />
+                  <span>{role.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="app-subtle-panel space-y-2">
+            <div className="app-kicker">Workflow</div>
+            <div className="font-semibold text-ink">{isCreate ? "New administrator" : "Existing administrator"}</div>
+            <p className="text-sm text-steel">
+              {isCreate
+                ? "Create the identity and assign initial roles in one save."
+                : "Use this page for email, display name, role membership and optional password rotation."}
+            </p>
+          </div>
+          {!isCreate && detail ? (
+            <>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Account state</div>
+                <div className="font-semibold text-ink">{detail.isActive ? "Active" : "Inactive"}</div>
+                <div className="text-sm text-steel">Created {formatDate(detail.createdAtUtc)} · Last login {formatDateTime(detail.lastLoginAtUtc)}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Effective permissions</div>
+                <PermissionList permissions={sortPermissionKeys(detail.effectivePermissions)} />
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3">
+        <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="app-button-primary"
+          disabled={
+            isLoading ||
+            isSaving ||
+            (!form.userName.trim() && isCreate) ||
+            !form.email.trim() ||
+            !form.displayName.trim() ||
+            (isCreate && !form.password.trim())
+          }
+          onClick={() => void save()}
+        >
+          {isSaving ? "Saving..." : isCreate ? "Create admin user" : "Save changes"}
+        </button>
+      </div>
+    </RbacEditorLayout>
+  );
+}
+
 export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
   const [view, setView] = useCatalogViewState({
     search: "",
@@ -877,6 +1010,8 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
     page: 1,
     pageSize: 25
   });
+  const navigate = useNavigate();
+  const location = useLocation();
   const { query, preview: previewRoleId, modal, id: routeRoleId } = view;
   const [items, setItems] = useState<RoleListItemDto[]>([]);
   const [groups, setGroups] = useState<PermissionGroupListItemDto[]>([]);
@@ -934,25 +1069,13 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
   }, [isLoading, items, previewRoleId, setView]);
 
   useEffect(() => {
-    if (modal === "create") {
-      setEditingRole(null);
+    if (!modal && !routeRoleId) {
       return;
     }
 
-    if (modal !== "edit" || !routeRoleId) {
-      setEditingRole(null);
-      return;
-    }
-
-    if (editingRole?.roleId === routeRoleId) {
-      return;
-    }
-
-    openEdit(routeRoleId).catch((requestError) => {
-      setError(requestError instanceof Error ? requestError.message : "Unable to open role editor.");
-      setView((current) => ({ ...current, modal: null, id: null }));
-    });
-  }, [editingRole, modal, routeRoleId, setView]);
+    setEditingRole(null);
+    setView((current) => ({ ...current, modal: null, id: null }));
+  }, [modal, routeRoleId, setView]);
 
   const [activeSortField, activeSortDirection] = query.sort.split(":") as [string, SortDirection];
   const selectedRoles = items.filter((item) => selectedRoleIds.includes(item.roleId));
@@ -967,17 +1090,9 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
   const toggleString = (values: string[], value: string) =>
     values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 
-  const openEdit = async (roleId: string) => {
-    const detail = await requestJson<RoleDetailDto>(`/api/admin/rbac/roles/${encodeURIComponent(roleId)}`, accessToken, onReauthenticate);
-      setEditingRole(detail);
-      setEditForm({
-        description: detail.description,
-        priority: detail.priority,
-        permissionGroupIds: detail.permissionGroupIds,
-        directPermissionKeys: detail.directPermissionKeys
-      });
-      setView((current) => ({ ...current, modal: "edit", id: roleId, preview: current.preview === roleId ? null : current.preview }));
-    };
+  const openEdit = (roleId: string) => {
+    navigate(`/roles/${encodeURIComponent(roleId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
+  };
 
   const createRole = async () => {
     try {
@@ -1085,7 +1200,7 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
           { value: "custom", label: "Custom roles" }
         ]}
         createLabel="Create role"
-        onCreate={() => setView((current) => ({ ...current, modal: "create", id: null, preview: null }))}
+        onCreate={() => navigate(`/roles/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}
       />
       {message ? <div className="app-notice-success">{message}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -1158,22 +1273,23 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
                   <td className="px-5 py-4 text-steel">{item.userCount}</td>
                   <td className="px-5 py-4 text-steel">{formatDate(item.createdAtUtc)}</td>
                   <td className="px-5 py-4">
-                    <div className="flex justify-end gap-2">
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.roleId).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to open role editor."))}>Edit</button>
-                      <button
-                        type="button"
-                        className={item.isSystemRole ? "app-button-secondary px-4 py-2.5 opacity-60" : "app-button-danger px-4 py-2.5"}
-                        disabled={item.isSystemRole}
-                        onClick={() => {
-                          setSelectedRoleIds([item.roleId]);
-                          setConfirmDeleteRolesOpen(true);
-                        }}
-                      >
-                        {item.isSystemRole ? "Protected" : "Delete"}
-                      </button>
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.roleId }))}>
-                        Preview
-                      </button>
+                    <div className="flex justify-end items-center gap-2">
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.roleId)}>Edit</button>
+                      {item.isSystemRole ? <span className="app-chip-muted">Protected</span> : null}
+                      <RowActionsMenu
+                        items={[
+                          { label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.roleId })) },
+                          {
+                            label: "Delete",
+                            tone: "danger",
+                            disabled: item.isSystemRole,
+                            onClick: () => {
+                              setSelectedRoleIds([item.roleId]);
+                              setConfirmDeleteRolesOpen(true);
+                            }
+                          }
+                        ]}
+                      />
                     </div>
                   </td>
                 </CatalogTableRow>
@@ -1204,7 +1320,7 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
             <textarea className="app-input md:col-span-2 min-h-[140px]" placeholder="Description" value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
+            <ModalDismissButton onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</ModalDismissButton>
             <button type="button" className="app-button-primary" onClick={createRole}>Create role</button>
           </div>
         </div>
@@ -1260,10 +1376,10 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
         <div className="mt-6 space-y-4">
           <PermissionBreakdown directPermissions={editForm.directPermissionKeys} effectivePermissions={editingRole?.effectivePermissionKeys ?? []} />
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => {
+            <ModalDismissButton onClose={() => {
               setEditingRole(null);
               setView((current) => ({ ...current, modal: null, id: null }));
-            }}>Cancel</button>
+            }}>Cancel</ModalDismissButton>
             <button type="button" className="app-button-primary" onClick={saveRole}>Save role</button>
           </div>
         </div>
@@ -1306,7 +1422,7 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <button type="button" className="app-button-primary" onClick={() => void openEdit(previewRole.roleId)}>Edit role</button>
+              <button type="button" className="app-button-primary" onClick={() => openEdit(previewRole.roleId)}>Edit role</button>
             </div>
           </div>
         ) : null}
@@ -1323,6 +1439,8 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
     page: 1,
     pageSize: 25
   });
+  const navigate = useNavigate();
+  const location = useLocation();
   const { query, preview: previewGroupId, modal, id: routeGroupId } = view;
   const [items, setItems] = useState<PermissionGroupListItemDto[]>([]);
   const [permissions, setPermissions] = useState<PermissionDefinitionDto[]>([]);
@@ -1377,25 +1495,13 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
   }, [isLoading, items, previewGroupId, setView]);
 
   useEffect(() => {
-    if (modal === "create") {
-      setEditingGroup(null);
+    if (!modal && !routeGroupId) {
       return;
     }
 
-    if (modal !== "edit" || !routeGroupId) {
-      setEditingGroup(null);
-      return;
-    }
-
-    if (editingGroup?.id === routeGroupId) {
-      return;
-    }
-
-    openEdit(routeGroupId).catch((requestError) => {
-      setError(requestError instanceof Error ? requestError.message : "Unable to open group editor.");
-      setView((current) => ({ ...current, modal: null, id: null }));
-    });
-  }, [editingGroup, modal, routeGroupId, setView]);
+    setEditingGroup(null);
+    setView((current) => ({ ...current, modal: null, id: null }));
+  }, [modal, routeGroupId, setView]);
 
   const [activeSortField, activeSortDirection] = query.sort.split(":") as [string, SortDirection];
   const selectedGroups = items.filter((item) => selectedGroupIds.includes(item.id));
@@ -1407,11 +1513,8 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
     return permissions.filter((item) => !normalizedSearch || [item.key, item.name, item.category].join(" ").toLowerCase().includes(normalizedSearch));
   }, [deferredPermissionSearch, permissions]);
 
-  const openEdit = async (groupId: string) => {
-    const detail = await requestJson<PermissionGroupDetailDto>(`/api/admin/rbac/permission-groups/${groupId}`, accessToken, onReauthenticate);
-    setEditingGroup(detail);
-    setEditForm({ name: detail.name, description: detail.description, permissionKeys: detail.permissionKeys });
-    setView((current) => ({ ...current, modal: "edit", id: groupId, preview: current.preview === groupId ? null : current.preview }));
+  const openEdit = (groupId: string) => {
+    navigate(`/permission-groups/${encodeURIComponent(groupId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
   };
 
   const togglePermission = (permissionKey: string) =>
@@ -1523,7 +1626,7 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
           { value: "custom", label: "Custom groups" }
         ]}
         createLabel="Create group"
-        onCreate={() => setView((current) => ({ ...current, modal: "create", id: null, preview: null }))}
+        onCreate={() => navigate(`/permission-groups/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}
       />
       {message ? <div className="app-notice-success">{message}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -1592,22 +1695,23 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
                   <td className="px-5 py-4 text-steel">{item.permissionCount}</td>
                   <td className="px-5 py-4 text-steel">{formatDate(item.createdAtUtc)}</td>
                   <td className="px-5 py-4">
-                    <div className="flex justify-end gap-2">
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.id).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to open group editor."))}>Edit</button>
-                      <button
-                        type="button"
-                        className={item.isSystemGroup ? "app-button-secondary px-4 py-2.5 opacity-60" : "app-button-danger px-4 py-2.5"}
-                        disabled={item.isSystemGroup}
-                        onClick={() => {
-                          setSelectedGroupIds([item.id]);
-                          setConfirmDeleteGroupsOpen(true);
-                        }}
-                      >
-                        {item.isSystemGroup ? "Protected" : "Delete"}
-                      </button>
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.id }))}>
-                        Preview
-                      </button>
+                    <div className="flex justify-end items-center gap-2">
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.id)}>Edit</button>
+                      {item.isSystemGroup ? <span className="app-chip-muted">Protected</span> : null}
+                      <RowActionsMenu
+                        items={[
+                          { label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.id })) },
+                          {
+                            label: "Delete",
+                            tone: "danger",
+                            disabled: item.isSystemGroup,
+                            onClick: () => {
+                              setSelectedGroupIds([item.id]);
+                              setConfirmDeleteGroupsOpen(true);
+                            }
+                          }
+                        ]}
+                      />
                     </div>
                   </td>
                 </CatalogTableRow>
@@ -1637,7 +1741,7 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
             <input className="app-input" placeholder="Description" value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
+            <ModalDismissButton onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</ModalDismissButton>
             <button type="button" className="app-button-primary" onClick={createGroup}>Create group</button>
           </div>
         </div>
@@ -1678,10 +1782,10 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
             <PermissionList permissions={sortPermissionKeys(editForm.permissionKeys)} />
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => {
+            <ModalDismissButton onClose={() => {
               setEditingGroup(null);
               setView((current) => ({ ...current, modal: null, id: null }));
-            }}>Cancel</button>
+            }}>Cancel</ModalDismissButton>
             <button type="button" className="app-button-primary" onClick={saveGroup}>Save group</button>
           </div>
         </div>
@@ -1720,11 +1824,446 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <button type="button" className="app-button-primary" onClick={() => void openEdit(previewGroup.id)}>Edit group</button>
+              <button type="button" className="app-button-primary" onClick={() => openEdit(previewGroup.id)}>Edit group</button>
             </div>
           </div>
         ) : null}
       </PreviewDrawer>
     </div>
+  );
+}
+
+export function RoleEditorPage({ accessToken, onReauthenticate }: PageProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  const roleId = params.id ?? null;
+  const isCreate = roleId === null;
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/roles");
+  const [detail, setDetail] = useState<RoleDetailDto | null>(null);
+  const [groups, setGroups] = useState<PermissionGroupListItemDto[]>([]);
+  const [permissions, setPermissions] = useState<PermissionDefinitionDto[]>([]);
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    priority: 100,
+    permissionGroupIds: [] as string[],
+    directPermissionKeys: [] as string[]
+  });
+  const deferredPermissionSearch = useDeferredValue(permissionSearch);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const requests: Promise<unknown>[] = [
+          requestJson<PaginatedResult<PermissionGroupListItemDto>>("/api/admin/rbac/permission-groups?page=1&pageSize=250&filter=all&sort=name:asc", accessToken, onReauthenticate),
+          requestJson<PermissionDefinitionDto[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)
+        ];
+
+        if (!isCreate && roleId) {
+          requests.push(requestJson<RoleDetailDto>(`/api/admin/rbac/roles/${encodeURIComponent(roleId)}`, accessToken, onReauthenticate));
+        }
+
+        const [groupResult, permissionItems, loadedDetail] = await Promise.all(requests);
+        if (cancelled) {
+          return;
+        }
+
+        setGroups((groupResult as PaginatedResult<PermissionGroupListItemDto>).items);
+        setPermissions(permissionItems as PermissionDefinitionDto[]);
+
+        if (!isCreate && loadedDetail) {
+          const roleDetail = loadedDetail as RoleDetailDto;
+          setDetail(roleDetail);
+          setForm({
+            name: roleDetail.name,
+            description: roleDetail.description,
+            priority: roleDetail.priority,
+            permissionGroupIds: roleDetail.permissionGroupIds,
+            directPermissionKeys: roleDetail.directPermissionKeys
+          });
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(requestError instanceof Error ? requestError.message : `Unable to load ${isCreate ? "role editor" : "role details"}.`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isCreate, onReauthenticate, roleId]);
+
+  const filteredPermissionOptions = useMemo(() => {
+    const normalizedSearch = deferredPermissionSearch.trim().toLowerCase();
+    return permissions.filter((item) => !normalizedSearch || [item.key, item.name, item.category].join(" ").toLowerCase().includes(normalizedSearch));
+  }, [deferredPermissionSearch, permissions]);
+
+  const save = async () => {
+    setError(null);
+    setMessage(null);
+    setIsSaving(true);
+    try {
+      if (isCreate) {
+        const result = await requestJson<{ userId?: string | null }>("/api/admin/rbac/roles", accessToken, onReauthenticate, {
+          method: "POST",
+          body: JSON.stringify({
+            name: form.name,
+            description: form.description,
+            priority: form.priority
+          } satisfies CreateRoleRequest)
+        });
+
+        const createdRoleId = result.userId ?? null;
+        if (createdRoleId) {
+          await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(createdRoleId)}/permission-groups`, accessToken, onReauthenticate, {
+            method: "PUT",
+            body: JSON.stringify({ permissionGroupIds: form.permissionGroupIds })
+          });
+          await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(createdRoleId)}/permissions`, accessToken, onReauthenticate, {
+            method: "PUT",
+            body: JSON.stringify({ permissionKeys: form.directPermissionKeys })
+          });
+        }
+      } else if (roleId) {
+        await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(roleId)}`, accessToken, onReauthenticate, {
+          method: "PUT",
+          body: JSON.stringify({ description: form.description, priority: form.priority } satisfies UpdateRoleRequest)
+        });
+        await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(roleId)}/permission-groups`, accessToken, onReauthenticate, {
+          method: "PUT",
+          body: JSON.stringify({ permissionGroupIds: form.permissionGroupIds })
+        });
+        await requestJson(`/api/admin/rbac/roles/${encodeURIComponent(roleId)}/permissions`, accessToken, onReauthenticate, {
+          method: "PUT",
+          body: JSON.stringify({ permissionKeys: form.directPermissionKeys })
+        });
+      }
+
+      navigate(returnTo);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : `Unable to ${isCreate ? "create" : "save"} role.`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <RbacEditorLayout
+      eyebrow="RBAC"
+      title={isCreate ? "Create role" : `Edit ${detail?.name ?? "role"}`}
+      description={isCreate ? "Create the role and define its initial permission model from a dedicated editor." : "Manage role metadata, attached groups and direct permissions without leaving the RBAC workspace."}
+      error={error}
+      message={message}
+    >
+      <div className="grid gap-6 xl:grid-cols-[1fr,1fr]">
+        <div className="space-y-4">
+          <div className="app-form-grid">
+            <label className="space-y-2">
+              <span className="text-sm font-semibold text-ink">Role name</span>
+              <input
+                className="app-input"
+                value={form.name}
+                disabled={!isCreate || isLoading}
+                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-semibold text-ink">Priority</span>
+              <input
+                className="app-input"
+                type="number"
+                value={form.priority}
+                disabled={isLoading}
+                onChange={(event) => setForm((current) => ({ ...current, priority: Number(event.target.value) }))}
+              />
+            </label>
+            <label className="space-y-2 md:col-span-2">
+              <span className="text-sm font-semibold text-ink">Description</span>
+              <textarea
+                className="app-input min-h-[140px]"
+                value={form.description}
+                disabled={isLoading}
+                onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+              />
+            </label>
+          </div>
+
+          <div className="space-y-3">
+            <div className="text-sm font-semibold text-ink">Permission groups</div>
+            <div className="flex flex-wrap gap-2">
+              {groups.map((group) => (
+                <label key={group.id} className="app-checkbox-chip">
+                  <input
+                    type="checkbox"
+                    disabled={isLoading}
+                    checked={form.permissionGroupIds.includes(group.id)}
+                    onChange={() => setForm((current) => ({ ...current, permissionGroupIds: toggleStringValue(current.permissionGroupIds, group.id) }))}
+                  />
+                  <span>{group.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <label className="space-y-2">
+            <span className="text-sm font-semibold text-ink">Filter permission catalog</span>
+            <input
+              className="app-input"
+              value={permissionSearch}
+              disabled={isLoading}
+              placeholder="Search permissions by key, name or category"
+              onChange={(event) => setPermissionSearch(event.target.value)}
+            />
+          </label>
+          <div className="app-permission-grid max-h-[420px] overflow-auto pr-1">
+            {filteredPermissionOptions.map((permission) => (
+              <label key={permission.id} className="app-permission-item flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  disabled={isLoading}
+                  checked={form.directPermissionKeys.includes(permission.key)}
+                  onChange={() => setForm((current) => ({ ...current, directPermissionKeys: toggleStringValue(current.directPermissionKeys, permission.key) }))}
+                />
+                <span className="space-y-1">
+                  <span className="block font-medium text-ink">{permission.name}</span>
+                  <span className="block text-xs text-steel">{permission.key}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <PermissionBreakdown
+        directPermissions={form.directPermissionKeys}
+        effectivePermissions={detail?.effectivePermissionKeys ?? form.directPermissionKeys}
+      />
+
+      <div className="flex justify-end gap-3">
+        <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="app-button-primary"
+          disabled={isLoading || isSaving || !form.name.trim() || !form.description.trim()}
+          onClick={() => void save()}
+        >
+          {isSaving ? "Saving..." : isCreate ? "Create role" : "Save changes"}
+        </button>
+      </div>
+    </RbacEditorLayout>
+  );
+}
+
+export function PermissionGroupEditorPage({ accessToken, onReauthenticate }: PageProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  const groupId = params.id ?? null;
+  const isCreate = groupId === null;
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/permission-groups");
+  const [detail, setDetail] = useState<PermissionGroupDetailDto | null>(null);
+  const [permissions, setPermissions] = useState<PermissionDefinitionDto[]>([]);
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    permissionKeys: [] as string[]
+  });
+  const deferredPermissionSearch = useDeferredValue(permissionSearch);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const requests: Promise<unknown>[] = [
+          requestJson<PermissionDefinitionDto[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)
+        ];
+
+        if (!isCreate && groupId) {
+          requests.push(requestJson<PermissionGroupDetailDto>(`/api/admin/rbac/permission-groups/${encodeURIComponent(groupId)}`, accessToken, onReauthenticate));
+        }
+
+        const [permissionItems, loadedDetail] = await Promise.all(requests);
+        if (cancelled) {
+          return;
+        }
+
+        setPermissions(permissionItems as PermissionDefinitionDto[]);
+
+        if (!isCreate && loadedDetail) {
+          const groupDetail = loadedDetail as PermissionGroupDetailDto;
+          setDetail(groupDetail);
+          setForm({
+            name: groupDetail.name,
+            description: groupDetail.description,
+            permissionKeys: groupDetail.permissionKeys
+          });
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(requestError instanceof Error ? requestError.message : `Unable to load ${isCreate ? "permission group editor" : "permission group"}.`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, groupId, isCreate, onReauthenticate]);
+
+  const filteredPermissionOptions = useMemo(() => {
+    const normalizedSearch = deferredPermissionSearch.trim().toLowerCase();
+    return permissions.filter((item) => !normalizedSearch || [item.key, item.name, item.category].join(" ").toLowerCase().includes(normalizedSearch));
+  }, [deferredPermissionSearch, permissions]);
+
+  const save = async () => {
+    setError(null);
+    setMessage(null);
+    setIsSaving(true);
+    try {
+      if (isCreate) {
+        const result = await requestJson<{ userId?: string | null }>("/api/admin/rbac/permission-groups", accessToken, onReauthenticate, {
+          method: "POST",
+          body: JSON.stringify({
+            name: form.name,
+            description: form.description
+          } satisfies CreatePermissionGroupRequest)
+        });
+
+        const createdGroupId = result.userId ?? null;
+        if (createdGroupId) {
+          await requestJson(`/api/admin/rbac/permission-groups/${encodeURIComponent(createdGroupId)}/permissions`, accessToken, onReauthenticate, {
+            method: "PUT",
+            body: JSON.stringify({ permissionKeys: form.permissionKeys })
+          });
+        }
+      } else if (groupId) {
+        await requestJson(`/api/admin/rbac/permission-groups/${encodeURIComponent(groupId)}`, accessToken, onReauthenticate, {
+          method: "PUT",
+          body: JSON.stringify({ name: form.name, description: form.description } satisfies UpdatePermissionGroupRequest)
+        });
+        await requestJson(`/api/admin/rbac/permission-groups/${encodeURIComponent(groupId)}/permissions`, accessToken, onReauthenticate, {
+          method: "PUT",
+          body: JSON.stringify({ permissionKeys: form.permissionKeys })
+        });
+      }
+
+      navigate(returnTo);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : `Unable to ${isCreate ? "create" : "save"} permission group.`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <RbacEditorLayout
+      eyebrow="RBAC"
+      title={isCreate ? "Create permission group" : `Edit ${detail?.name ?? "permission group"}`}
+      description={isCreate ? "Create a reusable permission bundle and define its initial permissions." : "Manage bundle metadata and permission assignments in a dedicated editor."}
+      error={error}
+      message={message}
+    >
+      <div className="space-y-4">
+        <div className="app-form-grid">
+          <label className="space-y-2">
+            <span className="text-sm font-semibold text-ink">Group name</span>
+            <input
+              className="app-input"
+              value={form.name}
+              disabled={isLoading}
+              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm font-semibold text-ink">Description</span>
+            <input
+              className="app-input"
+              value={form.description}
+              disabled={isLoading}
+              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+            />
+          </label>
+        </div>
+
+        <label className="space-y-2">
+          <span className="text-sm font-semibold text-ink">Filter permission catalog</span>
+          <input
+            className="app-input"
+            value={permissionSearch}
+            disabled={isLoading}
+            placeholder="Search permissions by key, name or category"
+            onChange={(event) => setPermissionSearch(event.target.value)}
+          />
+        </label>
+        <div className="app-permission-grid max-h-[460px] overflow-auto pr-1">
+          {filteredPermissionOptions.map((permission) => (
+            <label key={permission.id} className="app-permission-item flex items-start gap-3">
+              <input
+                type="checkbox"
+                disabled={isLoading}
+                checked={form.permissionKeys.includes(permission.key)}
+                onChange={() => setForm((current) => ({ ...current, permissionKeys: toggleStringValue(current.permissionKeys, permission.key) }))}
+              />
+              <span className="space-y-1">
+                <span className="block font-medium text-ink">{permission.name}</span>
+                <span className="block text-xs text-steel">{permission.key}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-ink">Permissions in group</div>
+          <PermissionList permissions={sortPermissionKeys(form.permissionKeys)} />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3">
+        <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="app-button-primary"
+          disabled={isLoading || isSaving || !form.name.trim() || !form.description.trim()}
+          onClick={() => void save()}
+        >
+          {isSaving ? "Saving..." : isCreate ? "Create group" : "Save changes"}
+        </button>
+      </div>
+    </RbacEditorLayout>
   );
 }
