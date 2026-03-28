@@ -146,7 +146,9 @@ public static class RbacEndpoints
         [FromServices] ISender sender,
         CancellationToken ct)
     {
-        var result = await sender.Send(new ListAdminUsersQuery(new GridQuery(search, filter, sort, page, pageSize)), ct);
+        var result = await sender.Send(new ListAdminUsersQuery(
+            GridQueryHttp.Bind(search, filter, sort, page, pageSize, RbacCatalogProfiles.AdminUsers),
+            GridQueryHttp.ParseFilter<AdminUserCatalogFilter>(filter)), ct);
         return Results.Ok(result);
     }
 
@@ -355,7 +357,9 @@ public static class RbacEndpoints
         [FromServices] ISender sender,
         CancellationToken ct)
     {
-        var result = await sender.Send(new ListRolesQuery(new GridQuery(search, filter, sort, page, pageSize)), ct);
+        var result = await sender.Send(new ListRolesQuery(
+            GridQueryHttp.Bind(search, filter, sort, page, pageSize, RbacCatalogProfiles.Roles),
+            GridQueryHttp.ParseFilter<RoleCatalogFilter>(filter)), ct);
         return Results.Ok(result);
     }
 
@@ -489,7 +493,9 @@ public static class RbacEndpoints
         [FromServices] ISender sender,
         CancellationToken ct)
     {
-        var result = await sender.Send(new ListPermissionGroupsQuery(new GridQuery(search, filter, sort, page, pageSize)), ct);
+        var result = await sender.Send(new ListPermissionGroupsQuery(
+            GridQueryHttp.Bind(search, filter, sort, page, pageSize, RbacCatalogProfiles.PermissionGroups),
+            GridQueryHttp.ParseFilter<PermissionGroupCatalogFilter>(filter)), ct);
         return Results.Ok(result);
     }
 

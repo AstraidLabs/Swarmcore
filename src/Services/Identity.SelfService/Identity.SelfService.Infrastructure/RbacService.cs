@@ -107,46 +107,46 @@ public sealed class RbacService(
 
     // ─── Admin User Management ──────────────────────────────────────────────
 
-    public async Task<PaginatedResult<AdminUserListItemDto>> ListUsersAsync(GridQuery request, CancellationToken ct)
+    public async Task<PaginatedResult<AdminUserListItemDto>> ListUsersAsync(GridQuery request, AdminUserCatalogFilter filter, CancellationToken ct)
     {
         request = request.Normalize(maxPageSize: 100);
         var activeState = DomainAccountState.Active.ToString();
-        var normalizedSearch = request.NormalizedSearch?.ToUpperInvariant();
+        var searchPattern = request.ToSqlLikePattern();
         var superAdminNormalizedName = DomainSystemRoleNames.SuperAdmin.ToUpperInvariant();
 
-        IQueryable<AdminUserListRow> userQuery =
+        IQueryable<AdminUserListQueryRow> userQuery =
             from user in db.AdminIdentityUsers.AsNoTracking()
             join profile in db.AdminUserProfiles.AsNoTracking() on user.Id equals profile.UserId into profileJoin
             from profile in profileJoin.DefaultIfEmpty()
             join accountState in db.AdminAccountStates.AsNoTracking() on user.Id equals accountState.UserId into stateJoin
             from accountState in stateJoin.DefaultIfEmpty()
-            select new AdminUserListRow(
+            select new AdminUserListQueryRow(
                 user.Id,
                 user.UserName ?? string.Empty,
                 user.NormalizedUserName,
                 user.Email ?? string.Empty,
                 user.NormalizedEmail,
-                profile != null && !string.IsNullOrWhiteSpace(profile.DisplayName) ? profile.DisplayName : (user.UserName ?? string.Empty),
+                profile != null && profile.DisplayName != null && profile.DisplayName != string.Empty ? profile.DisplayName : (user.UserName ?? string.Empty),
                 accountState != null ? accountState.State : null,
                 accountState != null ? accountState.CreatedAtUtc : DateTimeOffset.MinValue,
                 accountState != null ? accountState.LastLoginAtUtc : null);
 
-        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        if (!string.IsNullOrWhiteSpace(searchPattern))
         {
             userQuery = userQuery.Where(item =>
-                (item.NormalizedUserName != null && item.NormalizedUserName.Contains(normalizedSearch)) ||
-                (item.NormalizedEmail != null && item.NormalizedEmail.Contains(normalizedSearch)) ||
-                item.DisplayName.ToUpper().Contains(normalizedSearch) ||
+                EF.Functions.ILike(item.UserName, searchPattern) ||
+                EF.Functions.ILike(item.Email, searchPattern) ||
+                EF.Functions.ILike(item.DisplayName, searchPattern) ||
                 db.AdminIdentityUserRoles
                     .Join(db.AdminIdentityRoles, userRole => userRole.RoleId, role => role.Id, (userRole, role) => new { userRole.UserId, role.NormalizedName })
-                    .Any(match => match.UserId == item.Id && match.NormalizedName != null && match.NormalizedName.Contains(normalizedSearch)));
+                    .Any(match => match.UserId == item.Id && match.NormalizedName != null && EF.Functions.ILike(match.NormalizedName, searchPattern)));
         }
 
-        userQuery = request.NormalizedFilter.ToLowerInvariant() switch
+        userQuery = filter switch
         {
-            "active" => userQuery.Where(item => item.State == activeState),
-            "inactive" => userQuery.Where(item => item.State != activeState),
-            "superadmin" => userQuery.Where(item =>
+            AdminUserCatalogFilter.Active => userQuery.Where(item => item.State == activeState),
+            AdminUserCatalogFilter.Inactive => userQuery.Where(item => item.State != activeState),
+            AdminUserCatalogFilter.SuperAdmin => userQuery.Where(item =>
                 db.AdminIdentityUserRoles
                     .Join(db.AdminIdentityRoles, userRole => userRole.RoleId, role => role.Id, (userRole, role) => new { userRole.UserId, role.NormalizedName })
                     .Any(match => match.UserId == item.Id && match.NormalizedName == superAdminNormalizedName)),
@@ -155,10 +155,7 @@ public sealed class RbacService(
 
         var orderedQuery = ApplyAdminUserSort(
             userQuery,
-            GridQuerySortParser.Parse(
-                request.Sort,
-                new GridSortTerm("name", GridSortDirection.Asc),
-                new GridSortTerm("created", GridSortDirection.Desc)));
+            RbacCatalogProfiles.AdminUsers.ParseSort(request.Sort));
 
         var (pageRows, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
 
@@ -278,47 +275,68 @@ public sealed class RbacService(
 
     // ─── Role Management ────────────────────────────────────────────────────
 
-    public async Task<PaginatedResult<RoleListItemDto>> ListRolesAsync(GridQuery request, CancellationToken ct)
+    public async Task<PaginatedResult<RoleListItemDto>> ListRolesAsync(GridQuery request, RoleCatalogFilter filter, CancellationToken ct)
     {
         request = request.Normalize(maxPageSize: 100);
-        var normalizedSearch = request.NormalizedSearch?.ToUpperInvariant();
+        var searchPattern = request.ToSqlLikePattern();
 
-        IQueryable<RoleListItemDto> roleQuery =
+        var roleUserCounts =
+            from userRole in db.AdminIdentityUserRoles.AsNoTracking()
+            group userRole by userRole.RoleId
+            into roleGroup
+            select new
+            {
+                RoleId = roleGroup.Key,
+                UserCount = roleGroup.Count()
+            };
+
+        IQueryable<RoleListQueryRow> roleQuery =
             from role in db.AdminIdentityRoles.AsNoTracking()
             join metadata in db.RoleMetadata.AsNoTracking() on role.Id equals metadata.RoleId into metadataJoin
             from metadata in metadataJoin.DefaultIfEmpty()
-            join userRole in db.AdminIdentityUserRoles.AsNoTracking() on role.Id equals userRole.RoleId into userRoleJoin
-            select new RoleListItemDto(
+            join roleUserCount in roleUserCounts on role.Id equals roleUserCount.RoleId into roleUserCountJoin
+            from roleUserCount in roleUserCountJoin.DefaultIfEmpty()
+            select new RoleListQueryRow(
                 role.Id,
                 role.Name ?? string.Empty,
                 metadata != null ? metadata.Description : string.Empty,
                 metadata != null && metadata.IsSystemRole,
                 metadata != null ? metadata.Priority : 0,
-                userRoleJoin.Count(),
+                roleUserCount != null ? roleUserCount.UserCount : 0,
                 metadata != null ? metadata.CreatedAtUtc : DateTimeOffset.MinValue);
 
-        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        if (!string.IsNullOrWhiteSpace(searchPattern))
         {
             roleQuery = roleQuery.Where(item =>
-                item.Name.ToUpper().Contains(normalizedSearch) ||
-                item.Description.ToUpper().Contains(normalizedSearch));
+                EF.Functions.ILike(item.Name, searchPattern) ||
+                EF.Functions.ILike(item.Description, searchPattern));
         }
 
-        roleQuery = request.NormalizedFilter.ToLowerInvariant() switch
+        roleQuery = filter switch
         {
-            "system" => roleQuery.Where(item => item.IsSystemRole),
-            "custom" => roleQuery.Where(item => !item.IsSystemRole),
+            RoleCatalogFilter.System => roleQuery.Where(item => item.IsSystemRole),
+            RoleCatalogFilter.Custom => roleQuery.Where(item => !item.IsSystemRole),
             _ => roleQuery
         };
 
         var orderedQuery = ApplyRoleSort(
             roleQuery,
-            GridQuerySortParser.Parse(
-                request.Sort,
-                new GridSortTerm("priority", GridSortDirection.Desc),
-                new GridSortTerm("name", GridSortDirection.Asc)));
+            RbacCatalogProfiles.Roles.ParseSort(request.Sort));
 
-        var (pagedItems, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
+        var (pageRows, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
+
+        var pagedItems = pageRows
+            .Select(item => new RoleListItemDto(
+                item.Id,
+                item.Name,
+                item.Description,
+                item.IsSystemRole,
+                item.Priority,
+                item.UserCount,
+                item.CreatedAtUtc))
+            .ToList()
+            .AsReadOnly();
+
         return new PaginatedResult<RoleListItemDto>(pagedItems, totalCount, request.Page, request.PageSize);
     }
 
@@ -485,7 +503,7 @@ public sealed class RbacService(
 
     // ─── Permission Group Management ────────────────────────────────────────
 
-    public async Task<PaginatedResult<PermissionGroupListItemDto>> ListPermissionGroupsAsync(GridQuery request, CancellationToken ct)
+    public async Task<PaginatedResult<PermissionGroupListItemDto>> ListPermissionGroupsAsync(GridQuery request, PermissionGroupCatalogFilter filter, CancellationToken ct)
     {
         request = request.Normalize(maxPageSize: 100);
         var normalizedSearch = request.NormalizedSearch?.ToUpperInvariant();
@@ -508,19 +526,16 @@ public sealed class RbacService(
                 item.Description.ToUpper().Contains(normalizedSearch));
         }
 
-        permissionGroupQuery = request.NormalizedFilter.ToLowerInvariant() switch
+        permissionGroupQuery = filter switch
         {
-            "system" => permissionGroupQuery.Where(item => item.IsSystemGroup),
-            "custom" => permissionGroupQuery.Where(item => !item.IsSystemGroup),
+            PermissionGroupCatalogFilter.System => permissionGroupQuery.Where(item => item.IsSystemGroup),
+            PermissionGroupCatalogFilter.Custom => permissionGroupQuery.Where(item => !item.IsSystemGroup),
             _ => permissionGroupQuery
         };
 
         var orderedQuery = ApplyPermissionGroupSort(
             permissionGroupQuery,
-            GridQuerySortParser.Parse(
-                request.Sort,
-                new GridSortTerm("name", GridSortDirection.Asc),
-                new GridSortTerm("permissions", GridSortDirection.Desc)));
+            RbacCatalogProfiles.PermissionGroups.ParseSort(request.Sort));
 
         var (pagedItems, totalCount) = await orderedQuery.ToPageAsync(request.Page, request.PageSize, ct);
         return new PaginatedResult<PermissionGroupListItemDto>(pagedItems, totalCount, request.Page, request.PageSize);
@@ -669,11 +684,11 @@ public sealed class RbacService(
         return activeSuperAdminCount <= 1;
     }
 
-    private static IOrderedQueryable<AdminUserListRow> ApplyAdminUserSort(
-        IQueryable<AdminUserListRow> query,
+    private static IOrderedQueryable<AdminUserListQueryRow> ApplyAdminUserSort(
+        IQueryable<AdminUserListQueryRow> query,
         IReadOnlyList<GridSortTerm> sortTerms)
     {
-        IOrderedQueryable<AdminUserListRow>? ordered = null;
+        IOrderedQueryable<AdminUserListQueryRow>? ordered = null;
 
         foreach (var term in sortTerms)
         {
@@ -690,11 +705,11 @@ public sealed class RbacService(
         return ordered ?? query.OrderBy(item => item.DisplayName).ThenBy(item => item.UserName);
     }
 
-    private static IOrderedQueryable<RoleListItemDto> ApplyRoleSort(
-        IQueryable<RoleListItemDto> query,
+    private static IOrderedQueryable<RoleListQueryRow> ApplyRoleSort(
+        IQueryable<RoleListQueryRow> query,
         IReadOnlyList<GridSortTerm> sortTerms)
     {
-        IOrderedQueryable<RoleListItemDto>? ordered = null;
+        IOrderedQueryable<RoleListQueryRow>? ordered = null;
 
         foreach (var term in sortTerms)
         {
@@ -791,7 +806,7 @@ public sealed class RbacService(
         return state;
     }
 
-    private sealed record AdminUserListRow(
+    private sealed record AdminUserListQueryRow(
         string Id,
         string UserName,
         string? NormalizedUserName,
@@ -801,4 +816,13 @@ public sealed class RbacService(
         string? State,
         DateTimeOffset CreatedAtUtc,
         DateTimeOffset? LastLoginAtUtc);
+
+    private sealed record RoleListQueryRow(
+        string Id,
+        string Name,
+        string Description,
+        bool IsSystemRole,
+        int Priority,
+        int UserCount,
+        DateTimeOffset CreatedAtUtc);
 }

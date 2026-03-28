@@ -4,6 +4,28 @@ using MediatR;
 
 namespace Identity.SelfService.Application;
 
+public enum AdminUserCatalogFilter
+{
+    All,
+    Active,
+    Inactive,
+    SuperAdmin
+}
+
+public enum RoleCatalogFilter
+{
+    All,
+    System,
+    Custom
+}
+
+public enum PermissionGroupCatalogFilter
+{
+    All,
+    System,
+    Custom
+}
+
 // ─── Profile Commands ───────────────────────────────────────────────────────
 
 public sealed record UpdateProfileCommand(
@@ -92,15 +114,15 @@ public sealed record UnlockAccountCommand(
 
 public sealed record GetAdminProfileDetailQuery(string UserId) : IRequest<AdminProfileDetailResponse?>;
 
-public sealed record ListAdminUsersQuery(GridQuery Query) : IRequest<PaginatedResult<AdminUserListItemDto>>;
+public sealed record ListAdminUsersQuery(GridQuery Query, AdminUserCatalogFilter Filter) : IRequest<PaginatedResult<AdminUserListItemDto>>;
 
 public sealed record GetAdminUserDetailQuery(string UserId) : IRequest<AdminUserDetailDto?>;
 
-public sealed record ListRolesQuery(GridQuery Query) : IRequest<PaginatedResult<RoleListItemDto>>;
+public sealed record ListRolesQuery(GridQuery Query, RoleCatalogFilter Filter) : IRequest<PaginatedResult<RoleListItemDto>>;
 
 public sealed record GetRoleDetailQuery(string RoleId) : IRequest<RoleDetailDto?>;
 
-public sealed record ListPermissionGroupsQuery(GridQuery Query) : IRequest<PaginatedResult<PermissionGroupListItemDto>>;
+public sealed record ListPermissionGroupsQuery(GridQuery Query, PermissionGroupCatalogFilter Filter) : IRequest<PaginatedResult<PermissionGroupListItemDto>>;
 
 public sealed record GetPermissionGroupDetailQuery(Guid GroupId) : IRequest<PermissionGroupDetailDto?>;
 

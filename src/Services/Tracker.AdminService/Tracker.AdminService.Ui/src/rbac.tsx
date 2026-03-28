@@ -1,5 +1,7 @@
-import { type ReactNode, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { type PageResult } from "./catalog";
+import { CatalogToolbar, ConfirmActionModal, Modal, PaginationFooter, PreviewDrawer, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
 
 type PageProps = {
   accessToken: string;
@@ -26,12 +28,7 @@ type AdminProfileDetailResponse = {
   lastLoginAtUtc?: string | null;
 };
 
-type PaginatedResult<T> = {
-  items: T[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-};
+type PaginatedResult<T> = PageResult<T>;
 
 type AdminUserListItemDto = {
   userId: string;
@@ -237,272 +234,6 @@ function formatDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("cs-CZ");
 }
 
-function Modal({
-  title,
-  description,
-  open,
-  onClose,
-  width = "wide",
-  children
-}: {
-  title: string;
-  description?: string;
-  open: boolean;
-  onClose: () => void;
-  width?: "medium" | "wide" | "xwide";
-  children: ReactNode;
-}) {
-  if (!open) return null;
-
-  return (
-    <div className="app-modal-overlay" onClick={onClose}>
-      <div className={`app-modal-card app-modal-card-${width}`} onClick={(event) => event.stopPropagation()}>
-        <div className="app-card-header flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            <div className="app-kicker">Modal</div>
-            <h2 className="text-2xl font-bold text-ink">{title}</h2>
-            {description ? <p className="text-sm text-steel">{description}</p> : null}
-          </div>
-          <button type="button" className="app-icon-button" aria-label="Close modal" onClick={onClose}>
-            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
-              <path d="m6 6 12 12" />
-              <path d="M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-        <div className="app-card-body">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function CatalogToolbar({
-  title,
-  description,
-  totalCount,
-  search,
-  onSearchChange,
-  sortValue,
-  onSortChange,
-  sortOptions,
-  pageSize,
-  onPageSizeChange,
-  filter,
-  onFilterChange,
-  filterOptions,
-  createLabel,
-  onCreate
-}: {
-  title: string;
-  description: string;
-  totalCount: number;
-  search: string;
-  onSearchChange: (value: string) => void;
-  sortValue: string;
-  onSortChange: (value: string) => void;
-  sortOptions: Array<{ value: string; label: string }>;
-  pageSize: number;
-  onPageSizeChange: (value: number) => void;
-  filter: string;
-  onFilterChange: (value: string) => void;
-  filterOptions: Array<{ value: string; label: string }>;
-  createLabel: string;
-  onCreate: () => void;
-}) {
-  return (
-    <div className="app-card">
-      <div className="app-card-header app-catalog-header">
-        <div className="space-y-1">
-          <div className="app-kicker">Catalog</div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-xl font-bold text-ink">{title}</h2>
-            <span className="app-chip">{totalCount} results</span>
-          </div>
-          <p className="text-sm text-steel">{description}</p>
-        </div>
-        <button type="button" className="app-button-primary" onClick={onCreate}>
-          {createLabel}
-        </button>
-      </div>
-      <div className="app-card-body">
-        <div className="app-catalog-toolbar">
-          <input
-            className="app-input"
-            value={search}
-            placeholder="Search catalog"
-            onChange={(event) => onSearchChange(event.target.value)}
-          />
-          <select className="app-input" value={filter} onChange={(event) => onFilterChange(event.target.value)}>
-            {filterOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select className="app-input" value={sortValue} onChange={(event) => onSortChange(event.target.value)}>
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select className="app-input" value={String(pageSize)} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
-            {[6, 9, 12, 18, 24].map((option) => (
-              <option key={option} value={option}>
-                {option} per page
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PaginationFooter({
-  page,
-  pageCount,
-  totalCount,
-  pageSize,
-  onPageChange
-}: {
-  page: number;
-  pageCount: number;
-  totalCount: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-}) {
-  if (pageCount <= 1) {
-    return (
-      <div className="app-catalog-pagination">
-        <p className="text-sm text-steel">
-          {totalCount} record{totalCount === 1 ? "" : "s"} - {pageSize} per page
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="app-catalog-pagination">
-      <p className="text-sm text-steel">
-        Page {Math.min(page, pageCount)} of {pageCount} - {totalCount} records - {pageSize} per page
-      </p>
-      <div className="flex items-center gap-2">
-        <button type="button" className="app-button-secondary py-2.5" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
-          Previous
-        </button>
-        <button type="button" className="app-button-secondary py-2.5" disabled={page >= pageCount} onClick={() => onPageChange(page + 1)}>
-          Next
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function SortHeaderButton({
-  label,
-  active,
-  direction,
-  onClick
-}: {
-  label: string;
-  active: boolean;
-  direction: SortDirection;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className="inline-flex items-center gap-2 font-semibold transition hover:text-white" onClick={onClick}>
-      <span>{label}</span>
-      <span className={`text-[10px] ${active ? "text-honey-200" : "text-white/35"}`}>{active ? (direction === "asc" ? "↑" : "↓") : "↕"}</span>
-    </button>
-  );
-}
-
-function TableStateRow({
-  colSpan,
-  title,
-  message
-}: {
-  colSpan: number;
-  title: string;
-  message: string;
-}) {
-  return (
-    <tr>
-      <td colSpan={colSpan} className="px-5 py-12">
-        <div className="app-table-state">
-          <div className="text-base font-semibold text-ink">{title}</div>
-          <div className="text-sm text-steel">{message}</div>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function PreviewDrawer({
-  open,
-  title,
-  subtitle,
-  onClose,
-  children
-}: {
-  open: boolean;
-  title: string;
-  subtitle?: string;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className={`app-preview-drawer ${open ? "app-preview-drawer-open" : ""}`} aria-hidden={!open}>
-      <div className="app-preview-drawer-card">
-        <div className="app-preview-drawer-header">
-          <div className="space-y-1">
-            <div className="app-kicker">Quick preview</div>
-            <div className="text-xl font-bold text-ink">{title}</div>
-            {subtitle ? <div className="text-sm text-steel">{subtitle}</div> : null}
-          </div>
-          <button type="button" className="app-icon-button" aria-label="Close preview" onClick={onClose}>
-            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
-              <path d="m6 6 12 12" />
-              <path d="M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-        <div className="app-preview-drawer-body">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmActionModal({
-  open,
-  title,
-  description,
-  confirmLabel,
-  tone = "danger",
-  onConfirm,
-  onClose
-}: {
-  open: boolean;
-  title: string;
-  description: string;
-  confirmLabel: string;
-  tone?: "danger" | "primary";
-  onConfirm: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <Modal open={open} onClose={onClose} title={title} description={description} width="medium">
-      <div className="flex justify-end gap-3">
-        <button type="button" className="app-button-secondary" onClick={onClose}>Cancel</button>
-        <button type="button" className={tone === "danger" ? "app-button-danger" : "app-button-primary"} onClick={onConfirm}>
-          {confirmLabel}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
 function PermissionList({ permissions }: { permissions: string[] }) {
   if (permissions.length === 0) {
     return <div className="app-empty-state">No permissions in this selection.</div>;
@@ -655,35 +386,36 @@ export function ProfilePage({ accessToken, onReauthenticate }: PageProps) {
 }
 
 export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "name:asc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview: previewUserId, modal, id: routeUserId } = view;
   const [items, setItems] = useState<AdminUserListItemDto[]>([]);
   const [roleOptions, setRoleOptions] = useState<RoleListItemDto[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-  const [previewUserId, setPreviewUserId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [sortValue, setSortValue] = useState("name:asc");
-  const [pageSize, setPageSize] = useState(9);
-  const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingDetail, setEditingDetail] = useState<AdminUserDetailDto | null>(null);
   const [confirmBulkMode, setConfirmBulkMode] = useState<"activate" | "deactivate" | null>(null);
   const [createForm, setCreateForm] = useState<CreateAdminUserRequest>({ userName: "", email: "", password: "", displayName: "", roles: [] });
   const [editForm, setEditForm] = useState({ displayName: "", email: "", roles: [] as string[], resetPassword: "" });
-  const deferredSearch = useDeferredValue(search);
+  const deferredSearch = useDeferredValue(query.search);
 
   const load = async () => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
-        page: String(page),
-        pageSize: String(pageSize),
-        filter,
-        sort: sortValue
+        page: String(query.page),
+        pageSize: String(query.pageSize),
+        filter: query.filter,
+        sort: query.sort
       });
       if (deferredSearch.trim()) {
         params.set("search", deferredSearch.trim());
@@ -697,7 +429,6 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
       setTotalCount(users.totalCount);
       setRoleOptions(roles.items);
       setSelectedUserIds((current) => current.filter((id) => users.items.some((item) => item.userId === id)));
-      setPreviewUserId((current) => (current && users.items.some((item) => item.userId === current) ? current : null));
     } finally {
       setIsLoading(false);
     }
@@ -705,16 +436,45 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
 
   useEffect(() => {
     load().catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to load admin users."));
-  }, [accessToken, deferredSearch, filter, onReauthenticate, page, pageSize, sortValue]);
+  }, [accessToken, deferredSearch, onReauthenticate, query.filter, query.page, query.pageSize, query.sort]);
 
-  useEffect(() => setPage(1), [deferredSearch, filter, sortValue, pageSize]);
-  const [activeSortField, activeSortDirection] = sortValue.split(":") as [string, SortDirection];
+  useEffect(() => {
+    if (!previewUserId || isLoading) return;
+    if (!items.some((item) => item.userId === previewUserId)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [isLoading, items, previewUserId, setView]);
+
+  useEffect(() => {
+    if (modal === "create") {
+      setEditingUserId(null);
+      setEditingDetail(null);
+      return;
+    }
+
+    if (modal !== "edit" || !routeUserId) {
+      setEditingUserId(null);
+      setEditingDetail(null);
+      return;
+    }
+
+    if (editingUserId === routeUserId && editingDetail) {
+      return;
+    }
+
+    openEdit(routeUserId).catch((requestError) => {
+      setError(requestError instanceof Error ? requestError.message : "Unable to open user editor.");
+      setView((current) => ({ ...current, modal: null, id: null }));
+    });
+  }, [editingDetail, editingUserId, modal, routeUserId, setView]);
+
+  const [activeSortField, activeSortDirection] = query.sort.split(":") as [string, SortDirection];
   const selectedRecords = items.filter((item) => selectedUserIds.includes(item.userId));
   const selectedActiveIds = selectedRecords.filter((item) => item.isActive).map((item) => item.userId);
   const selectedInactiveIds = selectedRecords.filter((item) => !item.isActive).map((item) => item.userId);
   const allPageSelected = items.length > 0 && items.every((item) => selectedUserIds.includes(item.userId));
   const previewUser = items.find((item) => item.userId === previewUserId) ?? null;
-  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
 
   const toggleRole = (currentRoles: string[], role: string) =>
     currentRoles.includes(role) ? currentRoles.filter((item) => item !== role) : [...currentRoles, role];
@@ -724,12 +484,13 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
     setEditingDetail(detail);
     setEditForm({ displayName: detail.displayName, email: detail.email, roles: detail.roles, resetPassword: "" });
     setEditingUserId(userId);
+    setView((current) => ({ ...current, modal: "edit", id: userId, preview: current.preview === userId ? null : current.preview }));
   };
 
   const saveCreate = async () => {
     try {
       await requestJson("/api/admin/rbac/users", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createForm) });
-      setCreateOpen(false);
+      setView((current) => ({ ...current, modal: null, id: null }));
       setCreateForm({ userName: "", email: "", password: "", displayName: "", roles: [] });
       setMessage("Admin user created.");
       await load();
@@ -757,6 +518,7 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
       }
       setEditingUserId(null);
       setEditingDetail(null);
+      setView((current) => ({ ...current, modal: null, id: null }));
       setMessage("Admin user updated.");
       await load();
     } catch (requestError) {
@@ -783,13 +545,14 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
   };
 
   const toggleSort = (field: string) => {
-    setSortValue((current) => {
-      const [currentField, currentDirection] = current.split(":") as [string, SortDirection];
+      setView((current) => {
+        const currentSort = current.query.sort;
+      const [currentField, currentDirection] = currentSort.split(":") as [string, SortDirection];
       if (currentField === field) {
-        return `${field}:${currentDirection === "asc" ? "desc" : "asc"}`;
+        return { ...current, query: { ...current.query, sort: `${field}:${currentDirection === "asc" ? "desc" : "asc"}`, page: 1 } };
       }
       const defaultDirection: SortDirection = field === "created" || field === "lastLogin" ? "desc" : "asc";
-      return `${field}:${defaultDirection}`;
+      return { ...current, query: { ...current.query, sort: `${field}:${defaultDirection}`, page: 1 } };
     });
   };
 
@@ -812,22 +575,23 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
     <div className="app-page-stack">
       <CatalogToolbar
         title="Admin users"
-        description="Search, filter and sort the admin catalog. Create and edit actions open in a focused modal."
+        description="Search and manage admin accounts from one grid."
         totalCount={totalCount}
-        search={search}
-        onSearchChange={setSearch}
-        sortValue={sortValue}
-        onSortChange={setSortValue}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search users, emails or roles"
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
         sortOptions={[
           { value: "name:asc", label: "Name A-Z" },
           { value: "created:desc", label: "Newest first" },
           { value: "lastLogin:desc", label: "Recent activity" },
           { value: "email:asc", label: "Email A-Z" }
         ]}
-        pageSize={pageSize}
-        onPageSizeChange={setPageSize}
-        filter={filter}
-        onFilterChange={setFilter}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
         filterOptions={[
           { value: "all", label: "All users" },
           { value: "active", label: "Active only" },
@@ -835,7 +599,7 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
           { value: "superadmin", label: "SuperAdmins" }
         ]}
         createLabel="Create admin user"
-        onCreate={() => setCreateOpen(true)}
+        onCreate={() => setView((current) => ({ ...current, modal: "create", id: null, preview: null }))}
       />
       {message ? <div className="app-notice-success">{message}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -916,7 +680,7 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
                       <button type="button" className={item.isActive ? "app-button-danger px-4 py-2.5" : "app-button-secondary px-4 py-2.5"} onClick={() => changeActivation([item.userId], !item.isActive)}>
                         {item.isActive ? "Deactivate" : "Activate"}
                       </button>
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setPreviewUserId(item.userId)}>
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.userId }))}>
                         Preview
                       </button>
                     </div>
@@ -928,9 +692,20 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
         </div>
       </div>
 
-      <PaginationFooter page={page} pageCount={pageCount} totalCount={totalCount} pageSize={pageSize} onPageChange={setPage} />
+      <PaginationFooter
+        page={query.page}
+        pageCount={pageCount}
+        totalCount={totalCount}
+        pageSize={query.pageSize}
+        onPageChange={(value) => setView((current) => ({ ...current, query: { ...current.query, page: value } }))}
+      />
 
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create admin user" description="Provision a new admin account and assign initial roles.">
+      <Modal
+        open={modal === "create"}
+        onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}
+        title="Create admin user"
+        description="Provision a new admin account and assign initial roles."
+      >
         <div className="space-y-4">
           <div className="app-form-grid">
             <input className="app-input" placeholder="User name" value={createForm.userName} onChange={(event) => setCreateForm((current) => ({ ...current, userName: event.target.value }))} />
@@ -950,13 +725,23 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
             <button type="button" className="app-button-primary" onClick={saveCreate}>Create admin user</button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={editingUserId !== null} onClose={() => setEditingUserId(null)} title="Edit admin user" description="Update profile data, role assignments and lifecycle controls." width="xwide">
+      <Modal
+        open={modal === "edit" && editingUserId !== null}
+        onClose={() => {
+          setEditingUserId(null);
+          setEditingDetail(null);
+          setView((current) => ({ ...current, modal: null, id: null }));
+        }}
+        title="Edit admin user"
+        description="Update profile data, role assignments and lifecycle controls."
+        width="xwide"
+      >
         <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
           <div className="space-y-4">
             <div className="app-form-grid">
@@ -1032,7 +817,12 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
           void changeActivation(selectedActiveIds, false);
         }}
       />
-      <PreviewDrawer open={previewUser !== null} title={previewUser?.displayName || previewUser?.userName || ""} subtitle={previewUser?.email} onClose={() => setPreviewUserId(null)}>
+      <PreviewDrawer
+        open={previewUser !== null}
+        title={previewUser?.displayName || previewUser?.userName || ""}
+        subtitle={previewUser?.email}
+        onClose={() => setView((current) => ({ ...current, preview: null }))}
+      >
         {previewUser ? (
           <div className="space-y-4">
             <div className="app-detail-grid">
@@ -1076,37 +866,38 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
 }
 
 export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "priority:desc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview: previewRoleId, modal, id: routeRoleId } = view;
   const [items, setItems] = useState<RoleListItemDto[]>([]);
   const [groups, setGroups] = useState<PermissionGroupListItemDto[]>([]);
   const [permissions, setPermissions] = useState<PermissionDefinitionDto[]>([]);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
-  const [previewRoleId, setPreviewRoleId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [sortValue, setSortValue] = useState("priority:desc");
-  const [pageSize, setPageSize] = useState(9);
-  const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<RoleDetailDto | null>(null);
   const [confirmDeleteRolesOpen, setConfirmDeleteRolesOpen] = useState(false);
   const [permissionSearch, setPermissionSearch] = useState("");
   const [createForm, setCreateForm] = useState<CreateRoleRequest>({ name: "", description: "", priority: 100 });
   const [editForm, setEditForm] = useState({ description: "", priority: 100, permissionGroupIds: [] as string[], directPermissionKeys: [] as string[] });
-  const deferredSearch = useDeferredValue(search);
+  const deferredSearch = useDeferredValue(query.search);
   const deferredPermissionSearch = useDeferredValue(permissionSearch);
 
   const load = async () => {
     setIsLoading(true);
     try {
       const query = new URLSearchParams({
-        page: String(page),
-        pageSize: String(pageSize),
-        filter,
-        sort: sortValue
+        page: String(query.page),
+        pageSize: String(query.pageSize),
+        filter: query.filter,
+        sort: query.sort
       });
       if (deferredSearch.trim()) {
         query.set("search", deferredSearch.trim());
@@ -1122,7 +913,6 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
       setGroups(groupResult.items);
       setPermissions(permissionItems);
       setSelectedRoleIds((current) => current.filter((id) => roleResult.items.some((item) => item.roleId === id)));
-      setPreviewRoleId((current) => (current && roleResult.items.some((item) => item.roleId === current) ? current : null));
     } finally {
       setIsLoading(false);
     }
@@ -1130,10 +920,37 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
 
   useEffect(() => {
     load().catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to load roles."));
-  }, [accessToken, deferredSearch, filter, onReauthenticate, page, pageSize, sortValue]);
+  }, [accessToken, deferredSearch, onReauthenticate, query.filter, query.page, query.pageSize, query.sort]);
 
-  useEffect(() => setPage(1), [deferredSearch, filter, sortValue, pageSize]);
-  const [activeSortField, activeSortDirection] = sortValue.split(":") as [string, SortDirection];
+  useEffect(() => {
+    if (!previewRoleId || isLoading) return;
+    if (!items.some((item) => item.roleId === previewRoleId)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [isLoading, items, previewRoleId, setView]);
+
+  useEffect(() => {
+    if (modal === "create") {
+      setEditingRole(null);
+      return;
+    }
+
+    if (modal !== "edit" || !routeRoleId) {
+      setEditingRole(null);
+      return;
+    }
+
+    if (editingRole?.roleId === routeRoleId) {
+      return;
+    }
+
+    openEdit(routeRoleId).catch((requestError) => {
+      setError(requestError instanceof Error ? requestError.message : "Unable to open role editor.");
+      setView((current) => ({ ...current, modal: null, id: null }));
+    });
+  }, [editingRole, modal, routeRoleId, setView]);
+
+  const [activeSortField, activeSortDirection] = query.sort.split(":") as [string, SortDirection];
   const selectedRoles = items.filter((item) => selectedRoleIds.includes(item.roleId));
   const selectedDeletableRoleIds = selectedRoles.filter((item) => !item.isSystemRole).map((item) => item.roleId);
   const allPageSelected = items.length > 0 && items.every((item) => selectedRoleIds.includes(item.roleId));
@@ -1148,19 +965,20 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
 
   const openEdit = async (roleId: string) => {
     const detail = await requestJson<RoleDetailDto>(`/api/admin/rbac/roles/${encodeURIComponent(roleId)}`, accessToken, onReauthenticate);
-    setEditingRole(detail);
-    setEditForm({
-      description: detail.description,
-      priority: detail.priority,
-      permissionGroupIds: detail.permissionGroupIds,
-      directPermissionKeys: detail.directPermissionKeys
-    });
-  };
+      setEditingRole(detail);
+      setEditForm({
+        description: detail.description,
+        priority: detail.priority,
+        permissionGroupIds: detail.permissionGroupIds,
+        directPermissionKeys: detail.directPermissionKeys
+      });
+      setView((current) => ({ ...current, modal: "edit", id: roleId, preview: current.preview === roleId ? null : current.preview }));
+    };
 
   const createRole = async () => {
     try {
       await requestJson("/api/admin/rbac/roles", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createForm) });
-      setCreateOpen(false);
+      setView((current) => ({ ...current, modal: null, id: null }));
       setCreateForm({ name: "", description: "", priority: 100 });
       setMessage("Role created.");
       await load();
@@ -1185,6 +1003,7 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
         body: JSON.stringify({ permissionKeys: editForm.directPermissionKeys })
       });
       setEditingRole(null);
+      setView((current) => ({ ...current, modal: null, id: null }));
       setMessage("Role updated.");
       await load();
     } catch (requestError) {
@@ -1212,12 +1031,12 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
   };
 
   const toggleSort = (field: string) => {
-    setSortValue((current) => {
-      const [currentField, currentDirection] = current.split(":") as [string, SortDirection];
+      setView((current) => {
+      const [currentField, currentDirection] = current.query.sort.split(":") as [string, SortDirection];
       if (currentField === field) {
-        return `${field}:${currentDirection === "asc" ? "desc" : "asc"}`;
+        return { ...current, query: { ...current.query, sort: `${field}:${currentDirection === "asc" ? "desc" : "asc"}`, page: 1 } };
       }
-      return `${field}:${field === "priority" || field === "users" ? "desc" : "asc"}`;
+      return { ...current, query: { ...current.query, sort: `${field}:${field === "priority" || field === "users" ? "desc" : "asc"}`, page: 1 } };
     });
   };
 
@@ -1240,28 +1059,29 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
     <div className="app-page-stack">
       <CatalogToolbar
         title="Roles"
-        description="Search, filter and compare role metadata in the grid, then open focused modal editing."
+        description="Search and manage roles from one grid."
         totalCount={totalCount}
-        search={search}
-        onSearchChange={setSearch}
-        sortValue={sortValue}
-        onSortChange={setSortValue}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search roles or descriptions"
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
         sortOptions={[
           { value: "priority:desc", label: "Priority high to low" },
           { value: "name:asc", label: "Name A-Z" },
           { value: "users:desc", label: "Most assigned first" }
         ]}
-        pageSize={pageSize}
-        onPageSizeChange={setPageSize}
-        filter={filter}
-        onFilterChange={setFilter}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
         filterOptions={[
           { value: "all", label: "All roles" },
           { value: "system", label: "System roles" },
           { value: "custom", label: "Custom roles" }
         ]}
         createLabel="Create role"
-        onCreate={() => setCreateOpen(true)}
+        onCreate={() => setView((current) => ({ ...current, modal: "create", id: null, preview: null }))}
       />
       {message ? <div className="app-notice-success">{message}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -1341,7 +1161,7 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
                       >
                         {item.isSystemRole ? "Protected" : "Delete"}
                       </button>
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setPreviewRoleId(item.roleId)}>
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.roleId }))}>
                         Preview
                       </button>
                     </div>
@@ -1353,9 +1173,20 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
         </div>
       </div>
 
-      <PaginationFooter page={page} pageCount={Math.max(1, Math.ceil(totalCount / pageSize))} totalCount={totalCount} pageSize={pageSize} onPageChange={setPage} />
+      <PaginationFooter
+        page={query.page}
+        pageCount={Math.max(1, Math.ceil(totalCount / query.pageSize))}
+        totalCount={totalCount}
+        pageSize={query.pageSize}
+        onPageChange={(value) => setView((current) => ({ ...current, query: { ...current.query, page: value } }))}
+      />
 
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create role" description="Create the role first, then refine its bundle and direct grants.">
+      <Modal
+        open={modal === "create"}
+        onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}
+        title="Create role"
+        description="Create the role first, then refine its bundle and direct grants."
+      >
         <div className="space-y-4">
           <div className="app-form-grid">
             <input className="app-input" placeholder="Role name" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
@@ -1363,13 +1194,22 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
             <textarea className="app-input md:col-span-2 min-h-[140px]" placeholder="Description" value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
             <button type="button" className="app-button-primary" onClick={createRole}>Create role</button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={editingRole !== null} onClose={() => setEditingRole(null)} title="Edit role" description="Manage role metadata, assigned groups and direct permissions." width="xwide">
+      <Modal
+        open={modal === "edit" && editingRole !== null}
+        onClose={() => {
+          setEditingRole(null);
+          setView((current) => ({ ...current, modal: null, id: null }));
+        }}
+        title="Edit role"
+        description="Manage role metadata, assigned groups and direct permissions."
+        width="xwide"
+      >
         <div className="grid gap-6 xl:grid-cols-[1fr,1fr]">
           <div className="space-y-4">
             <div className="app-form-grid">
@@ -1410,7 +1250,10 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
         <div className="mt-6 space-y-4">
           <PermissionBreakdown directPermissions={editForm.directPermissionKeys} effectivePermissions={editingRole?.effectivePermissionKeys ?? []} />
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setEditingRole(null)}>Cancel</button>
+            <button type="button" className="app-button-secondary" onClick={() => {
+              setEditingRole(null);
+              setView((current) => ({ ...current, modal: null, id: null }));
+            }}>Cancel</button>
             <button type="button" className="app-button-primary" onClick={saveRole}>Save role</button>
           </div>
         </div>
@@ -1426,7 +1269,12 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
           void deleteRoles(selectedDeletableRoleIds);
         }}
       />
-      <PreviewDrawer open={previewRole !== null} title={previewRole?.name ?? ""} subtitle={previewRole?.description} onClose={() => setPreviewRoleId(null)}>
+      <PreviewDrawer
+        open={previewRole !== null}
+        title={previewRole?.name ?? ""}
+        subtitle={previewRole?.description}
+        onClose={() => setView((current) => ({ ...current, preview: null }))}
+      >
         {previewRole ? (
           <div className="space-y-4">
             <div className="app-detail-grid">
@@ -1458,36 +1306,37 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
 }
 
 export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProps) {
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "name:asc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview: previewGroupId, modal, id: routeGroupId } = view;
   const [items, setItems] = useState<PermissionGroupListItemDto[]>([]);
   const [permissions, setPermissions] = useState<PermissionDefinitionDto[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
-  const [previewGroupId, setPreviewGroupId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [sortValue, setSortValue] = useState("name:asc");
-  const [pageSize, setPageSize] = useState(9);
-  const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<PermissionGroupDetailDto | null>(null);
   const [confirmDeleteGroupsOpen, setConfirmDeleteGroupsOpen] = useState(false);
   const [permissionSearch, setPermissionSearch] = useState("");
   const [createForm, setCreateForm] = useState<CreatePermissionGroupRequest>({ name: "", description: "" });
   const [editForm, setEditForm] = useState({ name: "", description: "", permissionKeys: [] as string[] });
-  const deferredSearch = useDeferredValue(search);
+  const deferredSearch = useDeferredValue(query.search);
   const deferredPermissionSearch = useDeferredValue(permissionSearch);
 
   const load = async () => {
     setIsLoading(true);
     try {
       const query = new URLSearchParams({
-        page: String(page),
-        pageSize: String(pageSize),
-        filter,
-        sort: sortValue
+        page: String(query.page),
+        pageSize: String(query.pageSize),
+        filter: query.filter,
+        sort: query.sort
       });
       if (deferredSearch.trim()) {
         query.set("search", deferredSearch.trim());
@@ -1501,7 +1350,6 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
       setTotalCount(groupResult.totalCount);
       setPermissions(permissionItems);
       setSelectedGroupIds((current) => current.filter((id) => groupResult.items.some((item) => item.id === id)));
-      setPreviewGroupId((current) => (current && groupResult.items.some((item) => item.id === current) ? current : null));
     } finally {
       setIsLoading(false);
     }
@@ -1509,10 +1357,37 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
 
   useEffect(() => {
     load().catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to load permission groups."));
-  }, [accessToken, deferredSearch, filter, onReauthenticate, page, pageSize, sortValue]);
+  }, [accessToken, deferredSearch, onReauthenticate, query.filter, query.page, query.pageSize, query.sort]);
 
-  useEffect(() => setPage(1), [deferredSearch, filter, sortValue, pageSize]);
-  const [activeSortField, activeSortDirection] = sortValue.split(":") as [string, SortDirection];
+  useEffect(() => {
+    if (!previewGroupId || isLoading) return;
+    if (!items.some((item) => item.id === previewGroupId)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [isLoading, items, previewGroupId, setView]);
+
+  useEffect(() => {
+    if (modal === "create") {
+      setEditingGroup(null);
+      return;
+    }
+
+    if (modal !== "edit" || !routeGroupId) {
+      setEditingGroup(null);
+      return;
+    }
+
+    if (editingGroup?.id === routeGroupId) {
+      return;
+    }
+
+    openEdit(routeGroupId).catch((requestError) => {
+      setError(requestError instanceof Error ? requestError.message : "Unable to open group editor.");
+      setView((current) => ({ ...current, modal: null, id: null }));
+    });
+  }, [editingGroup, modal, routeGroupId, setView]);
+
+  const [activeSortField, activeSortDirection] = query.sort.split(":") as [string, SortDirection];
   const selectedGroups = items.filter((item) => selectedGroupIds.includes(item.id));
   const selectedDeletableGroupIds = selectedGroups.filter((item) => !item.isSystemGroup).map((item) => item.id);
   const allPageSelected = items.length > 0 && items.every((item) => selectedGroupIds.includes(item.id));
@@ -1526,6 +1401,7 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
     const detail = await requestJson<PermissionGroupDetailDto>(`/api/admin/rbac/permission-groups/${groupId}`, accessToken, onReauthenticate);
     setEditingGroup(detail);
     setEditForm({ name: detail.name, description: detail.description, permissionKeys: detail.permissionKeys });
+    setView((current) => ({ ...current, modal: "edit", id: groupId, preview: current.preview === groupId ? null : current.preview }));
   };
 
   const togglePermission = (permissionKey: string) =>
@@ -1539,7 +1415,7 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
   const createGroup = async () => {
     try {
       await requestJson("/api/admin/rbac/permission-groups", accessToken, onReauthenticate, { method: "POST", body: JSON.stringify(createForm) });
-      setCreateOpen(false);
+      setView((current) => ({ ...current, modal: null, id: null }));
       setCreateForm({ name: "", description: "" });
       setMessage("Permission group created.");
       await load();
@@ -1560,6 +1436,7 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
         body: JSON.stringify({ permissionKeys: editForm.permissionKeys })
       });
       setEditingGroup(null);
+      setView((current) => ({ ...current, modal: null, id: null }));
       setMessage("Permission group updated.");
       await load();
     } catch (requestError) {
@@ -1587,12 +1464,12 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
   };
 
   const toggleSort = (field: string) => {
-    setSortValue((current) => {
-      const [currentField, currentDirection] = current.split(":") as [string, SortDirection];
+      setView((current) => {
+      const [currentField, currentDirection] = current.query.sort.split(":") as [string, SortDirection];
       if (currentField === field) {
-        return `${field}:${currentDirection === "asc" ? "desc" : "asc"}`;
+        return { ...current, query: { ...current.query, sort: `${field}:${currentDirection === "asc" ? "desc" : "asc"}`, page: 1 } };
       }
-      return `${field}:${field === "permissions" ? "desc" : "asc"}`;
+      return { ...current, query: { ...current.query, sort: `${field}:${field === "permissions" ? "desc" : "asc"}`, page: 1 } };
     });
   };
 
@@ -1615,27 +1492,28 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
     <div className="app-page-stack">
       <CatalogToolbar
         title="Permission groups"
-        description="Search, filter and compare reusable bundles in the grid, then open focused modal editing."
+        description="Search and manage reusable permission groups."
         totalCount={totalCount}
-        search={search}
-        onSearchChange={setSearch}
-        sortValue={sortValue}
-        onSortChange={setSortValue}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search groups or descriptions"
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
         sortOptions={[
           { value: "name:asc", label: "Name A-Z" },
           { value: "permissions:desc", label: "Most permissions first" }
         ]}
-        pageSize={pageSize}
-        onPageSizeChange={setPageSize}
-        filter={filter}
-        onFilterChange={setFilter}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
         filterOptions={[
           { value: "all", label: "All groups" },
           { value: "system", label: "System groups" },
           { value: "custom", label: "Custom groups" }
         ]}
         createLabel="Create group"
-        onCreate={() => setCreateOpen(true)}
+        onCreate={() => setView((current) => ({ ...current, modal: "create", id: null, preview: null }))}
       />
       {message ? <div className="app-notice-success">{message}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -1711,7 +1589,7 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
                       >
                         {item.isSystemGroup ? "Protected" : "Delete"}
                       </button>
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setPreviewGroupId(item.id)}>
+                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.id }))}>
                         Preview
                       </button>
                     </div>
@@ -1723,22 +1601,42 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
         </div>
       </div>
 
-      <PaginationFooter page={page} pageCount={Math.max(1, Math.ceil(totalCount / pageSize))} totalCount={totalCount} pageSize={pageSize} onPageChange={setPage} />
+      <PaginationFooter
+        page={query.page}
+        pageCount={Math.max(1, Math.ceil(totalCount / query.pageSize))}
+        totalCount={totalCount}
+        pageSize={query.pageSize}
+        onPageChange={(value) => setView((current) => ({ ...current, query: { ...current.query, page: value } }))}
+      />
 
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create permission group" description="Create the bundle first, then attach permissions from the shared catalog.">
+      <Modal
+        open={modal === "create"}
+        onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}
+        title="Create permission group"
+        description="Create the bundle first, then attach permissions from the shared catalog."
+      >
         <div className="space-y-4">
           <div className="app-form-grid">
             <input className="app-input" placeholder="Group name" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
             <input className="app-input" placeholder="Description" value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
             <button type="button" className="app-button-primary" onClick={createGroup}>Create group</button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={editingGroup !== null} onClose={() => setEditingGroup(null)} title="Edit permission group" description="Manage bundle metadata and permission assignments." width="xwide">
+      <Modal
+        open={modal === "edit" && editingGroup !== null}
+        onClose={() => {
+          setEditingGroup(null);
+          setView((current) => ({ ...current, modal: null, id: null }));
+        }}
+        title="Edit permission group"
+        description="Manage bundle metadata and permission assignments."
+        width="xwide"
+      >
         <div className="space-y-4">
           <div className="app-form-grid">
             <input className="app-input" value={editForm.name} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} />
@@ -1764,7 +1662,10 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
             <PermissionList permissions={sortPermissionKeys(editForm.permissionKeys)} />
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" className="app-button-secondary" onClick={() => setEditingGroup(null)}>Cancel</button>
+            <button type="button" className="app-button-secondary" onClick={() => {
+              setEditingGroup(null);
+              setView((current) => ({ ...current, modal: null, id: null }));
+            }}>Cancel</button>
             <button type="button" className="app-button-primary" onClick={saveGroup}>Save group</button>
           </div>
         </div>
@@ -1780,7 +1681,12 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
           void deleteGroups(selectedDeletableGroupIds);
         }}
       />
-      <PreviewDrawer open={previewGroup !== null} title={previewGroup?.name ?? ""} subtitle={previewGroup?.description} onClose={() => setPreviewGroupId(null)}>
+      <PreviewDrawer
+        open={previewGroup !== null}
+        title={previewGroup?.name ?? ""}
+        subtitle={previewGroup?.description}
+        onClose={() => setView((current) => ({ ...current, preview: null }))}
+      >
         {previewGroup ? (
           <div className="space-y-4">
             <div className="app-detail-grid">

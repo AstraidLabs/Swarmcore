@@ -13,13 +13,13 @@ public interface IRbacService
     Task InvalidatePermissionSnapshotAsync(CancellationToken ct);
 
     // ─── Admin User Management ──────────────────────────────────────────────
-    Task<PaginatedResult<AdminUserListItemDto>> ListUsersAsync(GridQuery query, CancellationToken ct);
+    Task<PaginatedResult<AdminUserListItemDto>> ListUsersAsync(GridQuery query, AdminUserCatalogFilter filter, CancellationToken ct);
     Task<AdminUserDetailDto?> GetUserDetailAsync(string userId, CancellationToken ct);
     Task<AdminProfileDetailResponse?> GetProfileDetailAsync(string userId, CancellationToken ct);
     Task UpdateProfileAsync(string userId, string displayName, string timeZone, CancellationToken ct);
 
     // ─── Role Management ────────────────────────────────────────────────────
-    Task<PaginatedResult<RoleListItemDto>> ListRolesAsync(GridQuery query, CancellationToken ct);
+    Task<PaginatedResult<RoleListItemDto>> ListRolesAsync(GridQuery query, RoleCatalogFilter filter, CancellationToken ct);
     Task<RoleDetailDto?> GetRoleDetailAsync(string roleId, CancellationToken ct);
     Task<string> CreateRoleAsync(string name, string description, int priority, CancellationToken ct);
     Task UpdateRoleAsync(string roleId, string description, int priority, CancellationToken ct);
@@ -28,7 +28,7 @@ public interface IRbacService
     Task AssignRoleDirectPermissionsAsync(string roleId, IReadOnlyList<string> permissionKeys, CancellationToken ct);
 
     // ─── Permission Group Management ────────────────────────────────────────
-    Task<PaginatedResult<PermissionGroupListItemDto>> ListPermissionGroupsAsync(GridQuery query, CancellationToken ct);
+    Task<PaginatedResult<PermissionGroupListItemDto>> ListPermissionGroupsAsync(GridQuery query, PermissionGroupCatalogFilter filter, CancellationToken ct);
     Task<PermissionGroupDetailDto?> GetPermissionGroupDetailAsync(Guid groupId, CancellationToken ct);
     Task<Guid> CreatePermissionGroupAsync(string name, string description, CancellationToken ct);
     Task UpdatePermissionGroupAsync(Guid groupId, string name, string description, CancellationToken ct);

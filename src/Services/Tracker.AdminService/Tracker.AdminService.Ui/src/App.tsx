@@ -11,7 +11,17 @@ import {
 } from "react-router-dom";
 import { User, UserManager, WebStorageStateStore } from "oidc-client-ts";
 import { type I18nDictionary, supportedLocales, useI18n } from "./i18n";
-import { AdminUsersPage, PermissionGate, PermissionGroupsPage, ProfilePage, RolesPage, hasPermission, permissionKeys } from "./rbac";
+import {
+  AdminUsersPage,
+  PermissionGate,
+  PermissionGroupsPage,
+  ProfilePage,
+  RolesPage,
+  hasPermission,
+  permissionKeys
+} from "./rbac";
+import { buildGridQueryString, type CatalogQueryState, type PageResult } from "./catalog";
+import { CatalogToolbar, ConfirmActionModal, Modal, PaginationFooter, PreviewDrawer, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
 
 type AdminUiConfig = {
   authority: string;
@@ -28,16 +38,6 @@ type AdminSessionResponse = {
   role: string;
   permissions: string[];
   capabilities: CapabilityDto[];
-};
-
-type PageResult<T> = {
-  items: T[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-  totalPages?: number;
-  hasPreviousPage?: boolean;
-  hasNextPage?: boolean;
 };
 
 type ClusterOverviewDto = {
@@ -95,6 +95,15 @@ type AuditRecordDto = {
   correlationId: string;
   result: string;
   ipAddress?: string | null;
+};
+
+type MaintenanceRunDto = {
+  id: string;
+  operation: string;
+  requestedBy: string;
+  requestedAtUtc: string;
+  status: string;
+  correlationId: string;
 };
 
 type CapabilityDto = {
@@ -224,7 +233,7 @@ type NavigationLink = {
   to: string;
   label: string;
   description: string;
-  icon: "overview" | "users" | "roles" | "groups" | "torrents" | "passkeys" | "trackerAccess" | "bans" | "audit";
+  icon: "overview" | "users" | "roles" | "groups" | "torrents" | "passkeys" | "trackerAccess" | "bans" | "audit" | "maintenance";
 };
 
 type NavigationSection = {
@@ -268,8 +277,28 @@ function formatBool(value: boolean, dictionary: I18nDictionary): string {
   return value ? dictionary.common.yes : dictionary.common.no;
 }
 
-function unwrapPageItems<T>(value: PageResult<T> | T[]): T[] {
-  return Array.isArray(value) ? value : value.items;
+function toBanRecordId(scope: string, subject: string) {
+  return `${encodeURIComponent(scope)}::${encodeURIComponent(subject)}`;
+}
+
+function tryParseBanRecordId(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const separatorIndex = value.indexOf("::");
+  if (separatorIndex <= 0 || separatorIndex >= value.length - 2) {
+    return null;
+  }
+
+  try {
+    return {
+      scope: decodeURIComponent(value.slice(0, separatorIndex)),
+      subject: decodeURIComponent(value.slice(separatorIndex + 2))
+    };
+  } catch {
+    return null;
+  }
 }
 
 function NavigationItemIcon({ icon }: { icon: NavigationLink["icon"] }) {
@@ -346,6 +375,16 @@ function NavigationItemIcon({ icon }: { icon: NavigationLink["icon"] }) {
           <path d="M4 6h.01" />
           <path d="M4 12h.01" />
           <path d="M4 18h.01" />
+        </svg>
+      );
+    case "maintenance":
+      return (
+        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+          <circle cx="8" cy="16" r="2.5" />
+          <circle cx="16" cy="8" r="2.5" />
+          <path d="m9.8 14.2 4.4-4.4" />
+          <path d="M6.5 10.5 4 8l4-4 2.5 2.5" />
+          <path d="M13.5 19.5 16 22l4-4-2.5-2.5" />
         </svg>
       );
   }
@@ -734,170 +773,6 @@ function Card({ title, eyebrow, children }: { title: string; eyebrow?: string; c
   );
 }
 
-type SortDirection = "asc" | "desc";
-
-type DataGridColumn<T> = {
-  key: string;
-  header: string;
-  render: (item: T) => ReactNode;
-  sortValue?: (item: T) => string | number;
-  searchValue?: (item: T) => string;
-  className?: string;
-};
-
-function DataGrid<T>({
-  items,
-  columns,
-  keyFn,
-  emptyMessage,
-  defaultPageSize = 20,
-  pageSizeOptions = [10, 20, 50, 100]
-}: {
-  items: T[];
-  columns: DataGridColumn<T>[];
-  keyFn: (item: T) => string;
-  emptyMessage: string;
-  defaultPageSize?: number;
-  pageSizeOptions?: number[];
-}) {
-  const { dictionary } = useI18n();
-  const grid = dictionary.dataGrid;
-
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<{ key: string; direction: SortDirection } | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(defaultPageSize);
-
-  const itemCount = items.length;
-  useEffect(() => { setPage(1); }, [search, itemCount]);
-
-  const searchLower = search.toLowerCase();
-  const filtered = search
-    ? items.filter((item) =>
-        columns.some((col) => {
-          const value = col.searchValue?.(item);
-          return value !== undefined && value.toLowerCase().includes(searchLower);
-        })
-      )
-    : items;
-
-  const sorted = sort
-    ? [...filtered].sort((a, b) => {
-        const col = columns.find((c) => c.key === sort.key);
-        if (!col?.sortValue) return 0;
-        const aVal = col.sortValue(a);
-        const bVal = col.sortValue(b);
-        const cmp =
-          typeof aVal === "number" && typeof bVal === "number"
-            ? aVal - bVal
-            : String(aVal).localeCompare(String(bVal));
-        return sort.direction === "asc" ? cmp : -cmp;
-      })
-    : filtered;
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * pageSize;
-  const pageItems = sorted.slice(start, start + pageSize);
-
-  const toggleSort = (key: string) => {
-    setSort((current) => {
-      if (current?.key === key) {
-        return current.direction === "asc" ? { key, direction: "desc" as const } : null;
-      }
-      return { key, direction: "asc" as const };
-    });
-  };
-
-  return (
-    <div>
-      <div className="mb-4">
-        <input
-          type="text"
-          placeholder={grid.searchPlaceholder}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="app-input"
-        />
-      </div>
-
-      <div className="app-data-table">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200/80 text-sm">
-            <thead className="app-table-head">
-              <tr>
-                {columns.map((col) => (
-                  <th
-                    key={col.key}
-                    className={`px-4 py-3 ${col.sortValue ? "cursor-pointer select-none transition-colors hover:text-white" : ""} ${col.className ?? ""}`}
-                    onClick={col.sortValue ? () => toggleSort(col.key) : undefined}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      {col.header}
-                      {col.sortValue && sort?.key === col.key ? (
-                        <span className="text-white/90">{sort.direction === "asc" ? "\u2191" : "\u2193"}</span>
-                      ) : col.sortValue ? (
-                        <span className="text-white/30">{"\u2195"}</span>
-                      ) : null}
-                    </span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200/80 bg-white/95">
-              {pageItems.map((item) => (
-                <tr key={keyFn(item)} className="app-table-row">
-                  {columns.map((col) => (
-                    <td key={col.key} className={`px-4 py-3 ${col.className ?? ""}`}>
-                      {col.render(item)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {pageItems.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-10 text-center text-steel/80" colSpan={columns.length}>
-                    {search ? grid.noResults : emptyMessage}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {sorted.length > 0 ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-4 text-sm">
-          <div className="flex items-center gap-2 text-ink/55">
-            <span>{grid.rowsPerPage}:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-              className="rounded-xl border border-ink/15 bg-white px-2 py-1.5 text-sm text-ink"
-            >
-              {pageSizeOptions.map((size) => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-ink/55">
-              {formatText(grid.showingEntries, { from: start + 1, to: Math.min(start + pageSize, sorted.length), total: sorted.length })}
-            </span>
-            <div className="flex gap-1">
-              <button type="button" disabled={safePage <= 1} onClick={() => setPage(1)} className="rounded-xl border border-ink/15 px-2.5 py-1.5 text-ink/70 transition-colors hover:bg-slate-50 disabled:opacity-40">{"\u00AB"}</button>
-              <button type="button" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-xl border border-ink/15 px-2.5 py-1.5 text-ink/70 transition-colors hover:bg-slate-50 disabled:opacity-40">{"\u2039"}</button>
-              <span className="flex items-center px-3 text-ink/60">{safePage} / {totalPages}</span>
-              <button type="button" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="rounded-xl border border-ink/15 px-2.5 py-1.5 text-ink/70 transition-colors hover:bg-slate-50 disabled:opacity-40">{"\u203A"}</button>
-              <button type="button" disabled={safePage >= totalPages} onClick={() => setPage(totalPages)} className="rounded-xl border border-ink/15 px-2.5 py-1.5 text-ink/70 transition-colors hover:bg-slate-50 disabled:opacity-40">{"\u00BB"}</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function getRouteMeta(pathname: string, dictionary: I18nDictionary): { eyebrow: string; title: string; description: string } {
   const routes = dictionary.routes;
   if (pathname.startsWith("/profile")) {
@@ -965,6 +840,13 @@ function getRouteMeta(pathname: string, dictionary: I18nDictionary): { eyebrow: 
       eyebrow: routes.auditEyebrow,
       title: routes.auditTitle,
       description: routes.auditDescription
+    };
+  }
+  if (pathname.startsWith("/maintenance")) {
+    return {
+      eyebrow: routes.maintenanceEyebrow,
+      title: routes.maintenanceTitle,
+      description: routes.maintenanceDescription
     };
   }
 
@@ -1140,16 +1022,29 @@ function TorrentsPage({
   const labels = dictionary.torrents;
   const navigate = useNavigate();
   const location = useLocation();
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "infohash:asc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview } = view;
   const [items, setItems] = useState<TorrentAdminDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selectedInfoHashes, setSelectedInfoHashes] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<BulkOperationResultDto | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const canEditPolicy = hasGrantedCapability(capabilities, "admin.write.torrent_policy");
   const canActivate = hasGrantedCapability(capabilities, "admin.activate.torrent");
   const canDeactivate = hasGrantedCapability(capabilities, "admin.deactivate.torrent");
   const canBulkEditPolicy = hasGrantedCapability(capabilities, "admin.bulk_upsert.torrent_policy");
+  const previewItem = items.find((item) => item.infoHash === preview) ?? null;
+  const [activeSortField, activeSortDirection = "asc"] = query.sort.split(":");
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
 
   useEffect(() => {
     const banner = location.state as NavigationBannerState | null;
@@ -1161,27 +1056,50 @@ function TorrentsPage({
     navigate(location.pathname, { replace: true, state: null });
   }, [location.pathname, location.state, navigate]);
 
+  const reload = async () => {
+    const page = await apiRequest<PageResult<TorrentAdminDto>>(
+      `/api/admin/torrents?${buildGridQueryString(query)}`,
+      accessToken,
+      onReauthenticate
+    );
+    setItems(page.items);
+    setTotalCount(page.totalCount);
+    setSelectedInfoHashes((current) => current.filter((infoHash) => page.items.some((item) => item.infoHash === infoHash)));
+  };
+
   useEffect(() => {
     let isMounted = true;
 
-    apiRequest<PageResult<TorrentAdminDto> | TorrentAdminDto[]>("/api/admin/torrents?page=1&pageSize=50", accessToken, onReauthenticate)
-        .then((value) => {
-          const items = unwrapPageItems(value);
-          if (isMounted) {
-            setItems(items);
-            setSelectedInfoHashes((current) => current.filter((infoHash) => items.some((item) => item.infoHash === infoHash)));
-          }
-        })
+    setIsLoading(true);
+    reload()
+      .then(() => {
+        if (isMounted) {
+          setError(null);
+        }
+      })
       .catch((requestError) => {
         if (isMounted) {
           setError(requestError instanceof Error ? requestError.message : labels.loadError);
+          setItems([]);
+          setTotalCount(0);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [accessToken, onReauthenticate]);
+  }, [accessToken, onReauthenticate, query]);
+
+  useEffect(() => {
+    if (preview && !items.some((item) => item.infoHash === preview)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [items, preview, setView]);
 
   const toggleSelection = (infoHash: string) => {
     setSelectedInfoHashes((current) => {
@@ -1222,8 +1140,7 @@ function TorrentsPage({
 
       setResult(result);
       setStatus(formatText(labels.lifecycleStatus, { succeeded: result.succeededCount, total: result.totalCount }));
-        const refreshed = await apiRequest<PageResult<TorrentAdminDto> | TorrentAdminDto[]>("/api/admin/torrents?page=1&pageSize=50", accessToken, onReauthenticate);
-        setItems(unwrapPageItems(refreshed));
+      await reload();
       setSelectedInfoHashes([]);
       clearBulkTorrentPolicySelection();
     } catch (requestError) {
@@ -1242,114 +1159,136 @@ function TorrentsPage({
   };
 
   return (
-    <Card title={labels.cardTitle} eyebrow={labels.eyebrow}>
-      {error ? <p className="text-sm text-ember">{error}</p> : null}
-      <div className="mb-4 flex flex-wrap gap-3">
-        <button
-          type="button"
-          disabled={!canActivate || isSubmitting || selectedInfoHashes.length === 0}
-          onClick={() => void runLifecycle("activate")}
-          className="rounded-2xl border border-ink/20 px-4 py-3 text-sm font-semibold text-ink transition hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {labels.activateSelection}
-        </button>
-        <button
-          type="button"
-          disabled={!canDeactivate || isSubmitting || selectedInfoHashes.length === 0}
-          onClick={() => void runLifecycle("deactivate")}
-          className="rounded-2xl border border-ember/30 px-4 py-3 text-sm font-semibold text-ember transition hover:bg-ember/5 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {labels.deactivateSelection}
-        </button>
-        <button
-          type="button"
-          disabled={!canBulkEditPolicy || isSubmitting || selectedInfoHashes.length === 0}
-          onClick={openBulkPolicyEditor}
-          className="rounded-2xl border border-moss/30 px-4 py-3 text-sm font-semibold text-moss transition hover:bg-moss/5 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {labels.openBulkPolicy}
-        </button>
-        <p className="self-center text-sm text-ink/55">{selectedInfoHashes.length} {labels.selectedCount}</p>
-      </div>
-      {status ? <p className="mb-4 text-sm text-moss">{status}</p> : null}
+    <div className="space-y-6">
+      <CatalogToolbar
+        title={labels.cardTitle}
+        description="Search torrents, review lifecycle state and launch policy workflows."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search torrents"
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
+        filterOptions={[
+          { value: "all", label: "All torrents" },
+          { value: "enabled", label: "Enabled" },
+          { value: "disabled", label: "Disabled" },
+          { value: "private", label: "Private" },
+          { value: "public", label: "Public" }
+        ]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "infohash:asc", label: "Info hash A-Z" },
+          { value: "infohash:desc", label: "Info hash Z-A" },
+          { value: "enabled:desc", label: "Enabled first" },
+          { value: "private:desc", label: "Private first" },
+          { value: "interval:desc", label: "Interval high-low" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+      />
+      {status ? <div className="app-notice-success">{status}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
       {result && result.torrentItems.length > 0 ? (
-        <div className="mb-4 space-y-2">
-          {result.torrentItems.map((item) => (
-            <div key={item.infoHash} className="rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-mono text-xs text-ink">{item.infoHash}</p>
-                <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.applied : labels.failed}</StatusPill>
-              </div>
-              {item.errorMessage ? <p className="mt-2 text-sm text-ember">{item.errorMessage}</p> : null}
-            </div>
-          ))}
+        <div className="app-selection-summary">
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-ink">Last lifecycle operation</div>
+            <div className="text-sm text-steel">{result.succeededCount} succeeded, {result.failedCount} failed, {result.totalCount} processed</div>
+          </div>
+          <button type="button" className="app-button-secondary py-2.5" onClick={() => setResult(null)}>Clear result</button>
         </div>
       ) : null}
-      <DataGrid<TorrentAdminDto>
-        items={items}
-        keyFn={(item) => item.infoHash}
-        emptyMessage={labels.empty}
-        columns={[
-          {
-            key: "select",
-            header: labels.tableSelect,
-            render: (item) => (
-              <input
-                type="checkbox"
-                checked={selectedInfoHashes.includes(item.infoHash)}
-                onChange={() => toggleSelection(item.infoHash)}
-              />
-            )
-          },
-          {
-            key: "infoHash",
-            header: labels.tableInfoHash,
-            render: (item) => <span className="font-mono text-xs">{item.infoHash}</span>,
-            sortValue: (item) => item.infoHash,
-            searchValue: (item) => item.infoHash,
-            className: "text-ink"
-          },
-          {
-            key: "mode",
-            header: labels.tableMode,
-            render: (item) => formatMode(item.isPrivate, dictionary),
-            sortValue: (item) => (item.isPrivate ? 1 : 0),
-            searchValue: (item) => formatMode(item.isPrivate, dictionary)
-          },
-          {
-            key: "state",
-            header: labels.tableState,
-            render: (item) => formatState(item.isEnabled, dictionary),
-            sortValue: (item) => (item.isEnabled ? 1 : 0),
-            searchValue: (item) => formatState(item.isEnabled, dictionary)
-          },
-          {
-            key: "interval",
-            header: labels.tableInterval,
-            render: (item) => `${item.announceIntervalSeconds}s`,
-            sortValue: (item) => item.announceIntervalSeconds
-          },
-          {
-            key: "numwant",
-            header: labels.tableNumwant,
-            render: (item) => `${item.defaultNumWant} / ${item.maxNumWant}`,
-            sortValue: (item) => item.defaultNumWant
-          },
-          {
-            key: "action",
-            header: labels.tableAction,
-            render: (item) =>
-              canEditPolicy ? (
-                <Link className="font-semibold text-ink underline" to={`/torrents/${item.infoHash}`}>
-                  {labels.openPolicy}
-                </Link>
-              ) : (
-                <span className="text-ink/40">{dictionary.common.readOnly}</span>
-              )
-          }
-        ]}
-      />
-    </Card>
+      {selectedInfoHashes.length > 0 ? (
+        <div className="app-selection-summary">
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-ink">{selectedInfoHashes.length} torrent(s) selected</div>
+            <div className="text-sm text-steel">Run lifecycle actions or open the bulk policy workflow for the current selection.</div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="app-button-secondary py-2.5" onClick={() => { setSelectedInfoHashes([]); clearBulkTorrentPolicySelection(); }}>Clear selection</button>
+            <button type="button" className="app-button-secondary py-2.5" disabled={!canActivate || isSubmitting || selectedInfoHashes.length === 0} onClick={() => void runLifecycle("activate")}>{labels.activateSelection}</button>
+            <button type="button" className="app-button-danger py-2.5" disabled={!canDeactivate || isSubmitting || selectedInfoHashes.length === 0} onClick={() => void runLifecycle("deactivate")}>{labels.deactivateSelection}</button>
+            <button type="button" className="app-button-primary py-2.5" disabled={!canBulkEditPolicy || isSubmitting || selectedInfoHashes.length === 0} onClick={openBulkPolicyEditor}>{labels.openBulkPolicy}</button>
+          </div>
+        </div>
+      ) : null}
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="w-14 px-5 py-4">{labels.tableSelect}</th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableInfoHash} active={activeSortField === "infohash"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "infohash" && activeSortDirection === "asc" ? "infohash:desc" : "infohash:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableMode} active={activeSortField === "private"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "private" && activeSortDirection === "asc" ? "private:desc" : "private:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableState} active={activeSortField === "enabled"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "enabled" && activeSortDirection === "asc" ? "enabled:desc" : "enabled:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableInterval} active={activeSortField === "interval"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "interval" && activeSortDirection === "asc" ? "interval:desc" : "interval:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4">{labels.tableNumwant}</th>
+                <th className="px-5 py-4 text-right">{labels.tableAction}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={7} title="Loading torrents" message="Refreshing tracker policy records from the backend." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={7} title="Unable to load torrents" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={7} title="No torrents match this view" message="Try a broader search or switch the current filter." />
+              ) : items.map((item) => (
+                <tr key={item.infoHash} className="app-table-row border-t border-slate-200/80 align-top">
+                  <td className="px-5 py-4"><input type="checkbox" checked={selectedInfoHashes.includes(item.infoHash)} onChange={() => toggleSelection(item.infoHash)} /></td>
+                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.infoHash}</td>
+                  <td className="px-5 py-4 text-steel">{formatMode(item.isPrivate, dictionary)}</td>
+                  <td className="px-5 py-4 text-steel">{formatState(item.isEnabled, dictionary)}</td>
+                  <td className="px-5 py-4 text-steel">{item.announceIntervalSeconds}s</td>
+                  <td className="px-5 py-4 text-steel">{item.defaultNumWant} / {item.maxNumWant}</td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex justify-end gap-3">
+                      <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.infoHash }))}>Preview</button>
+                      {canEditPolicy ? (
+                        <Link className="app-button-secondary py-2.5 no-underline" to={`/torrents/${item.infoHash}`}>
+                          {labels.openPolicy}
+                        </Link>
+                      ) : (
+                        <span className="text-ink/40">{dictionary.common.readOnly}</span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <PaginationFooter page={query.page} pageCount={pageCount} totalCount={totalCount} pageSize={query.pageSize} onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))} />
+      <PreviewDrawer open={previewItem != null} title={previewItem?.infoHash ?? ""} subtitle="Current torrent policy snapshot" onClose={() => setView((current) => ({ ...current, preview: null }))}>
+        {previewItem ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.mode}</div><div className="font-semibold text-ink">{formatMode(previewItem.isPrivate, dictionary)}</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.state}</div><div className="font-semibold text-ink">{formatState(previewItem.isEnabled, dictionary)}</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.interval}</div><div className="font-semibold text-ink">{previewItem.announceIntervalSeconds}s / min {previewItem.minAnnounceIntervalSeconds}s</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.scrape}</div><div className="font-semibold text-ink">{formatScrape(previewItem.allowScrape, dictionary)}</div></div>
+            </div>
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Numwant</div><div className="font-semibold text-ink">{previewItem.defaultNumWant} / {previewItem.maxNumWant}</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.version}</div><div className="font-semibold text-ink">{previewItem.version}</div></div>
+            </div>
+            {result?.torrentItems?.some((item) => item.infoHash === previewItem.infoHash) ? (
+              <div className="space-y-3">
+                <div className="app-kicker">Latest operation</div>
+                {result.torrentItems.filter((item) => item.infoHash === previewItem.infoHash).map((item) => (
+                  <div key={item.infoHash} className="app-subtle-panel space-y-2">
+                    <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.applied : labels.failed}</StatusPill>
+                    {item.errorMessage ? <div className="text-sm text-ember">{item.errorMessage}</div> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </PreviewDrawer>
+    </div>
   );
 }
 
@@ -1900,35 +1839,72 @@ function PasskeysPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.passkeys;
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "userid:asc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview, modal } = view;
   const [items, setItems] = useState<PasskeyAdminDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [passkeyInput, setPasskeyInput] = useState("");
   const [rotateExpiryInput, setRotateExpiryInput] = useState("");
   const [result, setResult] = useState<BulkOperationResultDto | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const canRevoke = hasGrantedCapability(capabilities, "admin.revoke.passkey");
   const canRotate = hasGrantedCapability(capabilities, "admin.rotate.passkey");
+  const previewItem = items.find((item) => item.passkeyMask === preview) ?? null;
+  const [activeSortField, activeSortDirection = "asc"] = query.sort.split(":");
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
 
   const reload = async () => {
-      const value = await apiRequest<PageResult<PasskeyAdminDto> | PasskeyAdminDto[]>("/api/admin/passkeys?page=1&pageSize=50", accessToken, onReauthenticate);
-      setItems(unwrapPageItems(value));
+    const page = await apiRequest<PageResult<PasskeyAdminDto>>(
+      `/api/admin/passkeys?${buildGridQueryString(query)}`,
+      accessToken,
+      onReauthenticate
+    );
+    setItems(page.items);
+    setTotalCount(page.totalCount);
   };
 
   useEffect(() => {
     let isMounted = true;
 
+    setIsLoading(true);
     reload()
+      .then(() => {
+        if (isMounted) {
+          setError(null);
+        }
+      })
       .catch((requestError) => {
         if (isMounted) {
           setError(requestError instanceof Error ? requestError.message : labels.loadError);
+          setItems([]);
+          setTotalCount(0);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [accessToken, onReauthenticate]);
+  }, [accessToken, onReauthenticate, query]);
+
+  useEffect(() => {
+    if (preview && !items.some((item) => item.passkeyMask === preview)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [items, preview, setView]);
 
   const inputPasskeys = parseLineSeparatedValues(passkeyInput);
 
@@ -1959,6 +1935,7 @@ function PasskeysPage({
 
       setResult(operationResult);
       setStatus(formatText(labels.status, { mode: toTitleCase(mode), succeeded: operationResult.succeededCount, total: operationResult.totalCount }));
+      setView((current) => ({ ...current, modal: null, id: null }));
       await reload();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : labels.operationError);
@@ -1967,115 +1944,136 @@ function PasskeysPage({
     }
   };
 
+  const openActionModal = () => {
+    setError(null);
+    setStatus(null);
+    setResult(null);
+    setView((current) => ({ ...current, modal: "create", id: null }));
+  };
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
-      <Card title={labels.cardTitle} eyebrow={labels.eyebrow}>
-        {error ? <p className="mb-4 text-sm text-ember">{error}</p> : null}
-        <DataGrid<PasskeyAdminDto>
-          items={items}
-          keyFn={(item) => `${item.passkeyMask}-${item.userId}`}
-          emptyMessage={labels.empty}
-          columns={[
-            {
-              key: "mask",
-              header: labels.tableMask,
-              render: (item) => <span className="font-mono text-xs">{item.passkeyMask}</span>,
-              sortValue: (item) => item.passkeyMask,
-              searchValue: (item) => item.passkeyMask,
-              className: "text-ink"
-            },
-            {
-              key: "user",
-              header: labels.tableUser,
-              render: (item) => <span className="font-mono text-xs">{item.userId}</span>,
-              sortValue: (item) => item.userId,
-              searchValue: (item) => item.userId,
-              className: "text-ink"
-            },
-            {
-              key: "state",
-              header: labels.tableState,
-              render: (item) => (
-                <StatusPill tone={item.isRevoked ? "warn" : "good"}>
-                  {item.isRevoked ? dictionary.common.revoked : dictionary.common.active}
-                </StatusPill>
-              ),
-              sortValue: (item) => (item.isRevoked ? 1 : 0),
-              searchValue: (item) => item.isRevoked ? dictionary.common.revoked : dictionary.common.active
-            },
-            {
-              key: "expires",
-              header: labels.tableExpires,
-              render: (item) => item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never,
-              sortValue: (item) => item.expiresAtUtc ? new Date(item.expiresAtUtc).getTime() : Number.MAX_SAFE_INTEGER
-            },
-            {
-              key: "version",
-              header: labels.tableVersion,
-              render: (item) => item.version,
-              sortValue: (item) => item.version
-            }
-          ]}
-        />
-      </Card>
-      <Card title={labels.actionTitle} eyebrow={labels.actionEyebrow}>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">{labels.rawPasskeys}</span>
-          <textarea
-            className="min-h-48 w-full rounded-2xl border border-ink/15 px-4 py-3 font-mono text-sm"
-            value={passkeyInput}
-            onChange={(event) => setPasskeyInput(event.target.value)}
-            placeholder={labels.placeholder}
-          />
-        </label>
-        <label className="mt-4 block space-y-2">
-          <span className="text-sm font-medium text-ink">{labels.expiryOverride}</span>
-          <input
-            className="w-full rounded-2xl border border-ink/15 px-4 py-3"
-            type="datetime-local"
-            value={rotateExpiryInput}
-            onChange={(event) => setRotateExpiryInput(event.target.value)}
-          />
-        </label>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={!canRevoke || isSubmitting || inputPasskeys.length === 0}
-            onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/revoke", "revoke")}
-            className="rounded-2xl border border-ink/20 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.revoke}
-          </button>
-          <button
-            type="button"
-            disabled={!canRotate || isSubmitting || inputPasskeys.length === 0}
-            onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/rotate", "rotate")}
-            className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.rotate}
-          </button>
+    <div className="space-y-6">
+      <CatalogToolbar
+        title={labels.cardTitle}
+        description="Search passkeys and run revoke or rotate workflows."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search passkeys"
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
+        filterOptions={[
+          { value: "all", label: "All passkeys" },
+          { value: "active", label: "Active" },
+          { value: "revoked", label: "Revoked" },
+          { value: "expired", label: "Expired" }
+        ]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "userid:asc", label: "User A-Z" },
+          { value: "userid:desc", label: "User Z-A" },
+          { value: "expires:desc", label: "Expiry latest first" },
+          { value: "expires:asc", label: "Expiry earliest first" },
+          { value: "version:desc", label: "Version high-low" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+        createLabel="Batch action"
+        onCreate={openActionModal}
+      />
+      {status ? <div className="app-notice-success">{status}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
+      {result && result.passkeyItems.length > 0 ? (
+        <div className="app-selection-summary">
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-ink">Last batch action</div>
+            <div className="text-sm text-steel">{result.succeededCount} succeeded, {result.failedCount} failed, {result.totalCount} processed</div>
+          </div>
+          <button type="button" className="app-button-secondary py-2.5" onClick={() => setResult(null)}>Clear result</button>
         </div>
-        {status ? <p className="mt-4 text-sm text-moss">{status}</p> : null}
-        {result ? (
-          <div className="mt-5 space-y-3">
-            {result.passkeyItems.map((item) => (
-              <div key={`${item.passkeyMask}-${item.newPasskeyMask ?? "same"}`} className="rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-medium text-ink">{item.passkeyMask}</p>
-                  <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.completed : labels.failed}</StatusPill>
-                </div>
-                {item.errorMessage ? <p className="mt-2 text-sm text-ember">{item.errorMessage}</p> : null}
-                {item.newPasskey ? (
-                  <div className="mt-2 rounded-2xl bg-moss/10 px-3 py-2">
-                    <p className="text-xs uppercase tracking-[0.18em] text-moss">{labels.newPasskey}</p>
-                    <p className="mt-1 break-all font-mono text-xs text-moss">{item.newPasskey}</p>
+      ) : null}
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableMask} active={activeSortField === "mask"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "mask" && activeSortDirection === "asc" ? "mask:desc" : "mask:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableUser} active={activeSortField === "userid"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "userid" && activeSortDirection === "asc" ? "userid:desc" : "userid:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4">{labels.tableState}</th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableExpires} active={activeSortField === "expires"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "expires" && activeSortDirection === "asc" ? "expires:desc" : "expires:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableVersion} active={activeSortField === "version"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "version" && activeSortDirection === "asc" ? "version:desc" : "version:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={6} title="Loading passkeys" message="Refreshing masked tracker credentials from the backend." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={6} title="Unable to load passkeys" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={6} title="No passkeys match this view" message="Try a broader search or change the current filter." />
+              ) : items.map((item) => (
+                <tr key={`${item.passkeyMask}-${item.userId}`} className="app-table-row border-t border-slate-200/80 align-top">
+                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.passkeyMask}</td>
+                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.userId}</td>
+                  <td className="px-5 py-4"><StatusPill tone={item.isRevoked ? "warn" : "good"}>{item.isRevoked ? dictionary.common.revoked : dictionary.common.active}</StatusPill></td>
+                  <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
+                  <td className="px-5 py-4 text-steel">{item.version}</td>
+                  <td className="px-5 py-4 text-right">
+                    <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.passkeyMask }))}>Preview</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <PaginationFooter page={query.page} pageCount={pageCount} totalCount={totalCount} pageSize={query.pageSize} onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))} />
+      <Modal open={modal === "create"} onClose={() => setView((current) => ({ ...current, modal: null, id: null }))} title={labels.actionTitle} description="Provide raw passkeys one per line and run revoke or rotate without leaving the catalog." width="wide">
+        <div className="space-y-4">
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink">{labels.rawPasskeys}</span>
+            <textarea className="app-input min-h-48 font-mono text-sm" value={passkeyInput} onChange={(event) => setPasskeyInput(event.target.value)} placeholder={labels.placeholder} />
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink">{labels.expiryOverride}</span>
+            <input className="app-input" type="datetime-local" value={rotateExpiryInput} onChange={(event) => setRotateExpiryInput(event.target.value)} />
+          </label>
+          <div className="flex flex-wrap justify-end gap-3">
+            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
+            <button type="button" className="app-button-secondary" disabled={!canRevoke || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/revoke", "revoke")}>{labels.revoke}</button>
+            <button type="button" className="app-button-primary" disabled={!canRotate || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/rotate", "rotate")}>{labels.rotate}</button>
+          </div>
+        </div>
+      </Modal>
+      <PreviewDrawer open={previewItem != null} title={previewItem?.passkeyMask ?? ""} subtitle={previewItem ? `User ${previewItem.userId}` : undefined} onClose={() => setView((current) => ({ ...current, preview: null }))}>
+        {previewItem ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Owner</div><div className="font-mono text-xs text-ink">{previewItem.userId}</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">State</div><StatusPill tone={previewItem.isRevoked ? "warn" : "good"}>{previewItem.isRevoked ? dictionary.common.revoked : dictionary.common.active}</StatusPill></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Expires</div><div className="font-semibold text-ink">{previewItem.expiresAtUtc ? new Date(previewItem.expiresAtUtc).toLocaleString() : dictionary.common.never}</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Version</div><div className="font-semibold text-ink">{previewItem.version}</div></div>
+            </div>
+            {result?.passkeyItems?.some((item) => item.passkeyMask === previewItem.passkeyMask) ? (
+              <div className="space-y-3">
+                <div className="app-kicker">Latest operation</div>
+                {result.passkeyItems.filter((item) => item.passkeyMask === previewItem.passkeyMask).map((item) => (
+                  <div key={`${item.passkeyMask}-${item.newPasskeyMask ?? "same"}`} className="app-subtle-panel space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.completed : labels.failed}</StatusPill>
+                      {item.newPasskeyMask ? <div className="font-mono text-xs text-steel">{item.newPasskeyMask}</div> : null}
+                    </div>
+                    {item.errorMessage ? <div className="text-sm text-ember">{item.errorMessage}</div> : null}
+                    {item.newPasskey ? <div className="rounded-2xl bg-moss/10 px-3 py-3"><div className="text-xs uppercase tracking-[0.18em] text-moss">{labels.newPasskey}</div><div className="mt-1 break-all font-mono text-xs text-moss">{item.newPasskey}</div></div> : null}
                   </div>
-                ) : null}
+                ))}
               </div>
-            ))}
+            ) : null}
           </div>
         ) : null}
-      </Card>
+      </PreviewDrawer>
     </div>
   );
 }
@@ -2091,40 +2089,93 @@ function BansPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.bans;
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "scope:asc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, modal, id } = view;
   const [items, setItems] = useState<BanRuleAdminDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [form, setForm] = useState<BanFormState>({
+  const emptyForm: BanFormState = {
     scope: "user",
     subject: "",
     reason: "",
     expiresAtLocal: "",
     expectedVersion: undefined
-  });
+  };
+  const [form, setForm] = useState<BanFormState>(emptyForm);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const canWrite = hasGrantedCapability(capabilities, "admin.write.ban");
   const canExpire = hasGrantedCapability(capabilities, "admin.expire.ban");
   const canDelete = hasGrantedCapability(capabilities, "admin.delete.ban");
 
   const reload = async () => {
-      const value = await apiRequest<PageResult<BanRuleAdminDto> | BanRuleAdminDto[]>("/api/admin/bans?page=1&pageSize=50", accessToken, onReauthenticate);
-      setItems(unwrapPageItems(value));
+      const page = await apiRequest<PageResult<BanRuleAdminDto>>(`/api/admin/bans?${buildGridQueryString(query)}`, accessToken, onReauthenticate);
+      setItems(page.items);
+      setTotalCount(page.totalCount);
   };
 
   useEffect(() => {
     let isMounted = true;
 
-    reload().catch((requestError) => {
-      if (isMounted) {
+    setIsLoading(true);
+    reload()
+      .then(() => {
+        if (isMounted) {
+          setError(null);
+        }
+      })
+      .catch((requestError) => {
+        if (isMounted) {
           setError(requestError instanceof Error ? requestError.message : labels.loadError);
-      }
-    });
+          setItems([]);
+          setTotalCount(0);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [accessToken, onReauthenticate]);
+  }, [accessToken, onReauthenticate, query]);
+
+  useEffect(() => {
+    if (modal !== "edit") {
+      return;
+    }
+
+    const record = tryParseBanRecordId(id);
+    if (!record) {
+      setView((current) => ({ ...current, modal: null, id: null }));
+      return;
+    }
+
+    const item = items.find((candidate) => candidate.scope === record.scope && candidate.subject === record.subject);
+    if (!item) {
+      setView((current) => ({ ...current, modal: null, id: null }));
+      return;
+    }
+
+    setForm({
+      scope: item.scope,
+      subject: item.subject,
+      reason: item.reason,
+      expiresAtLocal: toLocalDateTimeInput(item.expiresAtUtc),
+      expectedVersion: item.version
+    });
+  }, [id, items, modal, setView]);
 
   const fillForm = (item: BanRuleAdminDto) => {
     setForm({
@@ -2134,8 +2185,16 @@ function BansPage({
       expiresAtLocal: toLocalDateTimeInput(item.expiresAtUtc),
       expectedVersion: item.version
     });
+    setView((current) => ({ ...current, modal: "edit", id: toBanRecordId(item.scope, item.subject) }));
     setStatus(formatText(labels.loadedToEditor, { scope: item.scope, subject: item.subject }));
     setError(null);
+  };
+
+  const openCreate = () => {
+    setForm(emptyForm);
+    setView((current) => ({ ...current, modal: "create", id: null }));
+    setError(null);
+    setStatus(null);
   };
 
   const saveBan = async () => {
@@ -2156,6 +2215,7 @@ function BansPage({
       );
 
       setStatus(labels.saveStatus);
+      setView((current) => ({ ...current, modal: null, id: null }));
       await reload();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : labels.saveError);
@@ -2192,6 +2252,7 @@ function BansPage({
       );
 
       setStatus(labels.expireStatus);
+      setView((current) => ({ ...current, modal: null, id: null }));
       await reload();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : labels.expireError);
@@ -2222,7 +2283,8 @@ function BansPage({
       );
 
       setStatus(labels.deleteStatus);
-      setForm((current) => ({ ...current, subject: "", reason: "", expiresAtLocal: "", expectedVersion: undefined }));
+      setForm(emptyForm);
+      setView((current) => ({ ...current, modal: null, id: null }));
       await reload();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : labels.deleteError);
@@ -2231,112 +2293,128 @@ function BansPage({
     }
   };
 
+  const [activeSortField, activeSortDirection = "asc"] = query.sort.split(":");
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
-      <Card title={labels.cardTitle} eyebrow={labels.eyebrow}>
-        {error ? <p className="mb-4 text-sm text-ember">{error}</p> : null}
-        <DataGrid<BanRuleAdminDto>
-          items={items}
-          keyFn={(item) => `${item.scope}:${item.subject}`}
-          emptyMessage={labels.empty}
-          columns={[
-            {
-              key: "scope",
-              header: labels.scope,
-              render: (item) => <span className="font-semibold">{item.scope}</span>,
-              sortValue: (item) => item.scope,
-              searchValue: (item) => item.scope
-            },
-            {
-              key: "subject",
-              header: labels.subject,
-              render: (item) => <span className="font-mono text-xs">{item.subject}</span>,
-              sortValue: (item) => item.subject,
-              searchValue: (item) => item.subject,
-              className: "text-ink"
-            },
-            {
-              key: "reason",
-              header: labels.reason,
-              render: (item) => <span className="text-ink/60">{item.reason}</span>,
-              searchValue: (item) => item.reason
-            },
-            {
-              key: "expires",
-              header: labels.expiresLabel,
-              render: (item) => item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never,
-              sortValue: (item) => item.expiresAtUtc ? new Date(item.expiresAtUtc).getTime() : Number.MAX_SAFE_INTEGER
-            },
-            {
-              key: "version",
-              header: dictionary.common.version,
-              render: (item) => item.version,
-              sortValue: (item) => item.version
-            },
-            {
-              key: "action",
-              header: "",
-              render: (item) => (
-                <button
-                  type="button"
-                  onClick={() => fillForm(item)}
-                  className="rounded-2xl border border-ink/20 px-3 py-1.5 text-xs font-semibold text-ink transition hover:bg-ink/5"
-                >
-                  {labels.openRule}
-                </button>
-              )
-            }
-          ]}
-        />
-      </Card>
-      <Card title={labels.editorTitle} eyebrow={labels.editorEyebrow}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.scope}</span>
-            <input className="w-full rounded-2xl border border-ink/15 px-4 py-3" value={form.scope} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value }))} />
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.subject}</span>
-            <input className="w-full rounded-2xl border border-ink/15 px-4 py-3" value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
-          </label>
+    <div className="space-y-6">
+      <CatalogToolbar
+        title={labels.cardTitle}
+        description="Search and manage enforcement rules."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search rules"
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
+        filterOptions={[
+          { value: "all", label: "All rules" },
+          { value: "active", label: "Active" },
+          { value: "expired", label: "Expired" }
+        ]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "scope:asc", label: "Scope A-Z" },
+          { value: "subject:asc", label: "Subject A-Z" },
+          { value: "expires:desc", label: "Expiry latest first" },
+          { value: "expires:asc", label: "Expiry earliest first" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+        createLabel="Create rule"
+        onCreate={openCreate}
+      />
+      {status ? <div className="app-notice-success">{status}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
+
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.scope} active={activeSortField === "scope"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "scope" && activeSortDirection === "asc" ? "scope:desc" : "scope:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.subject} active={activeSortField === "subject"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "subject" && activeSortDirection === "asc" ? "subject:desc" : "subject:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4">{labels.reason}</th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.expiresLabel} active={activeSortField === "expires"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "expires" && activeSortDirection === "asc" ? "expires:desc" : "expires:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4">{dictionary.common.version}</th>
+                <th className="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={6} title="Loading ban rules" message="Refreshing the enforcement catalog from the backend." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={6} title="Unable to load ban rules" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={6} title="No ban rules match this view" message="Try a broader search or switch the current filter." />
+              ) : items.map((item) => (
+                <tr key={`${item.scope}:${item.subject}`} className="app-table-row border-t border-slate-200/80 align-top">
+                  <td className="px-5 py-4 font-semibold text-ink">{item.scope}</td>
+                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.subject}</td>
+                  <td className="px-5 py-4 text-steel">{item.reason}</td>
+                  <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
+                  <td className="px-5 py-4 text-steel">{item.version}</td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex justify-end gap-3">
+                      <button type="button" className="app-button-secondary py-2.5" onClick={() => fillForm(item)}>Edit</button>
+                      <button type="button" className="app-button-danger py-2.5" disabled={!canDelete} onClick={() => { fillForm(item); setConfirmDeleteOpen(true); }}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <label className="mt-4 block space-y-2">
-          <span className="text-sm font-medium text-ink">{labels.reason}</span>
-          <textarea className="min-h-32 w-full rounded-2xl border border-ink/15 px-4 py-3" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
-        </label>
-        <label className="mt-4 block space-y-2">
-          <span className="text-sm font-medium text-ink">{labels.expiresAt}</span>
-          <input className="w-full rounded-2xl border border-ink/15 px-4 py-3" type="datetime-local" value={form.expiresAtLocal} onChange={(event) => setForm((current) => ({ ...current, expiresAtLocal: event.target.value }))} />
-        </label>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={!canWrite || isSubmitting || !form.scope.trim() || !form.subject.trim() || !form.reason.trim()}
-            onClick={() => void saveBan()}
-            className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.saveBan}
-          </button>
-          <button
-            type="button"
-            disabled={!canExpire || isSubmitting || !form.scope.trim() || !form.subject.trim()}
-            onClick={() => void expireBan()}
-            className="rounded-2xl border border-ink/20 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.expireBan}
-          </button>
-          <button
-            type="button"
-            disabled={!canDelete || isSubmitting || !form.scope.trim() || !form.subject.trim()}
-            onClick={() => void deleteBan()}
-            className="rounded-2xl border border-ember/30 px-5 py-3 text-sm font-semibold text-ember transition hover:bg-ember/5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.deleteBan}
-          </button>
+      </div>
+
+      <PaginationFooter
+        page={query.page}
+        pageCount={pageCount}
+        totalCount={totalCount}
+        pageSize={query.pageSize}
+        onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))}
+      />
+
+      <Modal
+        open={modal === "create" || modal === "edit"}
+        onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}
+        title={form.expectedVersion ? "Edit ban rule" : "Create ban rule"}
+        description="Create, expire or update enforcement rules without leaving the catalog."
+        width="wide"
+      >
+        <div className="space-y-4">
+          <div className="app-form-grid">
+            <input className="app-input" placeholder={labels.scope} value={form.scope} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value }))} />
+            <input className="app-input" placeholder={labels.subject} value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
+          </div>
+          <textarea className="app-input min-h-32" placeholder={labels.reason} value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
+          <input className="app-input" type="datetime-local" value={form.expiresAtLocal} onChange={(event) => setForm((current) => ({ ...current, expiresAtLocal: event.target.value }))} />
+          <div className="flex flex-wrap justify-end gap-3">
+            {form.expectedVersion ? (
+              <button type="button" className="app-button-secondary" disabled={!canExpire || isSubmitting || !form.scope.trim() || !form.subject.trim()} onClick={() => void expireBan()}>
+                {labels.expireBan}
+              </button>
+            ) : null}
+            <button type="button" className="app-button-secondary" onClick={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</button>
+            <button type="button" className="app-button-primary" disabled={!canWrite || isSubmitting || !form.scope.trim() || !form.subject.trim() || !form.reason.trim()} onClick={() => void saveBan()}>
+              {form.expectedVersion ? labels.saveBan : "Create rule"}
+            </button>
+          </div>
         </div>
-        {status ? <p className="mt-4 text-sm text-moss">{status}</p> : null}
-        {error ? <p className="mt-2 text-sm text-ember">{error}</p> : null}
-      </Card>
+      </Modal>
+
+      <ConfirmActionModal
+        open={confirmDeleteOpen}
+        title="Delete ban rule"
+        description={`Delete rule ${form.scope}:${form.subject}? This cannot be undone.`}
+        confirmLabel="Delete rule"
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          void deleteBan();
+        }}
+      />
     </div>
   );
 }
@@ -2352,7 +2430,16 @@ function TrackerAccessPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.permissionsPage;
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "userid:asc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview, modal, id } = view;
   const [items, setItems] = useState<TrackerAccessAdminDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<BulkOperationResultDto | null>(null);
@@ -2365,34 +2452,113 @@ function TrackerAccessPage({
     canUsePrivateTracker: true,
     expectedVersion: undefined
   });
+  const [editorMode, setEditorMode] = useState<"single" | "bulk">("single");
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const canWrite = hasGrantedCapability(capabilities, "admin.write.permissions");
   const trackerAccessItems = result?.trackerAccessItems ?? result?.permissionItems ?? [];
+  const previewItem = items.find((item) => item.userId === preview) ?? null;
+  const [activeSortField, activeSortDirection = "asc"] = query.sort.split(":");
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
 
   const reload = async () => {
-      const value = await apiRequest<PageResult<TrackerAccessAdminDto> | TrackerAccessAdminDto[]>("/api/admin/tracker-access?page=1&pageSize=50", accessToken, onReauthenticate);
-      const items = unwrapPageItems(value);
-      setItems(items);
-      setSelectedUserIds((current) => current.filter((userId) => items.some((item) => item.userId === userId)));
+    const page = await apiRequest<PageResult<TrackerAccessAdminDto>>(
+      `/api/admin/tracker-access?${buildGridQueryString(query)}`,
+      accessToken,
+      onReauthenticate
+    );
+    setItems(page.items);
+    setTotalCount(page.totalCount);
+    setSelectedUserIds((current) => current.filter((userId) => page.items.some((item) => item.userId === userId)));
   };
 
   useEffect(() => {
     let isMounted = true;
 
-    reload().catch((requestError) => {
-      if (isMounted) {
-        setError(requestError instanceof Error ? requestError.message : labels.loadError);
-      }
-    });
+    setIsLoading(true);
+    reload()
+      .then(() => {
+        if (isMounted) {
+          setError(null);
+        }
+      })
+      .catch((requestError) => {
+        if (isMounted) {
+          setError(requestError instanceof Error ? requestError.message : labels.loadError);
+          setItems([]);
+          setTotalCount(0);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [accessToken, onReauthenticate]);
+  }, [accessToken, onReauthenticate, query]);
+
+  useEffect(() => {
+    if (preview && !items.some((item) => item.userId === preview)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [items, preview, setView]);
+
+  useEffect(() => {
+    if (modal !== "edit") {
+      return;
+    }
+
+    if (!id) {
+      setView((current) => ({ ...current, modal: null, id: null }));
+      return;
+    }
+
+    const item = items.find((candidate) => candidate.userId === id);
+    if (!item) {
+      setView((current) => ({ ...current, modal: null, id: null }));
+      return;
+    }
+
+    setForm(toTrackerAccessForm(item));
+    setEditorMode("single");
+  }, [id, items, modal, setView]);
 
   const loadUser = (item: TrackerAccessAdminDto) => {
     setForm(toTrackerAccessForm(item));
+    setEditorMode("single");
+    setView((current) => ({ ...current, modal: "edit", id: item.userId }));
     setStatus(formatText(labels.loadedStatus, { userId: item.userId }));
+    setError(null);
+  };
+
+  const openCreate = () => {
+    setForm({
+      userId: "",
+      canLeech: true,
+      canSeed: true,
+      canScrape: true,
+      canUsePrivateTracker: true,
+      expectedVersion: undefined
+    });
+    setEditorMode("single");
+    setView((current) => ({ ...current, modal: "create", id: null }));
+    setError(null);
+    setStatus(null);
+  };
+
+  const openBulkEditor = () => {
+    setForm((current) => ({
+      ...current,
+      userId: "",
+      expectedVersion: undefined
+    }));
+    setEditorMode("bulk");
+    setIsBulkModalOpen(true);
+    setView((current) => ({ ...current, modal: null, id: null }));
     setError(null);
   };
 
@@ -2423,6 +2589,7 @@ function TrackerAccessPage({
       );
 
       setStatus(labels.saveStatus);
+      setView((current) => ({ ...current, modal: null, id: null }));
       await reload();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : labels.saveError);
@@ -2470,6 +2637,8 @@ function TrackerAccessPage({
 
       setResult(operationResult);
       setStatus(formatText(labels.bulkStatus, { succeeded: operationResult.succeededCount, total: operationResult.totalCount }));
+      setIsBulkModalOpen(false);
+      setView((current) => ({ ...current, modal: null, id: null }));
       await reload();
       setSelectedUserIds([]);
     } catch (requestError) {
@@ -2480,152 +2649,151 @@ function TrackerAccessPage({
   };
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
-      <Card title={labels.cardTitle} eyebrow={labels.eyebrow}>
-        {error ? <p className="mb-4 text-sm text-ember">{error}</p> : null}
-        {status ? <p className="mb-4 text-sm text-moss">{status}</p> : null}
-        {result && trackerAccessItems.length > 0 ? (
-          <div className="mb-4 space-y-2">
-            {trackerAccessItems.map((item) => (
-              <div key={item.userId} className="rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-mono text-xs text-ink">{item.userId}</p>
-                  <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.succeeded : labels.failed}</StatusPill>
-                </div>
-                {item.errorMessage ? <p className="mt-2 text-sm text-ember">{item.errorMessage}</p> : null}
+    <div className="space-y-6">
+      <CatalogToolbar
+        title={labels.cardTitle}
+        description="Search and manage tracker access assignments."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search users or access state"
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
+        filterOptions={[
+          { value: "all", label: "All access" },
+          { value: "private", label: "Private tracker" },
+          { value: "public", label: "Public only" },
+          { value: "seed", label: "Can seed" },
+          { value: "leech", label: "Can leech" },
+          { value: "scrape", label: "Can scrape" }
+        ]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "userid:asc", label: "User A-Z" },
+          { value: "userid:desc", label: "User Z-A" },
+          { value: "private:desc", label: "Private first" },
+          { value: "leech:desc", label: "Leech enabled first" },
+          { value: "seed:desc", label: "Seed enabled first" },
+          { value: "version:desc", label: "Version high-low" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+        createLabel="New tracker access"
+        onCreate={openCreate}
+      />
+      {status ? <div className="app-notice-success">{status}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
+      {result && trackerAccessItems.length > 0 ? (
+        <div className="app-selection-summary">
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-ink">Last access update</div>
+            <div className="text-sm text-steel">{result.succeededCount} succeeded, {result.failedCount} failed, {result.totalCount} processed</div>
+          </div>
+          <button type="button" className="app-button-secondary py-2.5" onClick={() => setResult(null)}>Clear result</button>
+        </div>
+      ) : null}
+      {selectedUserIds.length > 0 ? (
+        <div className="app-selection-summary">
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-ink">{selectedUserIds.length} user(s) selected</div>
+            <div className="text-sm text-steel">Apply the current access envelope to the selected users in one modal workflow.</div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="app-button-secondary py-2.5" onClick={() => setSelectedUserIds([])}>Clear selection</button>
+            <button type="button" className="app-button-primary py-2.5" disabled={!canWrite} onClick={openBulkEditor}>{labels.applySelected} ({selectedUserIds.length})</button>
+          </div>
+        </div>
+      ) : null}
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="w-14 px-5 py-4" />
+                <th className="px-5 py-4"><SortHeaderButton label={labels.userId} active={activeSortField === "userid"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "userid" && activeSortDirection === "asc" ? "userid:desc" : "userid:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.leech} active={activeSortField === "leech"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "leech" && activeSortDirection === "asc" ? "leech:desc" : "leech:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.seed} active={activeSortField === "seed"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "seed" && activeSortDirection === "asc" ? "seed:desc" : "seed:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.scrape} active={activeSortField === "scrape"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "scrape" && activeSortDirection === "asc" ? "scrape:desc" : "scrape:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.privateTracker} active={activeSortField === "private"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "private" && activeSortDirection === "asc" ? "private:desc" : "private:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={dictionary.common.version} active={activeSortField === "version"} direction={activeSortDirection as "asc" | "desc"} onClick={() => setView((current) => ({ ...current, query: { ...current.query, sort: activeSortField === "version" && activeSortDirection === "asc" ? "version:desc" : "version:asc", page: 1 } }))} /></th>
+                <th className="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={8} title="Loading tracker access" message="Refreshing tracker access rights from the backend." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={8} title="Unable to load tracker access" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={8} title="No tracker access records match this view" message="Try a broader search or switch the current filter." />
+              ) : items.map((item) => (
+                <tr key={item.userId} className="app-table-row border-t border-slate-200/80 align-top">
+                  <td className="px-5 py-4"><input type="checkbox" checked={selectedUserIds.includes(item.userId)} onChange={() => toggleSelection(item.userId)} /></td>
+                  <td className="px-5 py-4 font-mono text-xs font-semibold text-ink">{item.userId}</td>
+                  <td className="px-5 py-4"><StatusPill tone={item.canLeech ? "good" : "neutral"}>{formatBool(item.canLeech, dictionary)}</StatusPill></td>
+                  <td className="px-5 py-4"><StatusPill tone={item.canSeed ? "good" : "neutral"}>{formatBool(item.canSeed, dictionary)}</StatusPill></td>
+                  <td className="px-5 py-4"><StatusPill tone={item.canScrape ? "good" : "neutral"}>{formatBool(item.canScrape, dictionary)}</StatusPill></td>
+                  <td className="px-5 py-4"><StatusPill tone={item.canUsePrivateTracker ? "good" : "neutral"}>{formatBool(item.canUsePrivateTracker, dictionary)}</StatusPill></td>
+                  <td className="px-5 py-4 text-steel">{item.version}</td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex justify-end gap-3">
+                      <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.userId }))}>Preview</button>
+                      <button type="button" className="app-button-secondary py-2.5" onClick={() => loadUser(item)}>{labels.edit}</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <PaginationFooter page={query.page} pageCount={pageCount} totalCount={totalCount} pageSize={query.pageSize} onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))} />
+      <Modal open={editorMode === "bulk" ? isBulkModalOpen : modal === "create" || modal === "edit"} onClose={() => { setIsBulkModalOpen(false); setView((current) => ({ ...current, modal: null, id: null })); }} title={editorMode === "bulk" ? "Apply tracker access to selected users" : form.expectedVersion ? labels.editorTitle : "Create tracker access"} description={editorMode === "bulk" ? "Use one access envelope for the current selection." : "Edit tracker access rights without leaving the catalog."} width="wide">
+        <div className="space-y-4">
+          {editorMode === "bulk" ? (
+            <div className="app-subtle-panel space-y-2"><div className="app-kicker">Selection</div><div className="font-semibold text-ink">{selectedUserIds.length} user(s)</div></div>
+          ) : (
+            <label className="space-y-2"><span className="text-sm font-medium text-ink">{labels.userId}</span><input className="app-input font-mono text-sm" value={form.userId} onChange={(event) => setForm((current) => ({ ...current, userId: event.target.value }))} /></label>
+          )}
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canLeech} onChange={(event) => setForm((current) => ({ ...current, canLeech: event.target.checked }))} />{labels.canLeech}</label>
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canSeed} onChange={(event) => setForm((current) => ({ ...current, canSeed: event.target.checked }))} />{labels.canSeed}</label>
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canScrape} onChange={(event) => setForm((current) => ({ ...current, canScrape: event.target.checked }))} />{labels.canScrape}</label>
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />{labels.canUsePrivateTracker}</label>
+          </div>
+          <div className="flex flex-wrap justify-end gap-3">
+            <button type="button" className="app-button-secondary" onClick={() => { setIsBulkModalOpen(false); setView((current) => ({ ...current, modal: null, id: null })); }}>Cancel</button>
+            <button type="button" disabled={!canWrite || isSubmitting || (editorMode === "single" ? !form.userId.trim() : selectedUserIds.length === 0)} className="app-button-primary" onClick={() => void (editorMode === "bulk" ? bulkApplyPermissions() : savePermissions())}>
+              {editorMode === "bulk" ? `${labels.applySelected} (${selectedUserIds.length})` : labels.savePermissions}
+            </button>
+          </div>
+        </div>
+      </Modal>
+      <PreviewDrawer open={previewItem != null} title={previewItem?.userId ?? ""} subtitle="Current tracker access rights" onClose={() => setView((current) => ({ ...current, preview: null }))}>
+        {previewItem ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{labels.leech}</div><StatusPill tone={previewItem.canLeech ? "good" : "neutral"}>{formatBool(previewItem.canLeech, dictionary)}</StatusPill></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{labels.seed}</div><StatusPill tone={previewItem.canSeed ? "good" : "neutral"}>{formatBool(previewItem.canSeed, dictionary)}</StatusPill></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{labels.scrape}</div><StatusPill tone={previewItem.canScrape ? "good" : "neutral"}>{formatBool(previewItem.canScrape, dictionary)}</StatusPill></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{labels.privateTracker}</div><StatusPill tone={previewItem.canUsePrivateTracker ? "good" : "neutral"}>{formatBool(previewItem.canUsePrivateTracker, dictionary)}</StatusPill></div>
+            </div>
+            <div className="app-subtle-panel space-y-2"><div className="app-kicker">Version</div><div className="font-semibold text-ink">{previewItem.version}</div></div>
+            {trackerAccessItems.some((item) => item.userId === previewItem.userId) ? (
+              <div className="space-y-3">
+                <div className="app-kicker">Latest operation</div>
+                {trackerAccessItems.filter((item) => item.userId === previewItem.userId).map((item) => (
+                  <div key={item.userId} className="app-subtle-panel space-y-2">
+                    <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.succeeded : labels.failed}</StatusPill>
+                    {item.errorMessage ? <div className="text-sm text-ember">{item.errorMessage}</div> : null}
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : null}
           </div>
         ) : null}
-        <DataGrid<TrackerAccessAdminDto>
-          items={items}
-          keyFn={(item) => item.userId}
-          emptyMessage={labels.empty}
-          columns={[
-            {
-              key: "select",
-              header: "",
-              render: (item) => (
-                <input
-                  type="checkbox"
-                  checked={selectedUserIds.includes(item.userId)}
-                  onChange={() => toggleSelection(item.userId)}
-                />
-              )
-            },
-            {
-              key: "userId",
-              header: labels.userId,
-              render: (item) => <span className="font-mono text-xs font-semibold">{item.userId}</span>,
-              sortValue: (item) => item.userId,
-              searchValue: (item) => item.userId,
-              className: "text-ink"
-            },
-            {
-              key: "leech",
-              header: labels.leech,
-              render: (item) => (
-                <StatusPill tone={item.canLeech ? "good" : "neutral"}>
-                  {formatBool(item.canLeech, dictionary)}
-                </StatusPill>
-              ),
-              sortValue: (item) => (item.canLeech ? 1 : 0)
-            },
-            {
-              key: "seed",
-              header: labels.seed,
-              render: (item) => (
-                <StatusPill tone={item.canSeed ? "good" : "neutral"}>
-                  {formatBool(item.canSeed, dictionary)}
-                </StatusPill>
-              ),
-              sortValue: (item) => (item.canSeed ? 1 : 0)
-            },
-            {
-              key: "scrape",
-              header: labels.scrape,
-              render: (item) => (
-                <StatusPill tone={item.canScrape ? "good" : "neutral"}>
-                  {formatBool(item.canScrape, dictionary)}
-                </StatusPill>
-              ),
-              sortValue: (item) => (item.canScrape ? 1 : 0)
-            },
-            {
-              key: "private",
-              header: labels.privateTracker,
-              render: (item) => (
-                <StatusPill tone={item.canUsePrivateTracker ? "good" : "neutral"}>
-                  {formatBool(item.canUsePrivateTracker, dictionary)}
-                </StatusPill>
-              ),
-              sortValue: (item) => (item.canUsePrivateTracker ? 1 : 0)
-            },
-            {
-              key: "version",
-              header: dictionary.common.version,
-              render: (item) => item.version,
-              sortValue: (item) => item.version
-            },
-            {
-              key: "action",
-              header: "",
-              render: (item) => (
-                <button
-                  type="button"
-                  onClick={() => loadUser(item)}
-                  className="rounded-2xl border border-ink/20 px-3 py-1.5 text-xs font-semibold text-ink transition hover:bg-ink/5"
-                >
-                  {labels.edit}
-                </button>
-              )
-            }
-          ]}
-        />
-      </Card>
-      <Card title={labels.editorTitle} eyebrow={labels.editorEyebrow}>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">{labels.userId}</span>
-          <input className="w-full rounded-2xl border border-ink/15 px-4 py-3 font-mono text-sm" value={form.userId} onChange={(event) => setForm((current) => ({ ...current, userId: event.target.value }))} />
-        </label>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
-            <input type="checkbox" checked={form.canLeech} onChange={(event) => setForm((current) => ({ ...current, canLeech: event.target.checked }))} />
-            {labels.canLeech}
-          </label>
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
-            <input type="checkbox" checked={form.canSeed} onChange={(event) => setForm((current) => ({ ...current, canSeed: event.target.checked }))} />
-            {labels.canSeed}
-          </label>
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
-            <input type="checkbox" checked={form.canScrape} onChange={(event) => setForm((current) => ({ ...current, canScrape: event.target.checked }))} />
-            {labels.canScrape}
-          </label>
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
-            <input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />
-            {labels.canUsePrivateTracker}
-          </label>
-        </div>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={!canWrite || isSubmitting || !form.userId.trim()}
-            onClick={() => void savePermissions()}
-            className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.savePermissions}
-          </button>
-          <button
-            type="button"
-            disabled={!canWrite || isSubmitting || selectedUserIds.length === 0}
-            onClick={() => void bulkApplyPermissions()}
-            className="rounded-2xl border border-ink/20 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.applySelected} ({selectedUserIds.length})
-          </button>
-        </div>
-        {error ? <p className="mt-2 text-sm text-ember">{error}</p> : null}
-      </Card>
+      </PreviewDrawer>
     </div>
   );
 }
@@ -2639,94 +2807,410 @@ function AuditPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.audit;
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "occurred:desc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview } = view;
   const [items, setItems] = useState<AuditRecordDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const previewItem = items.find((item) => item.id === preview) ?? null;
+
+  const toggleSort = (field: string) => {
+    setView((current) => {
+      const [activeField, activeDirection] = current.query.sort.split(":");
+      if (activeField === field) {
+        return { ...current, query: { ...current.query, sort: `${field}:${activeDirection === "asc" ? "desc" : "asc"}`, page: 1 } };
+      }
+
+      return { ...current, query: { ...current.query, sort: `${field}:asc`, page: 1 } };
+    });
+  };
 
   useEffect(() => {
     let isMounted = true;
 
-    apiRequest<PageResult<AuditRecordDto> | AuditRecordDto[]>("/api/admin/audit?page=1&pageSize=25", accessToken, onReauthenticate)
-        .then((value) => {
-          if (isMounted) {
-            setItems(unwrapPageItems(value));
-          }
-        })
+    setIsLoading(true);
+    apiRequest<PageResult<AuditRecordDto>>(`/api/admin/audit?${buildGridQueryString(query)}`, accessToken, onReauthenticate)
+      .then((page) => {
+        if (isMounted) {
+          setItems(page.items);
+          setTotalCount(page.totalCount);
+          setError(null);
+        }
+      })
       .catch((requestError) => {
         if (isMounted) {
           setError(requestError instanceof Error ? requestError.message : labels.loadError);
+          setItems([]);
+          setTotalCount(0);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [accessToken, onReauthenticate]);
+  }, [accessToken, onReauthenticate, query]);
+
+  useEffect(() => {
+    if (preview && !items.some((item) => item.id === preview)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [items, preview, setView]);
+
+  const [activeSortField, activeSortDirection = "desc"] = query.sort.split(":");
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
 
   return (
-    <Card title={labels.title} eyebrow={labels.eyebrow}>
-      {error ? <p className="text-sm text-ember">{error}</p> : null}
-      <DataGrid<AuditRecordDto>
-        items={items}
-        keyFn={(item) => item.id}
-        emptyMessage={labels.empty}
-        defaultPageSize={20}
-        columns={[
-          {
-            key: "action",
-            header: labels.tableAction,
-            render: (item) => <span className="font-semibold">{item.action}</span>,
-            sortValue: (item) => item.action,
-            searchValue: (item) => item.action
-          },
-          {
-            key: "actor",
-            header: labels.tableActor,
-            render: (item) => <span className="font-mono text-xs">{item.actorId}</span>,
-            sortValue: (item) => item.actorId,
-            searchValue: (item) => item.actorId,
-            className: "text-ink"
-          },
-          {
-            key: "role",
-            header: labels.tableRole,
-            render: (item) => item.actorRole,
-            sortValue: (item) => item.actorRole,
-            searchValue: (item) => item.actorRole
-          },
-          {
-            key: "severity",
-            header: labels.tableSeverity,
-            render: (item) => (
-              <StatusPill tone={item.severity === "high" ? "warn" : "neutral"}>
-                {item.severity}
-              </StatusPill>
-            ),
-            sortValue: (item) => item.severity,
-            searchValue: (item) => item.severity
-          },
-          {
-            key: "entity",
-            header: labels.entity,
-            render: (item) => <span className="text-ink/70">{item.entityType} / {item.entityId}</span>,
-            sortValue: (item) => item.entityType,
-            searchValue: (item) => `${item.entityType} ${item.entityId}`
-          },
-          {
-            key: "result",
-            header: labels.result,
-            render: (item) => item.result,
-            sortValue: (item) => item.result,
-            searchValue: (item) => item.result
-          },
-          {
-            key: "occurred",
-            header: labels.occurred,
-            render: (item) => new Date(item.occurredAtUtc).toLocaleString(),
-            sortValue: (item) => new Date(item.occurredAtUtc).getTime()
-          }
+    <div className="space-y-6">
+      <CatalogToolbar
+        title={labels.title}
+        description="Search audit events and inspect details without leaving the log."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search actor, action or target"
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
+        filterOptions={[
+          { value: "all", label: "All events" },
+          { value: "success", label: "Successful" },
+          { value: "failure", label: "Failed" },
+          { value: "warn", label: "Warnings" },
+          { value: "error", label: "Errors" }
         ]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "occurred:desc", label: "Newest first" },
+          { value: "occurred:asc", label: "Oldest first" },
+          { value: "action:asc", label: "Action A-Z" },
+          { value: "severity:desc", label: "Severity high-low" },
+          { value: "actor:asc", label: "Actor A-Z" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
       />
-    </Card>
+
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableAction} active={activeSortField === "action"} direction={activeSortDirection as "asc" | "desc"} onClick={() => toggleSort("action")} /></th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableActor} active={activeSortField === "actor"} direction={activeSortDirection as "asc" | "desc"} onClick={() => toggleSort("actor")} /></th>
+                <th className="px-5 py-4">{labels.tableRole}</th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.tableSeverity} active={activeSortField === "severity"} direction={activeSortDirection as "asc" | "desc"} onClick={() => toggleSort("severity")} /></th>
+                <th className="px-5 py-4">{labels.entity}</th>
+                <th className="px-5 py-4">{labels.result}</th>
+                <th className="px-5 py-4"><SortHeaderButton label={labels.occurred} active={activeSortField === "occurred"} direction={activeSortDirection as "asc" | "desc"} onClick={() => toggleSort("occurred")} /></th>
+                <th className="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={8} title="Loading audit log" message="Refreshing the latest operational and access events." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={8} title="Unable to load audit log" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={8} title="No audit events match this view" message="Try a broader search or relax the current filter." />
+              ) : items.map((item) => (
+                <tr key={item.id} className="app-table-row border-t border-slate-200/80 align-top">
+                  <td className="px-5 py-4 font-semibold text-ink">{item.action}</td>
+                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.actorId}</td>
+                  <td className="px-5 py-4 text-steel">{item.actorRole}</td>
+                  <td className="px-5 py-4">
+                    <span className={item.severity === "error" || item.severity === "high" ? "app-chip-warn" : "app-chip-soft"}>{item.severity}</span>
+                  </td>
+                  <td className="px-5 py-4 text-steel">{item.entityType} / {item.entityId}</td>
+                  <td className="px-5 py-4 text-steel">{item.result}</td>
+                  <td className="px-5 py-4 text-steel">{new Date(item.occurredAtUtc).toLocaleString()}</td>
+                  <td className="px-5 py-4 text-right">
+                    <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.id }))}>
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <PaginationFooter
+        page={query.page}
+        pageCount={pageCount}
+        totalCount={totalCount}
+        pageSize={query.pageSize}
+        onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))}
+      />
+
+      <PreviewDrawer
+        open={previewItem !== null}
+        title={previewItem?.action ?? ""}
+        subtitle={previewItem ? `${previewItem.entityType} / ${previewItem.entityId}` : undefined}
+        onClose={() => setView((current) => ({ ...current, preview: null }))}
+      >
+        {previewItem ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Actor</div>
+                <div className="font-semibold text-ink">{previewItem.actorId}</div>
+                <div className="text-sm text-steel">{previewItem.actorRole}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Result</div>
+                <div className="font-semibold text-ink">{previewItem.result}</div>
+                <div className="text-sm text-steel">{previewItem.severity}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Occurred</div>
+                <div className="font-semibold text-ink">{new Date(previewItem.occurredAtUtc).toLocaleString()}</div>
+              </div>
+            </div>
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Correlation</div>
+              <div className="font-mono text-xs text-steel">{previewItem.correlationId || "N/A"}</div>
+            </div>
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Origin</div>
+              <div className="text-sm text-steel">IP: {previewItem.ipAddress || "Unknown"}</div>
+            </div>
+          </div>
+        ) : null}
+      </PreviewDrawer>
+    </div>
+  );
+}
+
+function MaintenancePage({
+  accessToken,
+  onReauthenticate
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+}) {
+  const { dictionary } = useI18n();
+  const labels = dictionary.maintenance;
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "requested:desc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview } = view;
+  const [items, setItems] = useState<MaintenanceRunDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const previewItem = items.find((item) => item.id === preview) ?? null;
+  const [activeSortField, activeSortDirection = "desc"] = query.sort.split(":");
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
+
+  useEffect(() => {
+    let isMounted = true;
+
+    setIsLoading(true);
+    apiRequest<PageResult<MaintenanceRunDto>>(
+      `/api/admin/maintenance?${buildGridQueryString(query)}`,
+      accessToken,
+      onReauthenticate
+    )
+      .then((page) => {
+        if (!isMounted) {
+          return;
+        }
+        setItems(page.items);
+        setTotalCount(page.totalCount);
+        setError(null);
+      })
+      .catch((requestError) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setError(requestError instanceof Error ? requestError.message : labels.loadError);
+        setItems([]);
+        setTotalCount(0);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [accessToken, labels.loadError, onReauthenticate, query]);
+
+  useEffect(() => {
+    if (preview && !items.some((item) => item.id === preview)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [items, preview, setView]);
+
+  const toggleSort = (field: string) => {
+    const nextDirection =
+      activeSortField === field && activeSortDirection === "asc"
+        ? "desc"
+        : "asc";
+    setView((current) => ({
+      ...current,
+      query: { ...current.query, sort: `${field}:${nextDirection}`, page: 1 }
+    }));
+  };
+
+  return (
+    <div className="space-y-6">
+      <CatalogToolbar
+        title={labels.title}
+        description="Review maintenance history and inspect operational runs without leaving the admin surface."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search operation, requester or correlation"
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
+        filterOptions={[
+          { value: "all", label: "All runs" },
+          { value: "completed", label: "Completed" },
+          { value: "failed", label: "Failed" },
+          { value: "running", label: "Running" }
+        ]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "requested:desc", label: "Newest first" },
+          { value: "requested:asc", label: "Oldest first" },
+          { value: "operation:asc", label: "Operation A-Z" },
+          { value: "status:asc", label: "Status A-Z" },
+          { value: "status:desc", label: "Status Z-A" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+      />
+
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="px-5 py-4">
+                  <SortHeaderButton
+                    label={labels.tableOperation}
+                    active={activeSortField === "operation"}
+                    direction={activeSortDirection as "asc" | "desc"}
+                    onClick={() => toggleSort("operation")}
+                  />
+                </th>
+                <th className="px-5 py-4">{labels.tableRequestedBy}</th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton
+                    label={labels.tableRequestedAt}
+                    active={activeSortField === "requested"}
+                    direction={activeSortDirection as "asc" | "desc"}
+                    onClick={() => toggleSort("requested")}
+                  />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton
+                    label={labels.tableStatus}
+                    active={activeSortField === "status"}
+                    direction={activeSortDirection as "asc" | "desc"}
+                    onClick={() => toggleSort("status")}
+                  />
+                </th>
+                <th className="px-5 py-4">{labels.tableCorrelation}</th>
+                <th className="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={6} title="Loading maintenance history" message="Refreshing operational maintenance runs." />
+              ) : error && totalCount === 0 ? (
+                <TableStateRow colSpan={6} title="Unable to load maintenance history" message={error} />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={6} title={labels.title} message={labels.empty} />
+              ) : (
+                items.map((item) => (
+                  <tr key={item.id} className="app-table-row border-t border-slate-200/80 align-top">
+                    <td className="px-5 py-4 font-semibold text-ink">{item.operation}</td>
+                    <td className="px-5 py-4 text-steel">{item.requestedBy}</td>
+                    <td className="px-5 py-4 text-steel">{new Date(item.requestedAtUtc).toLocaleString()}</td>
+                    <td className="px-5 py-4">
+                      <span className={item.status === "failed" ? "app-chip-warn" : item.status === "running" ? "app-chip-strong" : "app-chip-soft"}>
+                        {item.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 font-mono text-xs text-steel">{item.correlationId}</td>
+                    <td className="px-5 py-4 text-right">
+                      <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.id }))}>
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <PaginationFooter
+        page={query.page}
+        pageCount={pageCount}
+        totalCount={totalCount}
+        pageSize={query.pageSize}
+        onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))}
+      />
+
+      <PreviewDrawer
+        open={previewItem !== null}
+        title={previewItem?.operation ?? ""}
+        subtitle={previewItem?.requestedBy}
+        onClose={() => setView((current) => ({ ...current, preview: null }))}
+      >
+        {previewItem ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">{labels.tableRequestedBy}</div>
+                <div className="font-semibold text-ink">{previewItem.requestedBy}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">{labels.tableStatus}</div>
+                <div className="font-semibold text-ink">{previewItem.status}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">{labels.tableRequestedAt}</div>
+                <div className="font-semibold text-ink">{new Date(previewItem.requestedAtUtc).toLocaleString()}</div>
+              </div>
+            </div>
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">{labels.tableCorrelation}</div>
+              <div className="font-mono text-xs text-steel">{previewItem.correlationId}</div>
+            </div>
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Run id</div>
+              <div className="font-mono text-xs text-steel">{previewItem.id}</div>
+            </div>
+          </div>
+        ) : null}
+      </PreviewDrawer>
+    </div>
   );
 }
 
@@ -2858,11 +3342,19 @@ function Shell({
         links: [
           hasPermission(session.permissions, permissionKeys.auditView)
             ? { to: "/audit", label: dictionary.routes.auditTitle, description: "Inspect privileged activity and outcomes.", icon: "audit" }
+            : null,
+          hasGrantedCapability(capabilities, "admin.read.maintenance")
+            ? {
+                to: "/maintenance",
+                label: dictionary.routes.maintenanceTitle,
+                description: "Review maintenance runs and cache refresh history.",
+                icon: "maintenance"
+              }
             : null
         ].filter((link): link is NavigationLink => link !== null)
       }
     ].filter((section) => section.links.length > 0),
-    [dictionary, session.permissions]
+    [capabilities, dictionary, session.permissions]
   );
 
   const displayName =
@@ -3480,6 +3972,14 @@ function AuthenticatedAdminApp({
             <PermissionGate permissions={session.permissions} permission={permissionKeys.auditView}>
               <AuditPage accessToken={accessToken} onReauthenticate={onSignin} />
             </PermissionGate>
+          }
+        />
+        <Route
+          path="/maintenance"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.read.maintenance">
+              <MaintenancePage accessToken={accessToken} onReauthenticate={onSignin} />
+            </CapabilityGate>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

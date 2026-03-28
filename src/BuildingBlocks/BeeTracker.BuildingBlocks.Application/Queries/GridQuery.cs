@@ -18,11 +18,29 @@ public sealed record GridQuery(
     public string? NormalizedSearch =>
         string.IsNullOrWhiteSpace(Search) ? null : Search.Trim();
 
+    public bool HasSearch => NormalizedSearch is { Length: > 0 };
+
+    public string? ToSqlLikePattern()
+    {
+        if (!HasSearch)
+            return null;
+
+        return $"%{EscapeLikePattern(NormalizedSearch!)}%";
+    }
+
     public string NormalizedFilter =>
         string.IsNullOrWhiteSpace(Filter) ? "all" : Filter.Trim();
+
+    private static string EscapeLikePattern(string value)
+        => value.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
 }
 
 public sealed record GridSortTerm(string Field, GridSortDirection Direction);
+
+public sealed record GridCatalogProfile(
+    IReadOnlyList<string> AllowedFilters,
+    IReadOnlyList<string> AllowedSortFields,
+    IReadOnlyList<GridSortTerm> DefaultSortTerms);
 
 public enum GridSortDirection
 {
@@ -62,5 +80,54 @@ public static class GridQuerySortParser
             : GridSortDirection.Asc;
 
         return new GridSortTerm(field, direction);
+    }
+}
+
+public static class GridQuerySortWhitelist
+{
+    public static IReadOnlyList<GridSortTerm> Parse(
+        string? sort,
+        IEnumerable<string> allowedFields,
+        params GridSortTerm[] defaultTerms)
+    {
+        var normalizedAllowed = new HashSet<string>(
+            allowedFields.Select(static field => field.Trim().ToLowerInvariant()),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (normalizedAllowed.Count == 0)
+            return defaultTerms;
+
+        var parsedTerms = GridQuerySortParser.Parse(sort, defaultTerms);
+        var filteredTerms = parsedTerms
+            .Where(term => normalizedAllowed.Contains(term.Field))
+            .ToList();
+
+        return filteredTerms.Count == 0 ? defaultTerms : filteredTerms;
+    }
+}
+
+public static class GridCatalogProfileExtensions
+{
+    public static string NormalizeFilter(this GridCatalogProfile profile, string? filter)
+        => GridFilterParser.Normalize(filter, profile.AllowedFilters.ToArray());
+
+    public static IReadOnlyList<GridSortTerm> ParseSort(this GridCatalogProfile profile, string? sort)
+        => GridQuerySortWhitelist.Parse(sort, profile.AllowedSortFields, profile.DefaultSortTerms.ToArray());
+}
+
+public static class GridFilterParser
+{
+    public static string Normalize(string? filter, params string[] allowedValues)
+    {
+        if (allowedValues is null || allowedValues.Length == 0)
+            return string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
+
+        var normalizedFilter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
+        if (normalizedFilter == "all")
+            return normalizedFilter;
+
+        return allowedValues.Any(value => value.Equals(normalizedFilter, StringComparison.OrdinalIgnoreCase))
+            ? normalizedFilter
+            : "all";
     }
 }

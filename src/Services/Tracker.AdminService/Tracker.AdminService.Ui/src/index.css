@@ -43,11 +43,11 @@ body {
   }
 
   .app-card-header {
-    @apply border-b border-slate-200/70 px-6 py-5;
+    @apply border-b border-slate-200/70 px-5 py-4;
   }
 
   .app-card-body {
-    @apply px-6 py-6;
+    @apply px-5 py-5;
   }
 
   .app-kicker {
@@ -55,7 +55,7 @@ body {
   }
 
   .app-input {
-    @apply w-full rounded-[22px] border border-slate-200 bg-white/90 px-4 py-3.5 text-sm text-ink outline-none transition placeholder:text-steel/45 focus:border-brand/50 focus:ring-4 focus:ring-brand/10;
+    @apply w-full rounded-[20px] border border-slate-200 bg-white/90 px-4 py-3 text-sm text-ink outline-none transition placeholder:text-steel/45 focus:border-brand/50 focus:ring-4 focus:ring-brand/10;
   }
 
   .app-input-muted {
@@ -515,7 +515,7 @@ body {
   }
 
   .app-table-head {
-    @apply bg-[#172033] text-left text-[11px] uppercase tracking-[0.12em] text-white/70;
+    @apply bg-[#172033] text-left text-[10px] uppercase tracking-[0.06em] text-white/70;
   }
 
   .app-data-table thead th {
@@ -527,6 +527,10 @@ body {
 
   .app-table-row {
     @apply transition-colors hover:bg-slate-50/85;
+  }
+
+  .app-table-row:focus-within {
+    @apply bg-brand/5 ring-1 ring-inset ring-brand/20;
   }
 
   .app-page-grid {
@@ -546,11 +550,15 @@ body {
   }
 
   .app-catalog-toolbar {
-    @apply grid gap-3 xl:grid-cols-[minmax(0,2.6fr),minmax(170px,0.9fr),minmax(170px,0.9fr),minmax(150px,0.7fr)];
+    @apply grid gap-2.5 xl:grid-cols-[minmax(0,2.75fr),minmax(160px,0.85fr),minmax(170px,0.9fr),minmax(145px,0.7fr)];
   }
 
   .app-catalog-header {
-    @apply flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between;
+    @apply flex flex-col gap-1.5 xl:flex-row xl:items-center xl:justify-between;
+  }
+
+  .app-catalog-description {
+    @apply text-sm text-steel/90;
   }
 
   .app-catalog-grid {
@@ -570,15 +578,15 @@ body {
   }
 
   .app-catalog-pagination {
-    @apply flex flex-col gap-3 rounded-[20px] border border-slate-200/80 bg-white/70 px-5 py-3 sm:flex-row sm:items-center sm:justify-between;
+    @apply flex flex-col gap-2 rounded-[18px] border border-slate-200/80 bg-white/70 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between;
   }
 
   .app-selection-summary {
-    @apply flex flex-col gap-3 rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between;
+    @apply flex flex-col gap-2 rounded-[18px] border border-slate-200/80 bg-white/80 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between;
   }
 
   .app-table-state {
-    @apply flex flex-col items-center justify-center gap-2 rounded-[22px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-8 text-center;
+    @apply flex flex-col items-center justify-center gap-2 rounded-[20px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-6 text-center;
   }
 
   .app-preview-drawer {
@@ -606,12 +614,18 @@ body {
     vertical-align: middle;
   }
 
+  .app-data-table table td .app-button-secondary,
+  .app-data-table table td .app-button-danger,
+  .app-data-table table td .app-button-primary {
+    @apply py-2;
+  }
+
   .app-card-header.app-catalog-header {
-    @apply px-5 py-5;
+    @apply px-4 py-3.5;
   }
 
   .app-card:has(.app-catalog-toolbar) .app-card-body {
-    @apply px-5 py-4;
+    @apply px-4 py-2.5;
   }
 
   .app-modal-overlay {

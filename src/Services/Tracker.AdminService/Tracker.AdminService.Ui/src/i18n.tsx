@@ -105,6 +105,9 @@ type RouteMetaTranslations = {
   auditEyebrow: string;
   auditTitle: string;
   auditDescription: string;
+  maintenanceEyebrow: string;
+  maintenanceTitle: string;
+  maintenanceDescription: string;
 };
 
 type DashboardTranslations = {
@@ -297,6 +300,18 @@ type AuditTranslations = {
   empty: string;
 };
 
+type MaintenanceTranslations = {
+  loadError: string;
+  title: string;
+  eyebrow: string;
+  tableOperation: string;
+  tableRequestedBy: string;
+  tableRequestedAt: string;
+  tableStatus: string;
+  tableCorrelation: string;
+  empty: string;
+};
+
 type DataGridTranslations = {
   searchPlaceholder: string;
   rowsPerPage: string;
@@ -330,6 +345,7 @@ export type I18nDictionary = {
   bans: BansTranslations;
   permissionsPage: PermissionsTranslations;
   audit: AuditTranslations;
+  maintenance: MaintenanceTranslations;
   dataGrid: DataGridTranslations;
   auth: AuthTranslations;
 };
@@ -444,7 +460,10 @@ const english: I18nDictionary = {
     bansDescription: "Create, expire and remove enforcement rules with explicit scope, subject and audit visibility.",
     auditEyebrow: "Audit",
     auditTitle: "Audit trail",
-    auditDescription: "Review privileged actions, session identity and correlation trails across BeeTracker."
+    auditDescription: "Review privileged actions, session identity and correlation trails across BeeTracker.",
+    maintenanceEyebrow: "Maintenance",
+    maintenanceTitle: "Maintenance runs",
+    maintenanceDescription: "Review cache refreshes and operational maintenance runs without leaving the admin surface."
   },
   dashboard: {
     loadError: "Unable to load the dashboard overview.",
@@ -627,6 +646,17 @@ const english: I18nDictionary = {
     correlation: "Correlation",
     occurred: "Occurred",
     empty: "No audit records were returned."
+  },
+  maintenance: {
+    loadError: "Unable to load maintenance runs.",
+    title: "Maintenance runs",
+    eyebrow: "Operations history",
+    tableOperation: "Operation",
+    tableRequestedBy: "Requested by",
+    tableRequestedAt: "Requested at",
+    tableStatus: "Status",
+    tableCorrelation: "Correlation",
+    empty: "No maintenance runs match this view."
   },
   dataGrid: {
     searchPlaceholder: "Search...",

@@ -241,7 +241,7 @@ public sealed class RedisClusterOverviewReader(IRedisCacheClient redisCacheClien
 
 public sealed class EfAuditRecordReader(TrackerConfigurationDbContext dbContext) : IAuditRecordReader
 {
-    public async Task<PageResult<AuditRecordDto>> ListAsync(GridQuery query, CancellationToken cancellationToken)
+    public async Task<PageResult<AuditRecordDto>> ListAsync(GridQuery query, AuditRecordFilter filter, CancellationToken cancellationToken)
     {
         query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
         var normalizedSearch = query.NormalizedSearch;
@@ -265,26 +265,21 @@ public sealed class EfAuditRecordReader(TrackerConfigurationDbContext dbContext)
                 EF.Functions.ILike(record.Result, pattern));
         }
 
-        recordsQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        recordsQuery = filter switch
         {
-            "success" => recordsQuery.Where(record => record.Result == "success"),
-            "failure" => recordsQuery.Where(record => record.Result == "failure"),
-            "warn" => recordsQuery.Where(record => record.Severity == "warn"),
-            "error" => recordsQuery.Where(record => record.Severity == "error"),
+            AuditRecordFilter.Success => recordsQuery.Where(record => record.Result == "success"),
+            AuditRecordFilter.Failure => recordsQuery.Where(record => record.Result == "failure"),
+            AuditRecordFilter.Warn => recordsQuery.Where(record => record.Severity == "warn"),
             _ => recordsQuery
         };
 
-        var orderedQuery = (query.Sort ?? "occurred:desc").ToLowerInvariant() switch
+        IOrderedQueryable<AuditRecordEntity>? orderedQuery = null;
+        foreach (var term in AdminCatalogProfiles.Audit.ParseSort(query.Sort))
         {
-            "action:asc" => recordsQuery.OrderBy(record => record.Action).ThenByDescending(record => record.OccurredAtUtc),
-            "action:desc" => recordsQuery.OrderByDescending(record => record.Action).ThenByDescending(record => record.OccurredAtUtc),
-            "severity:asc" => recordsQuery.OrderBy(record => record.Severity).ThenByDescending(record => record.OccurredAtUtc),
-            "severity:desc" => recordsQuery.OrderByDescending(record => record.Severity).ThenByDescending(record => record.OccurredAtUtc),
-            "actor:asc" => recordsQuery.OrderBy(record => record.ActorId).ThenByDescending(record => record.OccurredAtUtc),
-            "actor:desc" => recordsQuery.OrderByDescending(record => record.ActorId).ThenByDescending(record => record.OccurredAtUtc),
-            "occurred:asc" => recordsQuery.OrderBy(record => record.OccurredAtUtc),
-            _ => recordsQuery.OrderByDescending(record => record.OccurredAtUtc)
-        };
+            orderedQuery = ApplyAuditSort(orderedQuery ?? recordsQuery, term);
+        }
+
+        orderedQuery ??= recordsQuery.OrderByDescending(record => record.OccurredAtUtc);
 
         var (records, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
         var items = records.Select(static record => new AuditRecordDto(
@@ -305,11 +300,26 @@ public sealed class EfAuditRecordReader(TrackerConfigurationDbContext dbContext)
 
         return new PageResult<AuditRecordDto>(items, totalCount, query.Page, query.PageSize);
     }
+
+    private static IOrderedQueryable<AuditRecordEntity> ApplyAuditSort(
+        IQueryable<AuditRecordEntity> source,
+        GridSortTerm term)
+        => (term.Field.ToLowerInvariant(), term.Direction) switch
+        {
+            ("action", GridSortDirection.Asc) => source.OrderBy(record => record.Action).ThenByDescending(record => record.OccurredAtUtc),
+            ("action", GridSortDirection.Desc) => source.OrderByDescending(record => record.Action).ThenByDescending(record => record.OccurredAtUtc),
+            ("severity", GridSortDirection.Asc) => source.OrderBy(record => record.Severity).ThenByDescending(record => record.OccurredAtUtc),
+            ("severity", GridSortDirection.Desc) => source.OrderByDescending(record => record.Severity).ThenByDescending(record => record.OccurredAtUtc),
+            ("actor", GridSortDirection.Asc) => source.OrderBy(record => record.ActorId).ThenByDescending(record => record.OccurredAtUtc),
+            ("actor", GridSortDirection.Desc) => source.OrderByDescending(record => record.ActorId).ThenByDescending(record => record.OccurredAtUtc),
+            ("occurred", GridSortDirection.Asc) => source.OrderBy(record => record.OccurredAtUtc),
+            _ => source.OrderByDescending(record => record.OccurredAtUtc)
+        };
 }
 
 public sealed class EfMaintenanceRunReader(TrackerConfigurationDbContext dbContext) : IMaintenanceRunReader
 {
-    public async Task<PageResult<MaintenanceRunDto>> ListAsync(GridQuery query, CancellationToken cancellationToken)
+    public async Task<PageResult<MaintenanceRunDto>> ListAsync(GridQuery query, MaintenanceRunFilter filter, CancellationToken cancellationToken)
     {
         query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
         var normalizedSearch = query.NormalizedSearch;
@@ -328,23 +338,21 @@ public sealed class EfMaintenanceRunReader(TrackerConfigurationDbContext dbConte
                 EF.Functions.ILike(run.CorrelationId, pattern));
         }
 
-        runsQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        runsQuery = filter switch
         {
-            "completed" => runsQuery.Where(run => run.Status == "completed"),
-            "failed" => runsQuery.Where(run => run.Status == "failed"),
-            "running" => runsQuery.Where(run => run.Status == "running"),
+            MaintenanceRunFilter.Completed => runsQuery.Where(run => run.Status == "completed"),
+            MaintenanceRunFilter.Failed => runsQuery.Where(run => run.Status == "failed"),
+            MaintenanceRunFilter.Running => runsQuery.Where(run => run.Status == "running"),
             _ => runsQuery
         };
 
-        var orderedQuery = (query.Sort ?? "requested:desc").ToLowerInvariant() switch
+        IOrderedQueryable<MaintenanceRunEntity>? orderedQuery = null;
+        foreach (var term in AdminCatalogProfiles.Maintenance.ParseSort(query.Sort))
         {
-            "operation:asc" => runsQuery.OrderBy(run => run.Operation).ThenByDescending(run => run.RequestedAtUtc),
-            "operation:desc" => runsQuery.OrderByDescending(run => run.Operation).ThenByDescending(run => run.RequestedAtUtc),
-            "status:asc" => runsQuery.OrderBy(run => run.Status).ThenByDescending(run => run.RequestedAtUtc),
-            "status:desc" => runsQuery.OrderByDescending(run => run.Status).ThenByDescending(run => run.RequestedAtUtc),
-            "requested:asc" => runsQuery.OrderBy(run => run.RequestedAtUtc),
-            _ => runsQuery.OrderByDescending(run => run.RequestedAtUtc)
-        };
+            orderedQuery = ApplyMaintenanceSort(orderedQuery ?? runsQuery, term);
+        }
+
+        orderedQuery ??= runsQuery.OrderByDescending(run => run.RequestedAtUtc);
 
         var (runs, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
         var items = runs.Select(static run => new MaintenanceRunDto(
@@ -359,11 +367,24 @@ public sealed class EfMaintenanceRunReader(TrackerConfigurationDbContext dbConte
 
         return new PageResult<MaintenanceRunDto>(items, totalCount, query.Page, query.PageSize);
     }
+
+    private static IOrderedQueryable<MaintenanceRunEntity> ApplyMaintenanceSort(
+        IQueryable<MaintenanceRunEntity> source,
+        GridSortTerm term)
+        => (term.Field.ToLowerInvariant(), term.Direction) switch
+        {
+            ("operation", GridSortDirection.Asc) => source.OrderBy(run => run.Operation).ThenByDescending(run => run.RequestedAtUtc),
+            ("operation", GridSortDirection.Desc) => source.OrderByDescending(run => run.Operation).ThenByDescending(run => run.RequestedAtUtc),
+            ("status", GridSortDirection.Asc) => source.OrderBy(run => run.Status).ThenByDescending(run => run.RequestedAtUtc),
+            ("status", GridSortDirection.Desc) => source.OrderByDescending(run => run.Status).ThenByDescending(run => run.RequestedAtUtc),
+            ("requested", GridSortDirection.Asc) => source.OrderBy(run => run.RequestedAtUtc),
+            _ => source.OrderByDescending(run => run.RequestedAtUtc)
+        };
 }
 
 public sealed class EfTorrentAdminReader(TrackerConfigurationDbContext dbContext) : ITorrentAdminReader
 {
-    public async Task<PageResult<TorrentAdminDto>> ListAsync(GridQuery query, bool? isEnabled, bool? isPrivate, CancellationToken cancellationToken)
+    public async Task<PageResult<TorrentAdminDto>> ListAsync(GridQuery query, TorrentCatalogFilter filter, bool? isEnabled, bool? isPrivate, CancellationToken cancellationToken)
     {
         query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
         var normalizedSearch = query.NormalizedSearch;
@@ -388,26 +409,22 @@ public sealed class EfTorrentAdminReader(TrackerConfigurationDbContext dbContext
             torrentsQuery = torrentsQuery.Where(torrent => torrent.IsPrivate == isPrivate.Value);
         }
 
-        torrentsQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        torrentsQuery = filter switch
         {
-            "enabled" => torrentsQuery.Where(torrent => torrent.IsEnabled),
-            "disabled" => torrentsQuery.Where(torrent => !torrent.IsEnabled),
-            "private" => torrentsQuery.Where(torrent => torrent.IsPrivate),
-            "public" => torrentsQuery.Where(torrent => !torrent.IsPrivate),
+            TorrentCatalogFilter.Enabled => torrentsQuery.Where(torrent => torrent.IsEnabled),
+            TorrentCatalogFilter.Disabled => torrentsQuery.Where(torrent => !torrent.IsEnabled),
+            TorrentCatalogFilter.Private => torrentsQuery.Where(torrent => torrent.IsPrivate),
+            TorrentCatalogFilter.Public => torrentsQuery.Where(torrent => !torrent.IsPrivate),
             _ => torrentsQuery
         };
 
-        var orderedQuery = (query.Sort ?? "infohash:asc").ToLowerInvariant() switch
+        IOrderedQueryable<TorrentConfigurationEntity>? orderedQuery = null;
+        foreach (var term in AdminCatalogProfiles.Torrents.ParseSort(query.Sort))
         {
-            "enabled:asc" => torrentsQuery.OrderBy(torrent => torrent.IsEnabled).ThenBy(torrent => torrent.InfoHash),
-            "enabled:desc" => torrentsQuery.OrderByDescending(torrent => torrent.IsEnabled).ThenBy(torrent => torrent.InfoHash),
-            "private:asc" => torrentsQuery.OrderBy(torrent => torrent.IsPrivate).ThenBy(torrent => torrent.InfoHash),
-            "private:desc" => torrentsQuery.OrderByDescending(torrent => torrent.IsPrivate).ThenBy(torrent => torrent.InfoHash),
-            "interval:asc" => torrentsQuery.OrderBy(torrent => torrent.Policy!.AnnounceIntervalSeconds).ThenBy(torrent => torrent.InfoHash),
-            "interval:desc" => torrentsQuery.OrderByDescending(torrent => torrent.Policy!.AnnounceIntervalSeconds).ThenBy(torrent => torrent.InfoHash),
-            "infohash:desc" => torrentsQuery.OrderByDescending(torrent => torrent.InfoHash),
-            _ => torrentsQuery.OrderBy(torrent => torrent.InfoHash)
-        };
+            orderedQuery = ApplyTorrentSort(orderedQuery ?? torrentsQuery, term);
+        }
+
+        orderedQuery ??= torrentsQuery.OrderBy(torrent => torrent.InfoHash);
 
         var totalCount = await orderedQuery.CountAsync(cancellationToken);
         var torrents = await orderedQuery
@@ -445,11 +462,26 @@ public sealed class EfTorrentAdminReader(TrackerConfigurationDbContext dbContext
             torrent.Policy?.MaxNumWant ?? 0,
             torrent.Policy?.AllowScrape ?? false,
             torrent.Policy?.RowVersion ?? 0);
+
+    private static IOrderedQueryable<TorrentConfigurationEntity> ApplyTorrentSort(
+        IQueryable<TorrentConfigurationEntity> source,
+        GridSortTerm term)
+        => (term.Field.ToLowerInvariant(), term.Direction) switch
+        {
+            ("enabled", GridSortDirection.Asc) => source.OrderBy(torrent => torrent.IsEnabled).ThenBy(torrent => torrent.InfoHash),
+            ("enabled", GridSortDirection.Desc) => source.OrderByDescending(torrent => torrent.IsEnabled).ThenBy(torrent => torrent.InfoHash),
+            ("private", GridSortDirection.Asc) => source.OrderBy(torrent => torrent.IsPrivate).ThenBy(torrent => torrent.InfoHash),
+            ("private", GridSortDirection.Desc) => source.OrderByDescending(torrent => torrent.IsPrivate).ThenBy(torrent => torrent.InfoHash),
+            ("interval", GridSortDirection.Asc) => source.OrderBy(torrent => torrent.Policy != null ? torrent.Policy.AnnounceIntervalSeconds : int.MaxValue).ThenBy(torrent => torrent.InfoHash),
+            ("interval", GridSortDirection.Desc) => source.OrderByDescending(torrent => torrent.Policy != null ? torrent.Policy.AnnounceIntervalSeconds : int.MinValue).ThenBy(torrent => torrent.InfoHash),
+            ("infohash", GridSortDirection.Desc) => source.OrderByDescending(torrent => torrent.InfoHash),
+            _ => source.OrderBy(torrent => torrent.InfoHash)
+        };
 }
 
 public sealed class EfPasskeyAdminReader(TrackerConfigurationDbContext dbContext) : IPasskeyAdminReader
 {
-    public async Task<PageResult<PasskeyAdminDto>> ListAsync(GridQuery query, Guid? userId, bool? isRevoked, CancellationToken cancellationToken)
+    public async Task<PageResult<PasskeyAdminDto>> ListAsync(GridQuery query, PasskeyCatalogFilter filter, Guid? userId, bool? isRevoked, CancellationToken cancellationToken)
     {
         query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
         var normalizedSearch = query.NormalizedSearch;
@@ -476,23 +508,21 @@ public sealed class EfPasskeyAdminReader(TrackerConfigurationDbContext dbContext
                 EF.Functions.ILike(passkey.Passkey, pattern));
         }
 
-        passkeysQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        passkeysQuery = filter switch
         {
-            "revoked" => passkeysQuery.Where(passkey => passkey.IsRevoked),
-            "active" => passkeysQuery.Where(passkey => !passkey.IsRevoked),
-            "expired" => passkeysQuery.Where(passkey => passkey.ExpiresAtUtc.HasValue && passkey.ExpiresAtUtc < DateTime.UtcNow),
+            PasskeyCatalogFilter.Revoked => passkeysQuery.Where(passkey => passkey.IsRevoked),
+            PasskeyCatalogFilter.Active => passkeysQuery.Where(passkey => !passkey.IsRevoked),
+            PasskeyCatalogFilter.Expired => passkeysQuery.Where(passkey => passkey.ExpiresAtUtc.HasValue && passkey.ExpiresAtUtc < DateTime.UtcNow),
             _ => passkeysQuery
         };
 
-        var orderedQuery = (query.Sort ?? "userid:asc").ToLowerInvariant() switch
+        IOrderedQueryable<PasskeyCredentialEntity>? orderedQuery = null;
+        foreach (var term in AdminCatalogProfiles.Passkeys.ParseSort(query.Sort))
         {
-            "expires:asc" => passkeysQuery.OrderBy(passkey => passkey.ExpiresAtUtc ?? DateTime.MaxValue).ThenBy(passkey => passkey.UserId),
-            "expires:desc" => passkeysQuery.OrderByDescending(passkey => passkey.ExpiresAtUtc ?? DateTime.MaxValue).ThenBy(passkey => passkey.UserId),
-            "version:asc" => passkeysQuery.OrderBy(passkey => passkey.RowVersion).ThenBy(passkey => passkey.UserId),
-            "version:desc" => passkeysQuery.OrderByDescending(passkey => passkey.RowVersion).ThenBy(passkey => passkey.UserId),
-            "userid:desc" => passkeysQuery.OrderByDescending(passkey => passkey.UserId).ThenByDescending(passkey => passkey.Passkey),
-            _ => passkeysQuery.OrderBy(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey)
-        };
+            orderedQuery = ApplyPasskeySort(orderedQuery ?? passkeysQuery, term);
+        }
+
+        orderedQuery ??= passkeysQuery.OrderBy(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey);
 
         var (passkeys, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
 
@@ -510,11 +540,24 @@ public sealed class EfPasskeyAdminReader(TrackerConfigurationDbContext dbContext
 
     private static string MaskPasskey(string passkey)
         => passkey.Length <= 6 ? $"pk:{passkey[0]}...{passkey[^1]}" : $"pk:{passkey[..4]}...{passkey[^2..]}";
+
+    private static IOrderedQueryable<PasskeyCredentialEntity> ApplyPasskeySort(
+        IQueryable<PasskeyCredentialEntity> source,
+        GridSortTerm term)
+        => (term.Field.ToLowerInvariant(), term.Direction) switch
+        {
+            ("expires", GridSortDirection.Asc) => source.OrderBy(passkey => passkey.ExpiresAtUtc ?? DateTime.MaxValue).ThenBy(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey),
+            ("expires", GridSortDirection.Desc) => source.OrderByDescending(passkey => passkey.ExpiresAtUtc ?? DateTime.MaxValue).ThenBy(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey),
+            ("version", GridSortDirection.Asc) => source.OrderBy(passkey => passkey.RowVersion).ThenBy(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey),
+            ("version", GridSortDirection.Desc) => source.OrderByDescending(passkey => passkey.RowVersion).ThenBy(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey),
+            ("userid", GridSortDirection.Desc) => source.OrderByDescending(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey),
+            _ => source.OrderBy(passkey => passkey.UserId).ThenBy(passkey => passkey.Passkey)
+        };
 }
 
 public sealed class EfTrackerAccessRightsAdminReader(TrackerConfigurationDbContext dbContext) : ITrackerAccessRightsAdminReader
 {
-    public async Task<PageResult<TrackerAccessAdminDto>> ListAsync(GridQuery query, bool? canUsePrivateTracker, CancellationToken cancellationToken)
+    public async Task<PageResult<TrackerAccessAdminDto>> ListAsync(GridQuery query, TrackerAccessRightsFilter filter, bool? canUsePrivateTracker, CancellationToken cancellationToken)
     {
         query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
         var normalizedSearch = query.NormalizedSearch;
@@ -535,18 +578,18 @@ public sealed class EfTrackerAccessRightsAdminReader(TrackerConfigurationDbConte
                 EF.Functions.ILike(permission.UserId.ToString(), pattern));
         }
 
-        permissionsQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        permissionsQuery = filter switch
         {
-            "private" => permissionsQuery.Where(permission => permission.CanUsePrivateTracker),
-            "public" => permissionsQuery.Where(permission => !permission.CanUsePrivateTracker),
-            "seed" => permissionsQuery.Where(permission => permission.CanSeed),
-            "leech" => permissionsQuery.Where(permission => permission.CanLeech),
-            "scrape" => permissionsQuery.Where(permission => permission.CanScrape),
+            TrackerAccessRightsFilter.Private => permissionsQuery.Where(permission => permission.CanUsePrivateTracker),
+            TrackerAccessRightsFilter.Public => permissionsQuery.Where(permission => !permission.CanUsePrivateTracker),
+            TrackerAccessRightsFilter.Seed => permissionsQuery.Where(permission => permission.CanSeed),
+            TrackerAccessRightsFilter.Leech => permissionsQuery.Where(permission => permission.CanLeech),
+            TrackerAccessRightsFilter.Scrape => permissionsQuery.Where(permission => permission.CanScrape),
             _ => permissionsQuery
         };
 
         IOrderedQueryable<UserPermissionEntity>? orderedQuery = null;
-        foreach (var term in GridQuerySortParser.Parse(query.Sort))
+        foreach (var term in AdminCatalogProfiles.TrackerAccess.ParseSort(query.Sort))
         {
             orderedQuery = ApplyTrackerAccessSort(orderedQuery ?? permissionsQuery, term);
         }
@@ -590,7 +633,7 @@ public sealed class EfTrackerAccessRightsAdminReader(TrackerConfigurationDbConte
 
 public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : IBanAdminReader
 {
-    public async Task<PageResult<BanRuleAdminDto>> ListAsync(GridQuery query, string? scope, CancellationToken cancellationToken)
+    public async Task<PageResult<BanRuleAdminDto>> ListAsync(GridQuery query, BanCatalogFilter filter, string? scope, CancellationToken cancellationToken)
     {
         query = query.Normalize(defaultPageSize: 25, maxPageSize: 200);
         var normalizedSearch = query.NormalizedSearch;
@@ -613,15 +656,15 @@ public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : 
                 EF.Functions.ILike(ban.Reason, pattern));
         }
 
-        bansQuery = query.NormalizedFilter.ToLowerInvariant() switch
+        bansQuery = filter switch
         {
-            "active" => bansQuery.Where(ban => !ban.ExpiresAtUtc.HasValue || ban.ExpiresAtUtc > DateTime.UtcNow),
-            "expired" => bansQuery.Where(ban => ban.ExpiresAtUtc.HasValue && ban.ExpiresAtUtc <= DateTime.UtcNow),
+            BanCatalogFilter.Active => bansQuery.Where(ban => !ban.ExpiresAtUtc.HasValue || ban.ExpiresAtUtc > DateTime.UtcNow),
+            BanCatalogFilter.Expired => bansQuery.Where(ban => ban.ExpiresAtUtc.HasValue && ban.ExpiresAtUtc <= DateTime.UtcNow),
             _ => bansQuery
         };
 
         IOrderedQueryable<BanRuleEntity>? orderedQuery = null;
-        foreach (var term in GridQuerySortParser.Parse(query.Sort))
+        foreach (var term in AdminCatalogProfiles.Bans.ParseSort(query.Sort))
         {
             orderedQuery = ApplyBanSort(orderedQuery ?? bansQuery, term);
         }
