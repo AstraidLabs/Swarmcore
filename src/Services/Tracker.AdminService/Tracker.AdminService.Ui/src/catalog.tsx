@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   normalizeCatalogQueryState,
@@ -24,6 +24,105 @@ export function useCatalogViewState(defaults: CatalogQueryState) {
   };
 
   return [view, setView] as const;
+}
+
+const catalogDensityStorageKey = "beetracker.admin.catalogDensity";
+
+type CatalogDensity = "comfortable" | "dense";
+
+function useCatalogDensity() {
+  const [density, setDensity] = useState<CatalogDensity>(() => {
+    if (typeof window === "undefined") {
+      return "dense";
+    }
+
+    const storedDensity = window.localStorage.getItem(catalogDensityStorageKey);
+    return storedDensity === "comfortable" ? "comfortable" : "dense";
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.catalogDensity = density;
+    window.localStorage.setItem(catalogDensityStorageKey, density);
+  }, [density]);
+
+  return [density, setDensity] as const;
+}
+
+function shouldIgnoreRowKeyboardOpen(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return Boolean(target.closest("button, a, input, select, textarea, [role='button']"));
+}
+
+export function CatalogTableRow({
+  children,
+  onOpen,
+  className = ""
+}: {
+  children: ReactNode;
+  onOpen?: () => void;
+  className?: string;
+}) {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLTableRowElement>) => {
+    if (!onOpen || shouldIgnoreRowKeyboardOpen(event.target)) {
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onOpen();
+    }
+  };
+
+  return (
+    <tr
+      className={`app-table-row border-t border-slate-200/80 align-top ${className}`.trim()}
+      tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={handleKeyDown}
+    >
+      {children}
+    </tr>
+  );
+}
+
+export function CopyValueButton({
+  value,
+  label = "Copy value"
+}: {
+  value: string;
+  label?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setCopied(false), 1200);
+    return () => window.clearTimeout(timeoutId);
+  }, [copied]);
+
+  const handleClick = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <button type="button" className="app-copy-button" aria-label={label} title={copied ? "Copied" : label} onClick={handleClick}>
+      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-none stroke-current" strokeWidth="1.7" aria-hidden="true">
+        <rect x="7" y="7" width="9" height="9" rx="2" />
+        <path d="M5 13H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
+      </svg>
+      <span>{copied ? "Copied" : "Copy"}</span>
+    </button>
+  );
 }
 
 function useEscapeDismiss(open: boolean, onClose: () => void) {
@@ -120,6 +219,8 @@ export function CatalogToolbar({
   onCreate?: () => void;
   searchPlaceholder?: string;
 }) {
+  const [density, setDensity] = useCatalogDensity();
+
   return (
     <div className="app-card">
       <div className="app-card-header app-catalog-header">
@@ -132,10 +233,27 @@ export function CatalogToolbar({
           {description ? <p className="app-catalog-description">{description}</p> : null}
         </div>
         {createLabel && onCreate ? (
-          <button type="button" className="app-button-primary" onClick={onCreate}>
-            {createLabel}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={`app-density-toggle ${density === "dense" ? "app-density-toggle-active" : ""}`}
+              onClick={() => setDensity(density === "dense" ? "comfortable" : "dense")}
+            >
+              {density === "dense" ? "Dense" : "Comfortable"}
+            </button>
+            <button type="button" className="app-button-primary" onClick={onCreate}>
+              {createLabel}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={`app-density-toggle ${density === "dense" ? "app-density-toggle-active" : ""}`}
+            onClick={() => setDensity(density === "dense" ? "comfortable" : "dense")}
+          >
+            {density === "dense" ? "Dense" : "Comfortable"}
           </button>
-        ) : null}
+        )}
       </div>
       <div className="app-card-body">
         <div className="app-catalog-toolbar">

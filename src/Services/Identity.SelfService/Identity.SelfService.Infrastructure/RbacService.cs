@@ -120,16 +120,20 @@ public sealed class RbacService(
             from profile in profileJoin.DefaultIfEmpty()
             join accountState in db.AdminAccountStates.AsNoTracking() on user.Id equals accountState.UserId into stateJoin
             from accountState in stateJoin.DefaultIfEmpty()
-            select new AdminUserListQueryRow(
-                user.Id,
-                user.UserName ?? string.Empty,
-                user.NormalizedUserName,
-                user.Email ?? string.Empty,
-                user.NormalizedEmail,
-                profile != null && profile.DisplayName != null && profile.DisplayName != string.Empty ? profile.DisplayName : (user.UserName ?? string.Empty),
-                accountState != null ? accountState.State : null,
-                accountState != null ? accountState.CreatedAtUtc : DateTimeOffset.MinValue,
-                accountState != null ? accountState.LastLoginAtUtc : null);
+            select new AdminUserListQueryRow
+            {
+                Id = user.Id,
+                UserName = user.UserName ?? string.Empty,
+                NormalizedUserName = user.NormalizedUserName,
+                Email = user.Email ?? string.Empty,
+                NormalizedEmail = user.NormalizedEmail,
+                DisplayName = profile != null && profile.DisplayName != null && profile.DisplayName != string.Empty
+                    ? profile.DisplayName
+                    : (user.UserName ?? string.Empty),
+                State = accountState != null ? accountState.State : null,
+                CreatedAtUtc = accountState != null ? accountState.CreatedAtUtc : DateTimeOffset.MinValue,
+                LastLoginAtUtc = accountState != null ? accountState.LastLoginAtUtc : null
+            };
 
         if (!string.IsNullOrWhiteSpace(searchPattern))
         {
@@ -296,14 +300,16 @@ public sealed class RbacService(
             from metadata in metadataJoin.DefaultIfEmpty()
             join roleUserCount in roleUserCounts on role.Id equals roleUserCount.RoleId into roleUserCountJoin
             from roleUserCount in roleUserCountJoin.DefaultIfEmpty()
-            select new RoleListQueryRow(
-                role.Id,
-                role.Name ?? string.Empty,
-                metadata != null ? metadata.Description : string.Empty,
-                metadata != null && metadata.IsSystemRole,
-                metadata != null ? metadata.Priority : 0,
-                roleUserCount != null ? roleUserCount.UserCount : 0,
-                metadata != null ? metadata.CreatedAtUtc : DateTimeOffset.MinValue);
+            select new RoleListQueryRow
+            {
+                Id = role.Id,
+                Name = role.Name ?? string.Empty,
+                Description = metadata != null ? metadata.Description : string.Empty,
+                IsSystemRole = metadata != null ? metadata.IsSystemRole : null,
+                Priority = metadata != null ? metadata.Priority : null,
+                UserCount = roleUserCount != null ? roleUserCount.UserCount : null,
+                CreatedAtUtc = metadata != null ? metadata.CreatedAtUtc : null
+            };
 
         if (!string.IsNullOrWhiteSpace(searchPattern))
         {
@@ -314,8 +320,8 @@ public sealed class RbacService(
 
         roleQuery = filter switch
         {
-            RoleCatalogFilter.System => roleQuery.Where(item => item.IsSystemRole),
-            RoleCatalogFilter.Custom => roleQuery.Where(item => !item.IsSystemRole),
+            RoleCatalogFilter.System => roleQuery.Where(item => item.IsSystemRole == true),
+            RoleCatalogFilter.Custom => roleQuery.Where(item => item.IsSystemRole != true),
             _ => roleQuery
         };
 
@@ -330,10 +336,10 @@ public sealed class RbacService(
                 item.Id,
                 item.Name,
                 item.Description,
-                item.IsSystemRole,
-                item.Priority,
-                item.UserCount,
-                item.CreatedAtUtc))
+                item.IsSystemRole == true,
+                item.Priority ?? 0,
+                item.UserCount ?? 0,
+                item.CreatedAtUtc ?? DateTimeOffset.MinValue))
             .ToList()
             .AsReadOnly();
 
@@ -716,14 +722,14 @@ public sealed class RbacService(
             ordered = term.Field switch
             {
                 "name" => ApplyOrder(ordered, query, item => item.Name, term.Direction, item => item.Priority),
-                "users" => ApplyOrder(ordered, query, item => item.UserCount, term.Direction, item => item.Name),
-                "created" => ApplyOrder(ordered, query, item => item.CreatedAtUtc, term.Direction, item => item.Name),
-                _ => ApplyOrder(ordered, query, item => item.Priority, term.Direction, item => item.Name)
+                "users" => ApplyOrder(ordered, query, item => item.UserCount ?? 0, term.Direction, item => item.Name),
+                "created" => ApplyOrder(ordered, query, item => item.CreatedAtUtc ?? DateTimeOffset.MinValue, term.Direction, item => item.Name),
+                _ => ApplyOrder(ordered, query, item => item.Priority ?? 0, term.Direction, item => item.Name)
             };
             query = ordered;
         }
 
-        return ordered ?? query.OrderByDescending(item => item.Priority).ThenBy(item => item.Name);
+        return ordered ?? query.OrderByDescending(item => item.Priority ?? 0).ThenBy(item => item.Name);
     }
 
     private static IOrderedQueryable<PermissionGroupListItemDto> ApplyPermissionGroupSort(
@@ -806,23 +812,27 @@ public sealed class RbacService(
         return state;
     }
 
-    private sealed record AdminUserListQueryRow(
-        string Id,
-        string UserName,
-        string? NormalizedUserName,
-        string Email,
-        string? NormalizedEmail,
-        string DisplayName,
-        string? State,
-        DateTimeOffset CreatedAtUtc,
-        DateTimeOffset? LastLoginAtUtc);
+    private sealed class AdminUserListQueryRow
+    {
+        public required string Id { get; init; }
+        public required string UserName { get; init; }
+        public string? NormalizedUserName { get; init; }
+        public required string Email { get; init; }
+        public string? NormalizedEmail { get; init; }
+        public required string DisplayName { get; init; }
+        public string? State { get; init; }
+        public DateTimeOffset CreatedAtUtc { get; init; }
+        public DateTimeOffset? LastLoginAtUtc { get; init; }
+    }
 
-    private sealed record RoleListQueryRow(
-        string Id,
-        string Name,
-        string Description,
-        bool IsSystemRole,
-        int Priority,
-        int UserCount,
-        DateTimeOffset CreatedAtUtc);
+    private sealed class RoleListQueryRow
+    {
+        public required string Id { get; init; }
+        public required string Name { get; init; }
+        public required string Description { get; init; }
+        public bool? IsSystemRole { get; init; }
+        public int? Priority { get; init; }
+        public int? UserCount { get; init; }
+        public DateTimeOffset? CreatedAtUtc { get; init; }
+    }
 }

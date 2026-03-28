@@ -533,6 +533,10 @@ body {
     @apply bg-brand/5 ring-1 ring-inset ring-brand/20;
   }
 
+  .app-table-row:focus-visible {
+    @apply outline-none;
+  }
+
   .app-page-grid {
     @apply grid gap-6 xl:grid-cols-[0.9fr,1.1fr];
   }
@@ -559,6 +563,14 @@ body {
 
   .app-catalog-description {
     @apply text-sm text-steel/90;
+  }
+
+  .app-density-toggle {
+    @apply rounded-full border border-slate-200 bg-white/90 px-3 py-2 text-xs font-semibold text-steel transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink;
+  }
+
+  .app-density-toggle-active {
+    @apply border-brand/20 bg-brand/5 text-brand;
   }
 
   .app-catalog-grid {
@@ -609,6 +621,14 @@ body {
     @apply flex-1 overflow-y-auto px-5 py-5;
   }
 
+  .app-copy-button {
+    @apply inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-slate-50/85 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-steel transition hover:border-slate-300 hover:bg-white hover:text-ink;
+  }
+
+  .app-inline-id {
+    @apply mt-1 flex flex-wrap items-center gap-2 text-xs text-steel;
+  }
+
   .app-data-table table th,
   .app-data-table table td {
     vertical-align: middle;
@@ -626,6 +646,25 @@ body {
 
   .app-card:has(.app-catalog-toolbar) .app-card-body {
     @apply px-4 py-2.5;
+  }
+
+  :root[data-catalog-density="dense"] .app-data-table table th,
+  :root[data-catalog-density="dense"] .app-data-table table td {
+    @apply px-4 py-3;
+  }
+
+  :root[data-catalog-density="dense"] .app-catalog-toolbar {
+    @apply gap-2;
+  }
+
+  :root[data-catalog-density="dense"] .app-catalog-pagination,
+  :root[data-catalog-density="dense"] .app-selection-summary {
+    @apply py-2;
+  }
+
+  :root[data-catalog-density="comfortable"] .app-data-table table th,
+  :root[data-catalog-density="comfortable"] .app-data-table table td {
+    @apply px-5 py-4;
   }
 
   .app-modal-overlay {

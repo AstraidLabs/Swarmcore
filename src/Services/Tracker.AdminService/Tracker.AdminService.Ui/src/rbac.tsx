@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { type PageResult } from "./catalog";
-import { CatalogToolbar, ConfirmActionModal, Modal, PaginationFooter, PreviewDrawer, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
+import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, Modal, PaginationFooter, PreviewDrawer, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
 
 type PageProps = {
   accessToken: string;
@@ -653,13 +653,17 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={8} title="No users match this view" message="Try a broader search, different filter or larger page size." />
               ) : items.map((item) => (
-                <tr key={item.userId} className="app-table-row border-t border-slate-200/80 align-top">
+                <CatalogTableRow key={item.userId} onOpen={() => setView((current) => ({ ...current, preview: item.userId }))}>
                   <td className="px-5 py-4">
                     <input type="checkbox" checked={selectedUserIds.includes(item.userId)} aria-label={`Select ${item.userName}`} onChange={() => toggleUserSelection(item.userId)} />
                   </td>
                   <td className="px-5 py-4">
                     <div className="font-semibold text-ink">{item.displayName || item.userName}</div>
                     <div className="text-xs text-steel">{item.userName}</div>
+                    <div className="app-inline-id">
+                      <span className="font-mono">{item.userId}</span>
+                      <CopyValueButton value={item.userId} label={`Copy user id ${item.userId}`} />
+                    </div>
                   </td>
                   <td className="px-5 py-4 text-steel">{item.email}</td>
                   <td className="px-5 py-4">
@@ -685,7 +689,7 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
                       </button>
                     </div>
                   </td>
-                </tr>
+                </CatalogTableRow>
               ))}
             </tbody>
           </table>
@@ -890,24 +894,24 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
   const deferredSearch = useDeferredValue(query.search);
   const deferredPermissionSearch = useDeferredValue(permissionSearch);
 
-  const load = async () => {
-    setIsLoading(true);
-    try {
-      const query = new URLSearchParams({
-        page: String(query.page),
-        pageSize: String(query.pageSize),
-        filter: query.filter,
-        sort: query.sort
-      });
-      if (deferredSearch.trim()) {
-        query.set("search", deferredSearch.trim());
-      }
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const searchParams = new URLSearchParams({
+          page: String(query.page),
+          pageSize: String(query.pageSize),
+          filter: query.filter,
+          sort: query.sort
+        });
+        if (deferredSearch.trim()) {
+          searchParams.set("search", deferredSearch.trim());
+        }
 
-      const [roleResult, groupResult, permissionItems] = await Promise.all([
-        requestJson<PaginatedResult<RoleListItemDto>>(`/api/admin/rbac/roles?${query.toString()}`, accessToken, onReauthenticate),
-        requestJson<PaginatedResult<PermissionGroupListItemDto>>("/api/admin/rbac/permission-groups?page=1&pageSize=250&filter=all&sort=name:asc", accessToken, onReauthenticate),
-        requestJson<PermissionDefinitionDto[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)
-      ]);
+        const [roleResult, groupResult, permissionItems] = await Promise.all([
+          requestJson<PaginatedResult<RoleListItemDto>>(`/api/admin/rbac/roles?${searchParams.toString()}`, accessToken, onReauthenticate),
+          requestJson<PaginatedResult<PermissionGroupListItemDto>>("/api/admin/rbac/permission-groups?page=1&pageSize=250&filter=all&sort=name:asc", accessToken, onReauthenticate),
+          requestJson<PermissionDefinitionDto[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)
+        ]);
       setItems(roleResult.items);
       setTotalCount(roleResult.totalCount);
       setGroups(groupResult.items);
@@ -1135,11 +1139,17 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={8} title="No roles match this view" message="Try a broader search, a different filter or another sort order." />
               ) : items.map((item) => (
-                <tr key={item.roleId} className="app-table-row border-t border-slate-200/80 align-top">
+                <CatalogTableRow key={item.roleId} onOpen={() => setView((current) => ({ ...current, preview: item.roleId }))}>
                   <td className="px-5 py-4">
                     <input type="checkbox" checked={selectedRoleIds.includes(item.roleId)} aria-label={`Select ${item.name}`} onChange={() => toggleRoleSelection(item.roleId)} />
                   </td>
-                  <td className="px-5 py-4 font-semibold text-ink">{item.name}</td>
+                  <td className="px-5 py-4">
+                    <div className="font-semibold text-ink">{item.name}</div>
+                    <div className="app-inline-id">
+                      <span className="font-mono">{item.roleId}</span>
+                      <CopyValueButton value={item.roleId} label={`Copy role id ${item.roleId}`} />
+                    </div>
+                  </td>
                   <td className="px-5 py-4 text-steel">{item.description}</td>
                   <td className="px-5 py-4">
                     <span className={item.isSystemRole ? "app-chip-soft" : "app-chip"}>{item.isSystemRole ? "System" : "Custom"}</span>
@@ -1166,7 +1176,7 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
                       </button>
                     </div>
                   </td>
-                </tr>
+                </CatalogTableRow>
               ))}
             </tbody>
           </table>
@@ -1329,23 +1339,23 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
   const deferredSearch = useDeferredValue(query.search);
   const deferredPermissionSearch = useDeferredValue(permissionSearch);
 
-  const load = async () => {
-    setIsLoading(true);
-    try {
-      const query = new URLSearchParams({
-        page: String(query.page),
-        pageSize: String(query.pageSize),
-        filter: query.filter,
-        sort: query.sort
-      });
-      if (deferredSearch.trim()) {
-        query.set("search", deferredSearch.trim());
-      }
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const searchParams = new URLSearchParams({
+          page: String(query.page),
+          pageSize: String(query.pageSize),
+          filter: query.filter,
+          sort: query.sort
+        });
+        if (deferredSearch.trim()) {
+          searchParams.set("search", deferredSearch.trim());
+        }
 
-      const [groupResult, permissionItems] = await Promise.all([
-        requestJson<PaginatedResult<PermissionGroupListItemDto>>(`/api/admin/rbac/permission-groups?${query.toString()}`, accessToken, onReauthenticate),
-        requestJson<PermissionDefinitionDto[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)
-      ]);
+        const [groupResult, permissionItems] = await Promise.all([
+          requestJson<PaginatedResult<PermissionGroupListItemDto>>(`/api/admin/rbac/permission-groups?${searchParams.toString()}`, accessToken, onReauthenticate),
+          requestJson<PermissionDefinitionDto[]>("/api/admin/rbac/permissions", accessToken, onReauthenticate)
+        ]);
       setItems(groupResult.items);
       setTotalCount(groupResult.totalCount);
       setPermissions(permissionItems);
@@ -1564,11 +1574,17 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={7} title="No permission groups match this view" message="Try a broader search or switch the current filter." />
               ) : items.map((item) => (
-                <tr key={item.id} className="app-table-row border-t border-slate-200/80 align-top">
+                <CatalogTableRow key={item.id} onOpen={() => setView((current) => ({ ...current, preview: item.id }))}>
                   <td className="px-5 py-4">
                     <input type="checkbox" checked={selectedGroupIds.includes(item.id)} aria-label={`Select ${item.name}`} onChange={() => toggleGroupSelection(item.id)} />
                   </td>
-                  <td className="px-5 py-4 font-semibold text-ink">{item.name}</td>
+                  <td className="px-5 py-4">
+                    <div className="font-semibold text-ink">{item.name}</div>
+                    <div className="app-inline-id">
+                      <span className="font-mono">{item.id}</span>
+                      <CopyValueButton value={item.id} label={`Copy permission group id ${item.id}`} />
+                    </div>
+                  </td>
                   <td className="px-5 py-4 text-steel">{item.description}</td>
                   <td className="px-5 py-4">
                     <span className={item.isSystemGroup ? "app-chip-soft" : "app-chip"}>{item.isSystemGroup ? "System" : "Custom"}</span>
@@ -1594,7 +1610,7 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
                       </button>
                     </div>
                   </td>
-                </tr>
+                </CatalogTableRow>
               ))}
             </tbody>
           </table>

@@ -21,7 +21,7 @@ import {
   permissionKeys
 } from "./rbac";
 import { buildGridQueryString, type CatalogQueryState, type PageResult } from "./catalog";
-import { CatalogToolbar, ConfirmActionModal, Modal, PaginationFooter, PreviewDrawer, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
+import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, Modal, PaginationFooter, PreviewDrawer, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
 
 type AdminUiConfig = {
   authority: string;
@@ -1235,9 +1235,14 @@ function TorrentsPage({
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={7} title="No torrents match this view" message="Try a broader search or switch the current filter." />
               ) : items.map((item) => (
-                <tr key={item.infoHash} className="app-table-row border-t border-slate-200/80 align-top">
+                <CatalogTableRow key={item.infoHash} onOpen={() => setView((current) => ({ ...current, preview: item.infoHash }))}>
                   <td className="px-5 py-4"><input type="checkbox" checked={selectedInfoHashes.includes(item.infoHash)} onChange={() => toggleSelection(item.infoHash)} /></td>
-                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.infoHash}</td>
+                  <td className="px-5 py-4">
+                    <div className="font-mono text-xs text-ink">{item.infoHash}</div>
+                    <div className="app-inline-id">
+                      <CopyValueButton value={item.infoHash} label={`Copy info hash ${item.infoHash}`} />
+                    </div>
+                  </td>
                   <td className="px-5 py-4 text-steel">{formatMode(item.isPrivate, dictionary)}</td>
                   <td className="px-5 py-4 text-steel">{formatState(item.isEnabled, dictionary)}</td>
                   <td className="px-5 py-4 text-steel">{item.announceIntervalSeconds}s</td>
@@ -1254,7 +1259,7 @@ function TorrentsPage({
                       )}
                     </div>
                   </td>
-                </tr>
+                </CatalogTableRow>
               ))}
             </tbody>
           </table>
@@ -2014,16 +2019,26 @@ function PasskeysPage({
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={6} title="No passkeys match this view" message="Try a broader search or change the current filter." />
               ) : items.map((item) => (
-                <tr key={`${item.passkeyMask}-${item.userId}`} className="app-table-row border-t border-slate-200/80 align-top">
-                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.passkeyMask}</td>
-                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.userId}</td>
+                <CatalogTableRow key={`${item.passkeyMask}-${item.userId}`} onOpen={() => setView((current) => ({ ...current, preview: item.passkeyMask }))}>
+                  <td className="px-5 py-4">
+                    <div className="font-mono text-xs text-ink">{item.passkeyMask}</div>
+                    <div className="app-inline-id">
+                      <CopyValueButton value={item.passkeyMask} label={`Copy passkey mask ${item.passkeyMask}`} />
+                    </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="font-mono text-xs text-ink">{item.userId}</div>
+                    <div className="app-inline-id">
+                      <CopyValueButton value={item.userId} label={`Copy user id ${item.userId}`} />
+                    </div>
+                  </td>
                   <td className="px-5 py-4"><StatusPill tone={item.isRevoked ? "warn" : "good"}>{item.isRevoked ? dictionary.common.revoked : dictionary.common.active}</StatusPill></td>
                   <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
                     <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.passkeyMask }))}>Preview</button>
                   </td>
-                </tr>
+                </CatalogTableRow>
               ))}
             </tbody>
           </table>
@@ -2349,9 +2364,14 @@ function BansPage({
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={6} title="No ban rules match this view" message="Try a broader search or switch the current filter." />
               ) : items.map((item) => (
-                <tr key={`${item.scope}:${item.subject}`} className="app-table-row border-t border-slate-200/80 align-top">
+                <CatalogTableRow key={`${item.scope}:${item.subject}`} onOpen={() => fillForm(item)}>
                   <td className="px-5 py-4 font-semibold text-ink">{item.scope}</td>
-                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.subject}</td>
+                  <td className="px-5 py-4">
+                    <div className="font-mono text-xs text-ink">{item.subject}</div>
+                    <div className="app-inline-id">
+                      <CopyValueButton value={item.subject} label={`Copy ban subject ${item.subject}`} />
+                    </div>
+                  </td>
                   <td className="px-5 py-4 text-steel">{item.reason}</td>
                   <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
                   <td className="px-5 py-4 text-steel">{item.version}</td>
@@ -2361,7 +2381,7 @@ function BansPage({
                       <button type="button" className="app-button-danger py-2.5" disabled={!canDelete} onClick={() => { fillForm(item); setConfirmDeleteOpen(true); }}>Delete</button>
                     </div>
                   </td>
-                </tr>
+                </CatalogTableRow>
               ))}
             </tbody>
           </table>
@@ -2728,9 +2748,14 @@ function TrackerAccessPage({
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={8} title="No tracker access records match this view" message="Try a broader search or switch the current filter." />
               ) : items.map((item) => (
-                <tr key={item.userId} className="app-table-row border-t border-slate-200/80 align-top">
+                <CatalogTableRow key={item.userId} onOpen={() => setView((current) => ({ ...current, preview: item.userId }))}>
                   <td className="px-5 py-4"><input type="checkbox" checked={selectedUserIds.includes(item.userId)} onChange={() => toggleSelection(item.userId)} /></td>
-                  <td className="px-5 py-4 font-mono text-xs font-semibold text-ink">{item.userId}</td>
+                  <td className="px-5 py-4">
+                    <div className="font-mono text-xs font-semibold text-ink">{item.userId}</div>
+                    <div className="app-inline-id">
+                      <CopyValueButton value={item.userId} label={`Copy user id ${item.userId}`} />
+                    </div>
+                  </td>
                   <td className="px-5 py-4"><StatusPill tone={item.canLeech ? "good" : "neutral"}>{formatBool(item.canLeech, dictionary)}</StatusPill></td>
                   <td className="px-5 py-4"><StatusPill tone={item.canSeed ? "good" : "neutral"}>{formatBool(item.canSeed, dictionary)}</StatusPill></td>
                   <td className="px-5 py-4"><StatusPill tone={item.canScrape ? "good" : "neutral"}>{formatBool(item.canScrape, dictionary)}</StatusPill></td>
@@ -2742,7 +2767,7 @@ function TrackerAccessPage({
                       <button type="button" className="app-button-secondary py-2.5" onClick={() => loadUser(item)}>{labels.edit}</button>
                     </div>
                   </td>
-                </tr>
+                </CatalogTableRow>
               ))}
             </tbody>
           </table>
@@ -2925,7 +2950,7 @@ function AuditPage({
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={8} title="No audit events match this view" message="Try a broader search or relax the current filter." />
               ) : items.map((item) => (
-                <tr key={item.id} className="app-table-row border-t border-slate-200/80 align-top">
+                <CatalogTableRow key={item.id} onOpen={() => setView((current) => ({ ...current, preview: item.id }))}>
                   <td className="px-5 py-4 font-semibold text-ink">{item.action}</td>
                   <td className="px-5 py-4 font-mono text-xs text-ink">{item.actorId}</td>
                   <td className="px-5 py-4 text-steel">{item.actorRole}</td>
@@ -2934,13 +2959,19 @@ function AuditPage({
                   </td>
                   <td className="px-5 py-4 text-steel">{item.entityType} / {item.entityId}</td>
                   <td className="px-5 py-4 text-steel">{item.result}</td>
-                  <td className="px-5 py-4 text-steel">{new Date(item.occurredAtUtc).toLocaleString()}</td>
+                  <td className="px-5 py-4">
+                    <div className="text-steel">{new Date(item.occurredAtUtc).toLocaleString()}</div>
+                    <div className="app-inline-id">
+                      <span className="font-mono">{item.correlationId || "N/A"}</span>
+                      {item.correlationId ? <CopyValueButton value={item.correlationId} label={`Copy correlation id ${item.correlationId}`} /> : null}
+                    </div>
+                  </td>
                   <td className="px-5 py-4 text-right">
                     <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.id }))}>
                       View
                     </button>
                   </td>
-                </tr>
+                </CatalogTableRow>
               ))}
             </tbody>
           </table>
@@ -3146,7 +3177,7 @@ function MaintenancePage({
                 <TableStateRow colSpan={6} title={labels.title} message={labels.empty} />
               ) : (
                 items.map((item) => (
-                  <tr key={item.id} className="app-table-row border-t border-slate-200/80 align-top">
+                  <CatalogTableRow key={item.id} onOpen={() => setView((current) => ({ ...current, preview: item.id }))}>
                     <td className="px-5 py-4 font-semibold text-ink">{item.operation}</td>
                     <td className="px-5 py-4 text-steel">{item.requestedBy}</td>
                     <td className="px-5 py-4 text-steel">{new Date(item.requestedAtUtc).toLocaleString()}</td>
@@ -3155,13 +3186,18 @@ function MaintenancePage({
                         {item.status}
                       </span>
                     </td>
-                    <td className="px-5 py-4 font-mono text-xs text-steel">{item.correlationId}</td>
+                    <td className="px-5 py-4">
+                      <div className="font-mono text-xs text-steel">{item.correlationId}</div>
+                      <div className="app-inline-id">
+                        <CopyValueButton value={item.correlationId} label={`Copy correlation id ${item.correlationId}`} />
+                      </div>
+                    </td>
                     <td className="px-5 py-4 text-right">
                       <button type="button" className="app-button-secondary py-2.5" onClick={() => setView((current) => ({ ...current, preview: item.id }))}>
                         View
                       </button>
                     </td>
-                  </tr>
+                  </CatalogTableRow>
                 ))
               )}
             </tbody>
@@ -3279,6 +3315,7 @@ function Shell({
 }) {
   const { dictionary } = useI18n();
   const location = useLocation();
+  const capabilities = session.capabilities ?? [];
   const routeMeta = getRouteMeta(location.pathname, dictionary);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sectionMenuOpen, setSectionMenuOpen] = useState<string | null>(null);

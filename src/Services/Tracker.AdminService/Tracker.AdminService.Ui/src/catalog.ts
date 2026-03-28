@@ -25,11 +25,35 @@ export type CatalogViewState = {
   id: string | null;
 };
 
+function normalizeSortValue(sort: string) {
+  const normalized = sort.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized
+    .split(",")
+    .map((term) => {
+      const [field = "", direction = "asc"] = term
+        .split(":")
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+      if (!field) {
+        return null;
+      }
+
+      return `${field}:${direction.toLowerCase() === "desc" ? "desc" : "asc"}`;
+    })
+    .filter((term): term is string => Boolean(term))
+    .join(",");
+}
+
 export function normalizeCatalogQueryState(query: CatalogQueryState): CatalogQueryState {
   return {
     search: query.search.trim(),
     filter: query.filter || "all",
-    sort: query.sort,
+    sort: normalizeSortValue(query.sort),
     page: query.page > 0 ? query.page : 1,
     pageSize: query.pageSize > 0 ? query.pageSize : 25
   };
