@@ -24,7 +24,7 @@ import {
   permissionKeys
 } from "./rbac";
 import { buildGridQueryString, type CatalogQueryState, type PageResult } from "./catalog";
-import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, Modal, ModalDismissButton, PaginationFooter, PreviewDrawer, RowActionsMenu, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
+import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, EyeIcon, Modal, ModalDismissButton, PaginationFooter, PencilIcon, PreviewDrawer, RowActionsMenu, SettingsIcon, SortHeaderButton, TableStateRow, TrashIcon, useCatalogViewState } from "./catalog.tsx";
 
 type AdminUiConfig = {
   authority: string;
@@ -1241,7 +1241,7 @@ function TorrentsPage({
                 <CatalogTableRow key={item.infoHash} onOpen={() => setView((current) => ({ ...current, preview: item.infoHash }))}>
                   <td className="px-5 py-4"><input type="checkbox" checked={selectedInfoHashes.includes(item.infoHash)} onChange={() => toggleSelection(item.infoHash)} /></td>
                   <td className="px-5 py-4">
-                    <div className="font-mono text-xs text-ink">{item.infoHash}</div>
+                    <div className="app-grid-primary font-mono">{item.infoHash}</div>
                     <div className="app-inline-id">
                       <CopyValueButton value={item.infoHash} label={`Copy info hash ${item.infoHash}`} />
                     </div>
@@ -1253,13 +1253,14 @@ function TorrentsPage({
                   <td className="px-5 py-4 text-right">
                     <div className="flex justify-end items-center gap-2">
                       {canEditPolicy ? (
-                        <Link className="app-button-secondary py-2.5 no-underline" to={`/torrents/${item.infoHash}`}>
+                        <Link className="app-button-secondary py-2.5 no-underline inline-flex items-center gap-2" to={`/torrents/${item.infoHash}`}>
+                          <SettingsIcon className="app-button-icon" />
                           {labels.openPolicy}
                         </Link>
                       ) : (
                         <span className="app-chip-muted">Read only</span>
                       )}
-                      <RowActionsMenu items={[{ label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.infoHash })) }]} />
+                      <RowActionsMenu items={[{ label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.infoHash })) }]} />
                     </div>
                   </td>
                 </CatalogTableRow>
@@ -2024,13 +2025,13 @@ function PasskeysPage({
               ) : items.map((item) => (
                 <CatalogTableRow key={`${item.passkeyMask}-${item.userId}`} onOpen={() => setView((current) => ({ ...current, preview: item.passkeyMask }))}>
                   <td className="px-5 py-4">
-                    <div className="font-mono text-xs text-ink">{item.passkeyMask}</div>
+                    <div className="app-grid-primary font-mono">{item.passkeyMask}</div>
                     <div className="app-inline-id">
                       <CopyValueButton value={item.passkeyMask} label={`Copy passkey mask ${item.passkeyMask}`} />
                     </div>
                   </td>
                   <td className="px-5 py-4">
-                    <div className="font-mono text-xs text-ink">{item.userId}</div>
+                    <div className="app-grid-primary font-mono">{item.userId}</div>
                     <div className="app-inline-id">
                       <CopyValueButton value={item.userId} label={`Copy user id ${item.userId}`} />
                     </div>
@@ -2039,7 +2040,7 @@ function PasskeysPage({
                   <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
-                    <RowActionsMenu items={[{ label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.passkeyMask })) }]} />
+                    <RowActionsMenu items={[{ label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.passkeyMask })) }]} />
                   </td>
                 </CatalogTableRow>
               ))}
@@ -2368,9 +2369,9 @@ function BansPage({
                 <TableStateRow colSpan={6} title="No ban rules match this view" message="Try a broader search or switch the current filter." />
               ) : items.map((item) => (
                 <CatalogTableRow key={`${item.scope}:${item.subject}`} onOpen={() => fillForm(item)}>
-                  <td className="px-5 py-4 font-semibold text-ink">{item.scope}</td>
+                  <td className="px-5 py-4"><div className="app-grid-primary">{item.scope}</div></td>
                   <td className="px-5 py-4">
-                    <div className="font-mono text-xs text-ink">{item.subject}</div>
+                    <div className="app-grid-primary font-mono">{item.subject}</div>
                     <div className="app-inline-id">
                       <CopyValueButton value={item.subject} label={`Copy ban subject ${item.subject}`} />
                     </div>
@@ -2380,11 +2381,12 @@ function BansPage({
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex justify-end items-center gap-2">
-                      <button type="button" className="app-button-secondary py-2.5" onClick={() => fillForm(item)}>Edit</button>
+                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => fillForm(item)}><PencilIcon className="app-button-icon" />Edit</button>
                       <RowActionsMenu
                         items={[
                           {
                             label: "Delete",
+                            icon: <TrashIcon />,
                             tone: "danger",
                             disabled: !canDelete,
                             onClick: () => {
@@ -2766,7 +2768,7 @@ function TrackerAccessPage({
                 <CatalogTableRow key={item.userId} onOpen={() => setView((current) => ({ ...current, preview: item.userId }))}>
                   <td className="px-5 py-4"><input type="checkbox" checked={selectedUserIds.includes(item.userId)} onChange={() => toggleSelection(item.userId)} /></td>
                   <td className="px-5 py-4">
-                    <div className="font-mono text-xs font-semibold text-ink">{item.userId}</div>
+                    <div className="app-grid-primary font-mono">{item.userId}</div>
                     <div className="app-inline-id">
                       <CopyValueButton value={item.userId} label={`Copy user id ${item.userId}`} />
                     </div>
@@ -2778,8 +2780,8 @@ function TrackerAccessPage({
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex justify-end items-center gap-2">
-                      <button type="button" className="app-button-secondary py-2.5" onClick={() => loadUser(item)}>{labels.edit}</button>
-                      <RowActionsMenu items={[{ label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.userId })) }]} />
+                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => loadUser(item)}><PencilIcon className="app-button-icon" />{labels.edit}</button>
+                      <RowActionsMenu items={[{ label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.userId })) }]} />
                     </div>
                   </td>
                 </CatalogTableRow>
@@ -2966,8 +2968,8 @@ function AuditPage({
                 <TableStateRow colSpan={8} title="No audit events match this view" message="Try a broader search or relax the current filter." />
               ) : items.map((item) => (
                 <CatalogTableRow key={item.id} onOpen={() => setView((current) => ({ ...current, preview: item.id }))}>
-                  <td className="px-5 py-4 font-semibold text-ink">{item.action}</td>
-                  <td className="px-5 py-4 font-mono text-xs text-ink">{item.actorId}</td>
+                  <td className="px-5 py-4"><div className="app-grid-primary">{item.action}</div></td>
+                  <td className="px-5 py-4"><div className="app-grid-primary font-mono">{item.actorId}</div></td>
                   <td className="px-5 py-4 text-steel">{item.actorRole}</td>
                   <td className="px-5 py-4">
                     <span className={item.severity === "error" || item.severity === "high" ? "app-chip-warn" : "app-chip-soft"}>{item.severity}</span>
@@ -2982,7 +2984,7 @@ function AuditPage({
                     </div>
                   </td>
                   <td className="px-5 py-4 text-right">
-                    <RowActionsMenu items={[{ label: "View", onClick: () => setView((current) => ({ ...current, preview: item.id })) }]} />
+                    <RowActionsMenu items={[{ label: "View", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.id })) }]} />
                   </td>
                 </CatalogTableRow>
               ))}
@@ -3191,7 +3193,7 @@ function MaintenancePage({
               ) : (
                 items.map((item) => (
                   <CatalogTableRow key={item.id} onOpen={() => setView((current) => ({ ...current, preview: item.id }))}>
-                    <td className="px-5 py-4 font-semibold text-ink">{item.operation}</td>
+                    <td className="px-5 py-4"><div className="app-grid-primary">{item.operation}</div></td>
                     <td className="px-5 py-4 text-steel">{item.requestedBy}</td>
                     <td className="px-5 py-4 text-steel">{new Date(item.requestedAtUtc).toLocaleString()}</td>
                     <td className="px-5 py-4">
@@ -3206,7 +3208,7 @@ function MaintenancePage({
                       </div>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <RowActionsMenu items={[{ label: "View", onClick: () => setView((current) => ({ ...current, preview: item.id })) }]} />
+                      <RowActionsMenu items={[{ label: "View", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.id })) }]} />
                     </td>
                   </CatalogTableRow>
                 ))

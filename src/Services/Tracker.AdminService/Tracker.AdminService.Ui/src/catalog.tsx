@@ -1,4 +1,5 @@
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import {
   normalizeCatalogQueryState,
@@ -8,6 +9,70 @@ import {
   type CatalogQueryState,
   type CatalogViewState
 } from "./catalog";
+
+export function PlusIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={`${className} fill-none stroke-current`.trim()} strokeWidth="1.8" aria-hidden="true">
+      <path d="M10 4v12" />
+      <path d="M4 10h12" />
+    </svg>
+  );
+}
+
+export function PencilIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={`${className} fill-none stroke-current`.trim()} strokeWidth="1.8" aria-hidden="true">
+      <path d="m13.75 3.75 2.5 2.5" />
+      <path d="M4 16l3.25-.75L16 6.5 13.5 4 4.75 12.75 4 16Z" />
+    </svg>
+  );
+}
+
+export function EyeIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={`${className} fill-none stroke-current`.trim()} strokeWidth="1.8" aria-hidden="true">
+      <path d="M2.5 10s2.75-4.5 7.5-4.5S17.5 10 17.5 10s-2.75 4.5-7.5 4.5S2.5 10 2.5 10Z" />
+      <circle cx="10" cy="10" r="2.25" />
+    </svg>
+  );
+}
+
+export function TrashIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={`${className} fill-none stroke-current`.trim()} strokeWidth="1.8" aria-hidden="true">
+      <path d="M3.5 5.5h13" />
+      <path d="M7.5 5.5V4.25A1.25 1.25 0 0 1 8.75 3h2.5a1.25 1.25 0 0 1 1.25 1.25V5.5" />
+      <path d="M6.25 5.5v10.25A1.25 1.25 0 0 0 7.5 17h5a1.25 1.25 0 0 0 1.25-1.25V5.5" />
+      <path d="M8 8v6" />
+      <path d="M12 8v6" />
+    </svg>
+  );
+}
+
+export function PowerIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={`${className} fill-none stroke-current`.trim()} strokeWidth="1.8" aria-hidden="true">
+      <path d="M10 2.75v6.5" />
+      <path d="M6 4.75a6 6 0 1 0 8 0" />
+    </svg>
+  );
+}
+
+export function SettingsIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={`${className} fill-none stroke-current`.trim()} strokeWidth="1.8" aria-hidden="true">
+      <path d="M10 3.25v2.1" />
+      <path d="M10 14.65v2.1" />
+      <path d="m5.2 5.2 1.5 1.5" />
+      <path d="m13.3 13.3 1.5 1.5" />
+      <path d="M3.25 10h2.1" />
+      <path d="M14.65 10h2.1" />
+      <path d="m5.2 14.8 1.5-1.5" />
+      <path d="m13.3 6.7 1.5-1.5" />
+      <circle cx="10" cy="10" r="2.65" />
+    </svg>
+  );
+}
 
 export function useCatalogViewState(defaults: CatalogQueryState) {
   const normalizedDefaults = useMemo(() => normalizeCatalogQueryState(defaults), [defaults]);
@@ -160,27 +225,6 @@ function useEscapeDismiss(open: boolean, onClose: () => void) {
   }, [open, onClose]);
 }
 
-function useOutsideDismiss<T extends HTMLElement>(open: boolean, onClose: () => void) {
-  const ref = useRef<T | null>(null);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
-        onClose();
-      }
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
-  }, [open, onClose]);
-
-  return ref;
-}
-
 export function Modal({
   title,
   description,
@@ -251,6 +295,10 @@ export function ModalDismissButton({
       }}
       onClick={(event) => dismissClick(event, onClose)}
     >
+      <svg viewBox="0 0 20 20" className="app-button-icon fill-none stroke-current" strokeWidth="1.8" aria-hidden="true">
+        <path d="m6 6 8 8" />
+        <path d="m14 6-8 8" />
+      </svg>
       {children}
     </button>
   );
@@ -295,39 +343,9 @@ export function CatalogToolbar({
 
   return (
     <div className="app-card">
-      <div className="app-card-header app-catalog-header">
-        <div className="app-catalog-summary">
-          <h2 className="sr-only">{title}</h2>
-          <div className="app-catalog-summary-row">
-            <span className="app-kicker">Catalog</span>
-            <span className="app-chip">{totalCount} result{totalCount === 1 ? "" : "s"}</span>
-          </div>
-          {description ? <p className="app-catalog-description">{description}</p> : null}
-        </div>
-        {createLabel && onCreate ? (
-          <div className="app-toolbar-actions">
-            <button
-              type="button"
-              className={`app-density-toggle ${density === "dense" ? "app-density-toggle-active" : ""}`}
-              onClick={() => setDensity(density === "dense" ? "comfortable" : "dense")}
-            >
-              {density === "dense" ? "Dense" : "Comfortable"}
-            </button>
-            <button type="button" className="app-button-primary" onClick={onCreate}>
-              {createLabel}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className={`app-density-toggle ${density === "dense" ? "app-density-toggle-active" : ""}`}
-            onClick={() => setDensity(density === "dense" ? "comfortable" : "dense")}
-          >
-            {density === "dense" ? "Dense" : "Comfortable"}
-          </button>
-        )}
-      </div>
-      <div className="app-card-body">
+      <div className="app-card-body app-catalog-toolbar-shell">
+        <h2 className="sr-only">{title}</h2>
+        {description ? <p className="sr-only">{description}</p> : null}
         <div className="app-catalog-toolbar">
           <input
             className="app-input"
@@ -356,6 +374,26 @@ export function CatalogToolbar({
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className={`app-density-toggle ${density === "dense" ? "app-density-toggle-active" : ""}`}
+            aria-label={density === "dense" ? "Switch to comfortable density" : "Switch to dense density"}
+            title={density === "dense" ? "Comfortable density" : "Dense density"}
+            onClick={() => setDensity(density === "dense" ? "comfortable" : "dense")}
+          >
+            <svg viewBox="0 0 20 20" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.7" aria-hidden="true">
+              <path d="M4 5h12" />
+              <path d="M4 10h12" />
+              <path d="M4 15h12" />
+            </svg>
+            <span className="sr-only">{density === "dense" ? "Comfortable" : "Dense"}</span>
+          </button>
+          {createLabel && onCreate ? (
+            <button type="button" className="app-button-primary app-toolbar-primary-action" onClick={onCreate}>
+              <PlusIcon className="app-button-icon" />
+              {createLabel}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -418,7 +456,11 @@ export function SortHeaderButton({
   onClick: () => void;
 }) {
   return (
-    <button type="button" className="inline-flex items-center gap-1.5 font-semibold transition hover:text-white" onClick={onClick}>
+    <button
+      type="button"
+      className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.04em] transition hover:text-white"
+      onClick={onClick}
+    >
       <span>{label}</span>
       <span className={active ? "text-honey-200" : "text-white/35"}>
         {active ? (
@@ -446,10 +488,10 @@ export function TableStateRow({
 }) {
   return (
     <tr>
-      <td colSpan={colSpan} className="px-3 py-3">
+      <td colSpan={colSpan} className="px-3 py-2">
         <div className="app-table-state">
           <div className="text-sm font-semibold text-ink">{title}</div>
-          <div className="text-xs text-steel">{message}</div>
+          <div className="text-[11px] text-steel">{message}</div>
         </div>
       </td>
     </tr>
@@ -461,6 +503,7 @@ export type RowActionItem = {
   onClick: () => void;
   tone?: "default" | "danger";
   disabled?: boolean;
+  icon?: ReactNode;
 };
 
 export function RowActionsMenu({
@@ -472,17 +515,65 @@ export function RowActionsMenu({
 }) {
   const enabledItems = items.filter((item) => !item.disabled);
   const [open, setOpen] = useState(false);
-  const menuRef = useOutsideDismiss<HTMLDivElement>(open, () => setOpen(false));
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   useEscapeDismiss(open, () => setOpen(false));
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+
+      const menuWidth = 188;
+      const viewportPadding = 12;
+      const left = Math.max(
+        viewportPadding,
+        Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - viewportPadding)
+      );
+
+      setMenuPosition({
+        top: rect.bottom + 8,
+        left
+      });
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setOpen(false);
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [open]);
 
   if (enabledItems.length === 0) {
     return null;
   }
 
   return (
-    <div className="app-row-actions" ref={menuRef}>
+    <div className="app-row-actions">
       <button
         type="button"
+        ref={triggerRef}
         className="app-row-actions-trigger"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -503,30 +594,39 @@ export function RowActionsMenu({
           <circle cx="15" cy="10" r="1.6" />
         </svg>
       </button>
-      {open ? (
-        <div className="app-row-actions-menu" role="menu">
-          {enabledItems.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              role="menuitem"
-              className={`app-row-actions-item ${item.tone === "danger" ? "app-row-actions-item-danger" : ""}`.trim()}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setOpen(false);
-                item.onClick();
-              }}
+      {open && menuPosition && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="app-row-actions-menu"
+              role="menu"
+              style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
             >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+              {enabledItems.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  role="menuitem"
+                  className={`app-row-actions-item ${item.tone === "danger" ? "app-row-actions-item-danger" : ""}`.trim()}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setOpen(false);
+                    item.onClick();
+                  }}
+                >
+                  {item.icon ? <span className="app-row-actions-item-icon">{item.icon}</span> : null}
+                  {item.label}
+                </button>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
@@ -588,10 +688,15 @@ export function ConfirmActionModal({
   return (
     <Modal open={open} onClose={onClose} title={title} description={description} width="medium">
       <div className="flex justify-end gap-3">
-        <button type="button" className="app-button-secondary" onClick={onClose}>
+        <button type="button" className="app-button-secondary inline-flex items-center gap-2" onClick={onClose}>
+          <svg viewBox="0 0 20 20" className="app-button-icon fill-none stroke-current" strokeWidth="1.8" aria-hidden="true">
+            <path d="m6 6 8 8" />
+            <path d="m14 6-8 8" />
+          </svg>
           Cancel
         </button>
-        <button type="button" className={tone === "danger" ? "app-button-danger" : "app-button-primary"} onClick={onConfirm}>
+        <button type="button" className={`${tone === "danger" ? "app-button-danger" : "app-button-primary"} inline-flex items-center gap-2`} onClick={onConfirm}>
+          {tone === "danger" ? <TrashIcon className="app-button-icon" /> : <PencilIcon className="app-button-icon" />}
           {confirmLabel}
         </button>
       </div>

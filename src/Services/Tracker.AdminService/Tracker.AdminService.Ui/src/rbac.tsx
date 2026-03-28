@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { type PageResult } from "./catalog";
-import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, Modal, ModalDismissButton, PaginationFooter, PreviewDrawer, RowActionsMenu, SortHeaderButton, TableStateRow, useCatalogViewState } from "./catalog.tsx";
+import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, EyeIcon, Modal, ModalDismissButton, PaginationFooter, PencilIcon, PlusIcon, PowerIcon, PreviewDrawer, RowActionsMenu, SortHeaderButton, TableStateRow, TrashIcon, useCatalogViewState } from "./catalog.tsx";
 
 type PageProps = {
   accessToken: string;
@@ -641,10 +641,10 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
                     <input type="checkbox" checked={selectedUserIds.includes(item.userId)} aria-label={`Select ${item.userName}`} onChange={() => toggleUserSelection(item.userId)} />
                   </td>
                   <td className="px-5 py-4">
-                    <div className="font-semibold text-ink">{item.displayName || item.userName}</div>
-                    <div className="text-xs text-steel">{item.userName}</div>
+                    <div className="app-grid-primary">{item.displayName || item.userName}</div>
+                    <div className="app-grid-secondary">{item.userName}</div>
                     <div className="app-inline-id">
-                      <span className="font-mono">{item.userId}</span>
+                      <span className="app-grid-meta font-mono">{item.userId}</span>
                       <CopyValueButton value={item.userId} label={`Copy user id ${item.userId}`} />
                     </div>
                   </td>
@@ -663,12 +663,13 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
                   <td className="px-5 py-4 text-steel">{formatDateTime(item.lastLoginAtUtc)}</td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-2">
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.userId).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to open user editor."))}>Edit</button>
+                      <button type="button" className="app-button-secondary px-4 py-2.5 inline-flex items-center gap-2" onClick={() => openEdit(item.userId).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Unable to open user editor."))}><PencilIcon className="app-button-icon" />Edit</button>
                       <RowActionsMenu
                         items={[
-                          { label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.userId })) },
+                          { label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.userId })) },
                           {
                             label: item.isActive ? "Deactivate" : "Activate",
+                            icon: <PowerIcon />,
                             onClick: () => changeActivation([item.userId], !item.isActive),
                             tone: item.isActive ? "danger" : "default"
                           }
@@ -750,7 +751,7 @@ export function AdminUsersPage({ accessToken, onReauthenticate }: PageProps) {
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <button type="button" className="app-button-primary" onClick={() => void openEdit(previewUser.userId)}>Edit user</button>
+              <button type="button" className="app-button-primary inline-flex items-center gap-2" onClick={() => void openEdit(previewUser.userId)}><PencilIcon className="app-button-icon" />Edit user</button>
               <button type="button" className={previewUser.isActive ? "app-button-danger" : "app-button-secondary"} onClick={() => void changeActivation([previewUser.userId], !previewUser.isActive)}>
                 {previewUser.isActive ? "Deactivate" : "Activate"}
               </button>
@@ -1259,9 +1260,9 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
                     <input type="checkbox" checked={selectedRoleIds.includes(item.roleId)} aria-label={`Select ${item.name}`} onChange={() => toggleRoleSelection(item.roleId)} />
                   </td>
                   <td className="px-5 py-4">
-                    <div className="font-semibold text-ink">{item.name}</div>
+                    <div className="app-grid-primary">{item.name}</div>
                     <div className="app-inline-id">
-                      <span className="font-mono">{item.roleId}</span>
+                      <span className="app-grid-meta font-mono">{item.roleId}</span>
                       <CopyValueButton value={item.roleId} label={`Copy role id ${item.roleId}`} />
                     </div>
                   </td>
@@ -1274,13 +1275,14 @@ export function RolesPage({ accessToken, onReauthenticate }: PageProps) {
                   <td className="px-5 py-4 text-steel">{formatDate(item.createdAtUtc)}</td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end items-center gap-2">
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.roleId)}>Edit</button>
+                      <button type="button" className="app-button-secondary px-4 py-2.5 inline-flex items-center gap-2" onClick={() => openEdit(item.roleId)}><PencilIcon className="app-button-icon" />Edit</button>
                       {item.isSystemRole ? <span className="app-chip-muted">Protected</span> : null}
                       <RowActionsMenu
                         items={[
-                          { label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.roleId })) },
+                          { label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.roleId })) },
                           {
                             label: "Delete",
+                            icon: <TrashIcon />,
                             tone: "danger",
                             disabled: item.isSystemRole,
                             onClick: () => {
@@ -1682,9 +1684,9 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
                     <input type="checkbox" checked={selectedGroupIds.includes(item.id)} aria-label={`Select ${item.name}`} onChange={() => toggleGroupSelection(item.id)} />
                   </td>
                   <td className="px-5 py-4">
-                    <div className="font-semibold text-ink">{item.name}</div>
+                    <div className="app-grid-primary">{item.name}</div>
                     <div className="app-inline-id">
-                      <span className="font-mono">{item.id}</span>
+                      <span className="app-grid-meta font-mono">{item.id}</span>
                       <CopyValueButton value={item.id} label={`Copy permission group id ${item.id}`} />
                     </div>
                   </td>
@@ -1696,13 +1698,14 @@ export function PermissionGroupsPage({ accessToken, onReauthenticate }: PageProp
                   <td className="px-5 py-4 text-steel">{formatDate(item.createdAtUtc)}</td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end items-center gap-2">
-                      <button type="button" className="app-button-secondary px-4 py-2.5" onClick={() => openEdit(item.id)}>Edit</button>
+                      <button type="button" className="app-button-secondary px-4 py-2.5 inline-flex items-center gap-2" onClick={() => openEdit(item.id)}><PencilIcon className="app-button-icon" />Edit</button>
                       {item.isSystemGroup ? <span className="app-chip-muted">Protected</span> : null}
                       <RowActionsMenu
                         items={[
-                          { label: "Preview", onClick: () => setView((current) => ({ ...current, preview: item.id })) },
+                          { label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.id })) },
                           {
                             label: "Delete",
+                            icon: <TrashIcon />,
                             tone: "danger",
                             disabled: item.isSystemGroup,
                             onClick: () => {

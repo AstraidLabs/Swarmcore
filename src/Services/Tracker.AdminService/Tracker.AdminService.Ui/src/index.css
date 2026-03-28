@@ -435,7 +435,7 @@ body {
   }
 
   .app-toolbar-body {
-    @apply relative z-[1] flex flex-col gap-2 px-4 py-1.5 md:px-6;
+    @apply relative z-[1] flex flex-col gap-1.5 px-4 py-1 md:px-6;
   }
 
   .app-breadcrumb {
@@ -491,7 +491,7 @@ body {
   }
 
   .app-chip {
-    @apply inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-steel;
+    @apply inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-steel;
   }
 
   .app-chip-soft {
@@ -539,6 +539,23 @@ body {
     background-color: #172033;
   }
 
+  .app-data-table table th:first-child,
+  .app-data-table table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+  }
+
+  .app-data-table table thead th:first-child {
+    z-index: 4;
+    box-shadow: 1px 0 0 rgba(226, 232, 240, 0.08);
+  }
+
+  .app-data-table table tbody td:first-child {
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 1px 0 0 rgba(226, 232, 240, 0.85);
+  }
+
   .app-table-row {
     @apply transition-colors hover:bg-slate-50/85;
   }
@@ -568,35 +585,23 @@ body {
   }
 
   .app-catalog-toolbar {
-    @apply grid gap-2 xl:grid-cols-[minmax(0,3.2fr),minmax(150px,0.8fr),minmax(170px,0.85fr),minmax(136px,0.62fr)];
+    @apply grid gap-1.5 xl:grid-cols-[minmax(0,3.4fr),minmax(142px,0.8fr),minmax(160px,0.8fr),minmax(126px,0.56fr),40px,max-content];
   }
 
-  .app-catalog-header {
-    @apply flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between;
-  }
-
-  .app-catalog-summary {
-    @apply min-w-0 space-y-0;
-  }
-
-  .app-catalog-summary-row {
-    @apply flex flex-wrap items-center gap-2;
-  }
-
-  .app-toolbar-actions {
-    @apply flex items-center gap-2 self-start xl:self-center;
-  }
-
-  .app-catalog-description {
-    @apply text-[12px] leading-5 text-steel/70;
+  .app-catalog-toolbar-shell {
+    @apply px-4 py-1;
   }
 
   .app-density-toggle {
-    @apply rounded-full border border-slate-200 bg-white/90 px-2.5 py-1.5 text-[11px] font-semibold text-steel transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink;
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-steel transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink;
   }
 
   .app-density-toggle-active {
     @apply border-brand/20 bg-brand/5 text-brand;
+  }
+
+  .app-toolbar-primary-action {
+    @apply justify-self-end whitespace-nowrap;
   }
 
   .app-catalog-grid {
@@ -616,7 +621,7 @@ body {
   }
 
   .app-catalog-pagination {
-    @apply flex flex-col gap-2 rounded-[18px] border border-slate-200/80 bg-white/70 px-4 py-1.5 sm:flex-row sm:items-center sm:justify-between;
+    @apply flex flex-col gap-1.5 rounded-[16px] border border-slate-200/80 bg-white/70 px-3 py-1 sm:flex-row sm:items-center sm:justify-between;
   }
 
   .app-selection-summary {
@@ -624,7 +629,7 @@ body {
   }
 
   .app-table-state {
-    @apply flex flex-col items-center justify-center gap-1 rounded-[14px] border border-dashed border-slate-200 bg-slate-50/65 px-3 py-2.5 text-center;
+    @apply flex flex-col items-start justify-center gap-0.5 rounded-[12px] border border-dashed border-slate-200 bg-slate-50/55 px-3 py-1.5 text-left;
   }
 
   .app-preview-drawer {
@@ -648,7 +653,7 @@ body {
   }
 
   .app-copy-button {
-    @apply inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200/75 bg-white/90 text-steel/80 transition hover:border-slate-300 hover:bg-white hover:text-ink;
+    @apply inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-200/60 bg-white/60 text-steel/55 transition hover:border-slate-300 hover:bg-white hover:text-ink;
   }
 
   .app-copy-button-copied {
@@ -656,7 +661,7 @@ body {
   }
 
   .app-inline-id {
-    @apply mt-0.5 flex flex-wrap items-center gap-1 text-[9px] text-steel/75;
+    @apply mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-steel/50;
   }
 
   .app-inline-id .font-mono {
@@ -668,10 +673,27 @@ body {
     vertical-align: middle;
   }
 
+  .app-data-table tbody td {
+    @apply text-[13px] leading-5 text-steel;
+  }
+
   .app-data-table table th:last-child,
   .app-data-table table td:last-child {
+    position: sticky;
+    right: 0;
     white-space: nowrap;
-    width: 1%;
+    width: 148px;
+    min-width: 148px;
+  }
+
+  .app-data-table table thead th:last-child {
+    z-index: 4;
+    box-shadow: -1px 0 0 rgba(226, 232, 240, 0.08);
+  }
+
+  .app-data-table table tbody td:last-child {
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: -1px 0 0 rgba(226, 232, 240, 0.85);
   }
 
   .app-data-table table td .app-button-secondary,
@@ -680,16 +702,32 @@ body {
     @apply rounded-[16px] px-3 py-1.5 text-sm;
   }
 
-  .app-card-header.app-catalog-header {
-    @apply px-4 py-1.5;
-  }
-
   .app-card:has(.app-catalog-toolbar) .app-card-body {
     @apply px-4 py-1;
   }
 
   .app-catalog-toolbar .app-input {
-    @apply rounded-[15px] px-3 py-1.5 text-sm;
+    @apply rounded-[14px] px-3 py-1.5 text-sm;
+  }
+
+  .app-toolbar-primary-action {
+    @apply justify-self-end inline-flex items-center gap-2 whitespace-nowrap rounded-[18px] px-4 py-2.5 text-sm;
+  }
+
+  .app-button-icon {
+    @apply h-4 w-4 shrink-0;
+  }
+
+  .app-grid-primary {
+    @apply text-[14px] font-semibold leading-5 text-ink;
+  }
+
+  .app-grid-secondary {
+    @apply text-[13px] leading-5 text-steel;
+  }
+
+  .app-grid-meta {
+    @apply text-[10px] leading-4 text-steel/50;
   }
 
   .app-row-actions {
@@ -697,20 +735,24 @@ body {
   }
 
   .app-row-actions-trigger {
-    @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-steel transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink;
+    @apply inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200/80 bg-transparent text-steel/70 transition hover:border-slate-300 hover:bg-slate-50 hover:text-ink;
   }
 
   .app-row-actions-menu {
-    @apply absolute right-0 top-9 z-30 min-w-[168px] rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl;
+    @apply fixed z-[80] min-w-[188px] rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl;
     box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
   }
 
   .app-row-actions-item {
-    @apply flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-medium text-ink transition hover:bg-slate-50;
+    @apply flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-ink transition hover:bg-slate-50;
   }
 
   .app-row-actions-item-danger {
     @apply text-rose-700 hover:bg-rose-50;
+  }
+
+  .app-row-actions-item-icon {
+    @apply inline-flex h-4 w-4 shrink-0 items-center justify-center;
   }
 
   :root[data-catalog-density="dense"] .app-data-table table th,
@@ -724,12 +766,12 @@ body {
 
   :root[data-catalog-density="dense"] .app-catalog-pagination,
   :root[data-catalog-density="dense"] .app-selection-summary {
-    @apply py-1.5;
+    @apply py-1;
   }
 
   :root[data-catalog-density="comfortable"] .app-data-table table th,
   :root[data-catalog-density="comfortable"] .app-data-table table td {
-    @apply px-4 py-2.5;
+    @apply px-4 py-2;
   }
 
   .app-modal-overlay {
