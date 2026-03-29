@@ -25,6 +25,7 @@ public interface ITorrentConfigurationReader
 
 public interface ITrackerNodeConfigurationReader
 {
+    Task<IReadOnlyCollection<TrackerNodeConfigurationDto>> ListTrackerNodeConfigurationsAsync(CancellationToken cancellationToken);
     Task<TrackerNodeConfigurationDto?> GetTrackerNodeConfigurationAsync(string nodeKey, CancellationToken cancellationToken);
     Task<TrackerNodeConfigurationDto?> GetEffectiveTrackerNodeConfigurationAsync(string nodeKey, CancellationToken cancellationToken);
     Task<TrackerNodeConfigurationValidationResultDto> ValidateTrackerNodeConfigurationAsync(TrackerNodeConfigurationDocument configuration, CancellationToken cancellationToken);
@@ -50,6 +51,7 @@ public interface IConfigurationMutationService
     Task<BanRuleDto> ExpireBanRuleAsync(string scope, string subject, BanRuleExpireRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task DeleteBanRuleAsync(string scope, string subject, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task DeleteTrackerNodeConfigurationAsync(string nodeKey, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
 }
 
 public interface IConfigurationMutationPreviewService

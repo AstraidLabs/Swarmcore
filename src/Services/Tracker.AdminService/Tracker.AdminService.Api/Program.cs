@@ -278,6 +278,15 @@ adminApi.MapGet("/cluster/nodes", async (
     return Results.Ok(result);
 }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.NodesView));
 
+adminApi.MapGet("/nodes",
+    async (string? search, string? sort, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(
+            new ListTrackerNodeConfigsQuery(GridQueryHttp.Bind(search, "all", sort, page, pageSize, AdminCatalogProfiles.TrackerNodes)),
+            cancellationToken);
+        return Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.SystemSettingsView));
+
 adminApi.MapGet("/nodes/{nodeKey}/config",
     async (string nodeKey, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
@@ -297,6 +306,18 @@ adminApi.MapPut("/nodes/{nodeKey}/config",
     {
         return await AdminMutationEndpointExecutor.ExecuteAsync(
             async () => Results.Ok(await orchestrator.UpsertTrackerNodeConfigurationAsync(nodeKey, request, AdminAuthorization.CreateMutationContext(httpContext), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
+adminApi.MapDelete("/nodes/{nodeKey}/config",
+    async (HttpContext httpContext, string nodeKey, long? expectedVersion, [FromServices] IAdminMutationOrchestrator orchestrator, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await orchestrator.DeleteTrackerNodeConfigurationAsync(nodeKey, expectedVersion, AdminAuthorization.CreateMutationContext(httpContext), cancellationToken);
+                return Results.NoContent();
+            },
             httpContext);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
 

@@ -307,6 +307,23 @@ public sealed record TrackerNodeOverviewDto(
     DateTimeOffset UpdatedAtUtc,
     string UpdatedBy);
 
+public sealed record TrackerNodeCatalogItemDto(
+    string NodeKey,
+    string NodeName,
+    string NodeId,
+    string Environment,
+    string Region,
+    bool HttpEnabled,
+    bool UdpEnabled,
+    bool PublicTrackerEnabled,
+    bool PrivateTrackerEnabled,
+    bool RequiresRestart,
+    string ApplyMode,
+    DateTimeOffset UpdatedAtUtc,
+    string UpdatedBy,
+    int ErrorCount,
+    int WarningCount);
+
 public sealed record TrackerNodeCapabilitiesDto(
     bool SupportsHttp,
     bool SupportsUdp,

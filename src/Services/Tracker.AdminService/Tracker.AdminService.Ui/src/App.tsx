@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -220,12 +220,31 @@ type TrackerNodeConfigViewDto = {
   };
 };
 
+type TrackerNodeCatalogItemDto = {
+  nodeKey: string;
+  nodeName: string;
+  nodeId: string;
+  environment: string;
+  region: string;
+  httpEnabled: boolean;
+  udpEnabled: boolean;
+  publicTrackerEnabled: boolean;
+  privateTrackerEnabled: boolean;
+  requiresRestart: boolean;
+  applyMode: string;
+  updatedAtUtc: string;
+  updatedBy: string;
+  errorCount: number;
+  warningCount: number;
+};
+
 type TrackerNodeConfigValidationResultDto = {
   isValid: boolean;
   issues: Array<{ code: string; path: string; severity: "Warning" | "Error"; message: string }>;
 };
 
 type TrackerNodeConfigFormState = {
+  nodeKey: string;
   nodeId: string;
   nodeName: string;
   environment: string;
@@ -329,6 +348,7 @@ function normalizeTrackerNodeApplyMode(value: unknown): TrackerNodeConfigFormSta
 
 function createDefaultTrackerNodeConfigFormState(): TrackerNodeConfigFormState {
   return {
+    nodeKey: "",
     nodeId: "",
     nodeName: "",
     environment: "Development",
@@ -421,6 +441,7 @@ function createDefaultTrackerNodeConfigFormState(): TrackerNodeConfigFormState {
 
 function toTrackerNodeConfigFormState(view: TrackerNodeConfigViewDto): TrackerNodeConfigFormState {
   return {
+    nodeKey: view.overview.nodeKey,
     nodeId: view.overview.nodeId,
     nodeName: view.overview.nodeName,
     environment: view.overview.environment,
@@ -997,24 +1018,27 @@ function useAdminOidc() {
     };
   }, []);
 
-  const signin = async (forceFreshLogin = false) => {
-    if (!manager) {
-      return;
-    }
+  const signin = useCallback(
+    async (forceFreshLogin = false) => {
+      if (!manager) {
+        return;
+      }
 
-    if (typeof window !== "undefined") {
-      window.sessionStorage.removeItem(adminSignedOutStorageKey);
-    }
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(adminSignedOutStorageKey);
+      }
 
-    await manager.signinRedirect({
-      state: {
-        returnTo: `${location.pathname}${location.search}${location.hash}`
-      },
-      extraQueryParams: forceFreshLogin ? { prompt: "login" } : undefined
-    });
-  };
+      await manager.signinRedirect({
+        state: {
+          returnTo: `${location.pathname}${location.search}${location.hash}`
+        },
+        extraQueryParams: forceFreshLogin ? { prompt: "login" } : undefined
+      });
+    },
+    [location.hash, location.pathname, location.search, manager]
+  );
 
-  const signout = async () => {
+  const signout = useCallback(async () => {
     if (manager) {
       await manager.removeUser();
     }
@@ -1034,7 +1058,7 @@ function useAdminOidc() {
 
     setUser(null);
     window.location.assign("/");
-  };
+  }, [manager]);
 
   return { manager, user, setUser, isBootstrapping, bootError, signin, signout };
 }
@@ -1139,6 +1163,18 @@ async function apiDelete(path: string, accessToken: string, onReauthenticate: (f
     const errorPayload = await readAdminError(response);
     throw new Error(errorPayload.message ?? `Admin mutation failed (${response.status}).`);
   }
+}
+
+function buildReturnTo(pathname: string, search: string) {
+  return `${pathname}${search}`;
+}
+
+function sanitizeReturnTo(returnTo: string | null, fallback: string) {
+  if (!returnTo || !returnTo.startsWith("/")) {
+    return fallback;
+  }
+
+  return returnTo;
 }
 
 function useAdminSession(accessToken: string, onReauthenticate: (fresh: boolean) => Promise<void>) {
@@ -1471,11 +1507,11 @@ function getRouteMeta(pathname: string, dictionary: I18nDictionary): { eyebrow: 
       description: routes.maintenanceDescription
     };
   }
-  if (pathname.startsWith("/tracker-node")) {
+  if (pathname.startsWith("/tracker-node") || pathname.startsWith("/tracker-nodes")) {
     return {
       eyebrow: "Tracker",
-      title: "Tracker node configuration",
-      description: "Review the canonical node profile, validation state and runtime-safe operational settings."
+      title: "Tracker node configurations",
+      description: "Select, create and edit tracker node profiles with the same catalog workflow used across the admin."
     };
   }
 
@@ -1497,6 +1533,27 @@ function CapabilityGate({
 }) {
   const { dictionary } = useI18n();
   if (!hasGrantedCapability(capabilities, action)) {
+    return (
+      <Card title={dictionary.common.accessDenied} eyebrow={dictionary.common.authorization}>
+        <p className="text-sm text-ember">{dictionary.common.accessDeniedBody}</p>
+      </Card>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+function CapabilityAnyGate({
+  capabilities,
+  actions,
+  children
+}: {
+  capabilities: CapabilityDto[];
+  actions: string[];
+  children: React.ReactNode;
+}) {
+  const { dictionary } = useI18n();
+  if (!actions.some((action) => hasGrantedCapability(capabilities, action))) {
     return (
       <Card title={dictionary.common.accessDenied} eyebrow={dictionary.common.authorization}>
         <p className="text-sm text-ember">{dictionary.common.accessDeniedBody}</p>
@@ -1638,6 +1695,315 @@ function DashboardPage({
   );
 }
 
+function TrackerNodesPage({
+  accessToken,
+  onReauthenticate,
+  permissions
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  permissions: string[];
+}) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const canWrite = hasPermission(permissions, "admin.maintenance.execute");
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "nodekey:asc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview } = view;
+  const [items, setItems] = useState<TrackerNodeCatalogItemDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const previewItem = items.find((item) => item.nodeKey === preview) ?? null;
+  const activeSortField = query.sort.split(":")[0] ?? "nodekey";
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
+  const returnTo = encodeURIComponent(buildReturnTo(location.pathname, location.search));
+
+  useEffect(() => {
+    const banner = location.state as NavigationBannerState | null;
+    if (!banner?.message) {
+      return;
+    }
+
+    setStatus(banner.message);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
+
+  const reload = async () => {
+    const page = await apiRequest<PageResult<TrackerNodeCatalogItemDto>>(
+      `/api/admin/nodes?${buildGridQueryString(query)}`,
+      accessToken,
+      onReauthenticate
+    );
+    setItems(page.items);
+    setTotalCount(page.totalCount);
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    setIsLoading(true);
+    reload()
+      .then(() => {
+        if (isMounted) {
+          setError(null);
+        }
+      })
+      .catch((requestError) => {
+        if (isMounted) {
+          setError(requestError instanceof Error ? requestError.message : "Unable to load tracker node configurations.");
+          setItems([]);
+          setTotalCount(0);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [accessToken, onReauthenticate, query]);
+
+  useEffect(() => {
+    if (preview && !items.some((item) => item.nodeKey === preview)) {
+      setView((current) => ({ ...current, preview: null }));
+    }
+  }, [items, preview, setView]);
+
+  const toggleSort = (field: string, defaultDirection: "asc" | "desc" = "asc") => {
+    setView((current) => {
+      const [currentField, currentDirection = "asc"] = current.query.sort.split(":");
+      const nextDirection =
+        currentField === field ? (currentDirection === "asc" ? "desc" : "asc") : defaultDirection;
+
+      return {
+        ...current,
+        query: {
+          ...current.query,
+          sort: `${field}:${nextDirection}`,
+          page: 1
+        }
+      };
+    });
+  };
+
+  const formatProtocols = (item: TrackerNodeCatalogItemDto) => {
+    const protocols = [item.httpEnabled ? "HTTP" : null, item.udpEnabled ? "UDP" : null].filter(
+      (value): value is string => value !== null
+    );
+    return protocols.length > 0 ? protocols.join(" / ") : "Disabled";
+  };
+
+  const formatPolicy = (item: TrackerNodeCatalogItemDto) => {
+    const modes = [item.publicTrackerEnabled ? "Public" : null, item.privateTrackerEnabled ? "Private" : null].filter(
+      (value): value is string => value !== null
+    );
+    return modes.length > 0 ? modes.join(" / ") : "Disabled";
+  };
+
+  return (
+    <div className="space-y-6">
+      <CatalogToolbar
+        title="Node configurations"
+        description="Select a tracker node profile, review effective status and open the dedicated configuration editor."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search node key, name or region"
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
+        filterOptions={[{ value: "all", label: "All nodes" }]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "nodekey:asc", label: "Node key A-Z" },
+          { value: "nodename:asc", label: "Node name A-Z" },
+          { value: "environment:asc", label: "Environment A-Z" },
+          { value: "region:asc", label: "Region A-Z" },
+          { value: "updated:desc", label: "Updated newest" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+        createLabel="Create node config"
+        createHref={canWrite ? `/tracker-nodes/new?returnTo=${returnTo}` : undefined}
+      />
+
+      {status ? <div className="app-notice-success">{status}</div> : null}
+      {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+
+      <div className="app-card">
+        <div className="app-table-shell">
+          <table className="app-data-table">
+            <thead>
+              <tr>
+                <th>
+                  <SortHeaderButton
+                    label="Node"
+                    active={activeSortField === "nodekey" || activeSortField === "nodename"}
+                    direction={query.sort.endsWith(":desc") ? "desc" : "asc"}
+                    onClick={() => toggleSort("nodekey")}
+                  />
+                </th>
+                <th>
+                  <SortHeaderButton
+                    label="Environment"
+                    active={activeSortField === "environment" || activeSortField === "region"}
+                    direction={query.sort.endsWith(":desc") ? "desc" : "asc"}
+                    onClick={() => toggleSort("environment")}
+                  />
+                </th>
+                <th>Protocols</th>
+                <th>Policy</th>
+                <th>Apply</th>
+                <th>
+                  <SortHeaderButton
+                    label="Updated"
+                    active={activeSortField === "updated"}
+                    direction={query.sort.endsWith(":desc") ? "desc" : "asc"}
+                    onClick={() => toggleSort("updated", "desc")}
+                  />
+                </th>
+                <th className="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow
+                  colSpan={7}
+                  title="Loading node configurations"
+                  description="Refreshing persisted tracker node profiles from the backend."
+                />
+              ) : items.length === 0 ? (
+                <TableStateRow
+                  colSpan={7}
+                  title="No node configurations"
+                  description="Create the first tracker node profile to start configuring protocols, runtime and coordination."
+                />
+              ) : (
+                items.map((item) => (
+                  <CatalogTableRow
+                    key={item.nodeKey}
+                    onOpen={() => setView((current) => ({ ...current, preview: item.nodeKey }))}
+                  >
+                    <td>
+                      <div className="app-grid-primary">{item.nodeName || item.nodeKey}</div>
+                      <div className="app-grid-secondary">{item.environment} / {item.region}</div>
+                      <div className="app-grid-meta inline-flex items-center gap-2">
+                        <span className="font-mono">{item.nodeKey}</span>
+                        <CopyValueButton value={item.nodeKey} label="Copy node key" />
+                      </div>
+                    </td>
+                    <td>
+                      <div className="app-grid-primary">{item.environment}</div>
+                      <div className="app-grid-secondary">{item.region}</div>
+                      <div className="app-grid-meta">{item.nodeId || "Node id not configured"}</div>
+                    </td>
+                    <td>
+                      <div className="app-grid-primary">{formatProtocols(item)}</div>
+                      <div className="app-grid-meta">{item.httpEnabled ? "HTTP enabled" : "HTTP disabled"}</div>
+                    </td>
+                    <td>
+                      <div className="app-grid-primary">{formatPolicy(item)}</div>
+                      <div className="app-grid-meta">
+                        {item.privateTrackerEnabled ? "Private tracker ready" : "Private tracker disabled"}
+                      </div>
+                    </td>
+                    <td>
+                      <span className={item.requiresRestart ? "app-chip-warn" : "app-chip-soft"}>
+                        {item.requiresRestart ? "Restart recommended" : "Dynamic"}
+                      </span>
+                      <div className="app-grid-meta mt-2">{item.applyMode}</div>
+                    </td>
+                    <td>
+                      <div className="app-grid-primary">{formatDateTime(item.updatedAtUtc)}</div>
+                      <div className="app-grid-meta">{item.updatedBy}</div>
+                    </td>
+                    <td className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Link
+                          className="app-button-secondary inline-flex items-center gap-2"
+                          to={`/tracker-nodes/${encodeURIComponent(item.nodeKey)}/edit?returnTo=${returnTo}`}
+                        >
+                          <PencilIcon className="app-button-icon" />
+                          Edit
+                        </Link>
+                        <RowActionsMenu
+                          actions={[
+                            {
+                              label: "Preview",
+                              icon: <EyeIcon className="app-button-icon" />,
+                              onClick: () => setView((current) => ({ ...current, preview: item.nodeKey }))
+                            }
+                          ]}
+                        />
+                      </div>
+                    </td>
+                  </CatalogTableRow>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <PaginationFooter
+        page={query.page}
+        pageSize={query.pageSize}
+        totalCount={totalCount}
+        pageCount={pageCount}
+        onPageChange={(value) => setView((current) => ({ ...current, query: { ...current.query, page: value } }))}
+      />
+
+      <PreviewDrawer
+        open={previewItem !== null}
+        title={previewItem?.nodeName || previewItem?.nodeKey || "Node configuration"}
+        subtitle={previewItem ? `${previewItem.environment} / ${previewItem.region}` : undefined}
+        onClose={() => setView((current) => ({ ...current, preview: null }))}
+      >
+        {previewItem ? (
+          <div className="space-y-4">
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Identity</div>
+              <div className="text-sm font-semibold text-ink">{previewItem.nodeId || "Node id not configured"}</div>
+              <div className="text-sm text-steel">{previewItem.nodeKey}</div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Protocols</div>
+                <div className="text-sm font-semibold text-ink">{formatProtocols(previewItem)}</div>
+                <div className="text-xs text-steel">{previewItem.httpEnabled ? "HTTP enabled" : "HTTP disabled"} · {previewItem.udpEnabled ? "UDP enabled" : "UDP disabled"}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Validation</div>
+                <div className="text-sm font-semibold text-ink">{previewItem.errorCount} errors / {previewItem.warningCount} warnings</div>
+                <div className="text-xs text-steel">{previewItem.requiresRestart ? "Restart recommended" : "Dynamic apply mode"}</div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Link
+                className="app-button-primary inline-flex items-center gap-2"
+                to={`/tracker-nodes/${encodeURIComponent(previewItem.nodeKey)}/edit?returnTo=${returnTo}`}
+              >
+                <PencilIcon className="app-button-icon" />
+                Edit node config
+              </Link>
+            </div>
+          </div>
+        ) : null}
+      </PreviewDrawer>
+    </div>
+  );
+}
+
 function TrackerEditorLayout({
   eyebrow,
   title,
@@ -1705,6 +2071,48 @@ function TrackerEditorSummary({
   );
 }
 
+function TrackerReadOnlySummary({
+  items
+}: {
+  items: Array<{ label: string; value: ReactNode; tone?: "default" | "mono" }>;
+}) {
+  return (
+    <div className="app-detail-grid">
+      {items.map((item) => (
+        <div key={item.label} className="app-subtle-panel space-y-2">
+          <div className="app-kicker">{item.label}</div>
+          <div className={item.tone === "mono" ? "break-all font-mono text-sm text-ink" : "text-sm font-semibold text-ink"}>
+            {item.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TrackerOperationSummary({
+  title = "Latest operation",
+  children
+}: {
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="app-kicker">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function TrackerPreviewActions({
+  children
+}: {
+  children: ReactNode;
+}) {
+  return <div className="flex flex-wrap justify-end gap-3">{children}</div>;
+}
+
 function TrackerEditorFooter({
   left,
   right
@@ -1746,7 +2154,8 @@ function TrackerConfigField({
   onChange,
   type = "text",
   mono = false,
-  placeholder
+  placeholder,
+  disabled = false
 }: {
   label: string;
   value: string | number;
@@ -1754,6 +2163,7 @@ function TrackerConfigField({
   type?: "text" | "number";
   mono?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="space-y-2">
@@ -1762,6 +2172,7 @@ function TrackerConfigField({
         className={`app-input ${mono ? "font-mono text-sm" : ""}`}
         type={type}
         value={value}
+        disabled={disabled}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -1820,6 +2231,12 @@ function TrackerNodeConfigPage({
   onReauthenticate: (fresh: boolean) => Promise<void>;
   permissions: string[];
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  const nodeKeyParam = params.nodeKey ?? null;
+  const isCreate = nodeKeyParam === null;
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/tracker-nodes");
   const canWrite = hasPermission(permissions, "admin.maintenance.execute");
   const [form, setForm] = useState<TrackerNodeConfigFormState>(() => createDefaultTrackerNodeConfigFormState());
   const [view, setView] = useState<TrackerNodeConfigViewDto | null>(null);
@@ -1830,6 +2247,7 @@ function TrackerNodeConfigPage({
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const hydrateFromView = (loaded: TrackerNodeConfigViewDto) => {
     setView(loaded);
@@ -1842,20 +2260,30 @@ function TrackerNodeConfigPage({
   };
 
   const loadConfiguration = async () => {
+    if (isCreate || !nodeKeyParam) {
+      setView(null);
+      setVersion(null);
+      setForm(createDefaultTrackerNodeConfigFormState());
+      setIssues([]);
+      setError(null);
+      setMessage("Create a new tracker node profile and save it to add it to the shared node catalog.");
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
-      const loaded = await apiRequest<TrackerNodeConfigViewDto>("/api/admin/nodes/current/config", accessToken, onReauthenticate);
+      const loaded = await apiRequest<TrackerNodeConfigViewDto>(
+        `/api/admin/nodes/${encodeURIComponent(nodeKeyParam)}/config`,
+        accessToken,
+        onReauthenticate
+      );
       hydrateFromView(loaded);
       setError(null);
     } catch (requestError) {
       const failure = requestError instanceof Error ? requestError.message : "Unable to load tracker node configuration.";
       if (failure.includes("(404)")) {
-        setView(null);
-        setVersion(null);
-        setForm(createDefaultTrackerNodeConfigFormState());
-        setIssues([]);
-        setError(null);
-        setMessage("No persisted tracker node profile exists yet. Saving this form will create the canonical configuration.");
+        setError("The selected tracker node profile was not found.");
         return;
       }
 
@@ -1867,7 +2295,7 @@ function TrackerNodeConfigPage({
 
   useEffect(() => {
     void loadConfiguration();
-  }, [accessToken, onReauthenticate]);
+  }, [accessToken, isCreate, nodeKeyParam, onReauthenticate]);
 
   const setText = <T extends keyof TrackerNodeConfigFormState>(field: T, value: string) =>
     setForm((current) => ({ ...current, [field]: value }));
@@ -1899,6 +2327,12 @@ function TrackerNodeConfigPage({
   };
 
   const saveConfiguration = async () => {
+    const effectiveNodeKey = (isCreate ? form.nodeKey : nodeKeyParam ?? "").trim();
+    if (!effectiveNodeKey) {
+      setError("Node key is required before saving the tracker node configuration.");
+      return;
+    }
+
     try {
       setIsSaving(true);
       setError(null);
@@ -1906,7 +2340,7 @@ function TrackerNodeConfigPage({
         { version: number; nodeKey: string; requiresRestart: boolean },
         { configuration: ReturnType<typeof toTrackerNodeConfigurationDocument>; applyMode: number; expectedVersion?: number }
       >(
-        "/api/admin/nodes/current/config",
+        `/api/admin/nodes/${encodeURIComponent(effectiveNodeKey)}/config`,
         "PUT",
         accessToken,
         {
@@ -1916,11 +2350,45 @@ function TrackerNodeConfigPage({
         },
         onReauthenticate
       );
-      setVersion(response.version);
-      setMessage(response.requiresRestart ? "Node configuration saved. Restart is recommended for full application." : "Node configuration saved.");
-      await loadConfiguration();
+      navigate(returnTo, {
+        state: {
+          message: response.requiresRestart
+            ? `Node configuration '${response.nodeKey}' saved. Restart is recommended for full application.`
+            : `Node configuration '${response.nodeKey}' saved.`,
+          tone: response.requiresRestart ? "warn" : "good"
+        } satisfies NavigationBannerState
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to save tracker node configuration.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deleteConfiguration = async () => {
+    if (isCreate || !nodeKeyParam) {
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setError(null);
+      const path = version === null
+        ? `/api/admin/nodes/${encodeURIComponent(nodeKeyParam)}/config`
+        : `/api/admin/nodes/${encodeURIComponent(nodeKeyParam)}/config?expectedVersion=${encodeURIComponent(String(version))}`;
+      await apiDelete(
+        path,
+        accessToken,
+        onReauthenticate
+      );
+      navigate(returnTo, {
+        state: {
+          message: `Node configuration '${nodeKeyParam}' deleted.`,
+          tone: "good"
+        } satisfies NavigationBannerState
+      });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to delete tracker node configuration.");
     } finally {
       setIsSaving(false);
     }
@@ -1931,7 +2399,7 @@ function TrackerNodeConfigPage({
       title: "Node",
       primary: form.nodeName || "Unnamed tracker node",
       secondary: `${form.environment} / ${form.region}`,
-      meta: form.nodeId || "node id not configured"
+      meta: form.nodeKey || form.nodeId || "node key not configured"
     },
     {
       title: "Effective mode",
@@ -1950,8 +2418,8 @@ function TrackerNodeConfigPage({
   return (
     <TrackerEditorLayout
       eyebrow="Tracker node"
-      title="Tracker node configuration"
-      description="Configure the canonical tracker node profile, validate startup safety and inspect the effective operational summary."
+      title={isCreate ? "Create tracker node configuration" : "Edit tracker node configuration"}
+      description={isCreate ? "Create a new tracker node profile, then validate and save it into the shared node catalog." : "Configure a persisted tracker node profile, validate startup safety and inspect the effective operational summary."}
       error={error}
       message={message}
     >
@@ -1989,6 +2457,7 @@ function TrackerNodeConfigPage({
 
           <TrackerConfigSection title="Identity" description="Node identity, URLs and advertised capabilities.">
             <div className="app-form-grid">
+              <TrackerConfigField label="Node key" value={form.nodeKey} mono disabled={!isCreate} onChange={(value) => setText("nodeKey", value)} />
               <TrackerConfigField label="Node id" value={form.nodeId} mono onChange={(value) => setText("nodeId", value)} />
               <TrackerConfigField label="Node name" value={form.nodeName} onChange={(value) => setText("nodeName", value)} />
               <TrackerConfigField label="Environment" value={form.environment} onChange={(value) => setText("environment", value)} />
@@ -2134,17 +2603,42 @@ function TrackerNodeConfigPage({
           </div>
 
           <div className="flex flex-wrap justify-end gap-3">
+            {!isCreate ? (
+              <button
+                type="button"
+                className="app-button-danger inline-flex items-center gap-2"
+                disabled={!canWrite || isSaving}
+                onClick={() => setConfirmDeleteOpen(true)}
+              >
+                <TrashIcon className="app-button-icon" />
+                Delete node configuration
+              </button>
+            ) : null}
+            <Link to={returnTo} className="app-button-secondary inline-flex items-center gap-2">
+              Cancel
+            </Link>
             <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={isValidating} onClick={() => void validateConfiguration()}>
               <SettingsIcon className="app-button-icon" />
               Validate configuration
             </button>
             <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canWrite || isSaving} onClick={() => void saveConfiguration()}>
               <PencilIcon className="app-button-icon" />
-              Save node configuration
+              {isCreate ? "Create node configuration" : "Save node configuration"}
             </button>
           </div>
         </div>
       )}
+      <ConfirmActionModal
+        open={confirmDeleteOpen}
+        title="Delete node configuration"
+        description={`Delete node configuration '${form.nodeKey || nodeKeyParam || "selected node"}'? This cannot be undone.`}
+        confirmLabel="Delete node configuration"
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          void deleteConfiguration();
+        }}
+      />
     </TrackerEditorLayout>
   );
 }
@@ -2370,7 +2864,7 @@ function TorrentsPage({
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
         createLabel="Create torrent"
-        onCreate={canCreatePolicy ? openCreate : undefined}
+        createHref={canCreatePolicy ? `/torrents/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}` : undefined}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -2454,39 +2948,37 @@ function TorrentsPage({
       <PreviewDrawer open={previewItem != null} title={previewItem?.infoHash ?? ""} subtitle="Current torrent policy snapshot" onClose={() => setView((current) => ({ ...current, preview: null }))}>
         {previewItem ? (
           <div className="space-y-4">
-            <div className="app-detail-grid">
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.mode}</div><div className="font-semibold text-ink">{formatMode(previewItem.isPrivate, dictionary)}</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.state}</div><div className="font-semibold text-ink">{formatState(previewItem.isEnabled, dictionary)}</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.interval}</div><div className="font-semibold text-ink">{previewItem.announceIntervalSeconds}s / min {previewItem.minAnnounceIntervalSeconds}s</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.scrape}</div><div className="font-semibold text-ink">{formatScrape(previewItem.allowScrape, dictionary)}</div></div>
-            </div>
-            <div className="app-detail-grid">
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Numwant</div><div className="font-semibold text-ink">{previewItem.defaultNumWant} / {previewItem.maxNumWant}</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{dictionary.common.version}</div><div className="font-semibold text-ink">{previewItem.version}</div></div>
-            </div>
+            <TrackerReadOnlySummary
+              items={[
+                { label: dictionary.common.mode, value: formatMode(previewItem.isPrivate, dictionary) },
+                { label: dictionary.common.state, value: formatState(previewItem.isEnabled, dictionary) },
+                { label: dictionary.common.interval, value: `${previewItem.announceIntervalSeconds}s / min ${previewItem.minAnnounceIntervalSeconds}s` },
+                { label: dictionary.common.scrape, value: formatScrape(previewItem.allowScrape, dictionary) },
+                { label: "Numwant", value: `${previewItem.defaultNumWant} / ${previewItem.maxNumWant}` },
+                { label: dictionary.common.version, value: previewItem.version }
+              ]}
+            />
             {result?.torrentItems?.some((item) => item.infoHash === previewItem.infoHash) ? (
-              <div className="space-y-3">
-                <div className="app-kicker">Latest operation</div>
+              <TrackerOperationSummary>
                 {result.torrentItems.filter((item) => item.infoHash === previewItem.infoHash).map((item) => (
                   <div key={item.infoHash} className="app-subtle-panel space-y-2">
                     <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.applied : labels.failed}</StatusPill>
                     {item.errorMessage ? <div className="text-sm text-ember">{item.errorMessage}</div> : null}
                   </div>
                 ))}
-              </div>
+              </TrackerOperationSummary>
             ) : null}
-            <div className="flex flex-wrap gap-3">
+            <TrackerPreviewActions>
               {canEditPolicy ? (
-                <button
-                  type="button"
+                <Link
                   className="app-button-primary inline-flex items-center gap-2"
-                  onClick={() => navigate(`/torrents/${encodeURIComponent(previewItem.infoHash)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}
+                  to={`/torrents/${encodeURIComponent(previewItem.infoHash)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`}
                 >
                   <SettingsIcon className="app-button-icon" />
                   Edit policy
-                </button>
+                </Link>
               ) : null}
-            </div>
+            </TrackerPreviewActions>
           </div>
         ) : null}
       </PreviewDrawer>
@@ -2790,7 +3282,7 @@ function TorrentPolicyEditorPage({
             }
           />
         </div>
-        <div className="space-y-4">
+        <div className="app-editor-sidebar">
           <TrackerEditorSummary
             eyebrow={labels.previewEyebrow}
             title={current ? labels.currentSnapshot : "Draft policy"}
@@ -3187,6 +3679,10 @@ function PasskeysPage({
   const [result, setResult] = useState<BulkOperationResultDto | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const canManage = hasGrantedCapability(capabilities, "admin.write.passkey");
+  const canBatchAct =
+    hasGrantedCapability(capabilities, "admin.revoke.passkey") ||
+    hasGrantedCapability(capabilities, "admin.rotate.passkey");
   const previewItem = items.find((item) => item.passkeyMask === preview) ?? null;
   const [activeSortField, activeSortDirection = "asc"] = query.sort.split(":");
   const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
@@ -3287,10 +3783,10 @@ function PasskeysPage({
         ]}
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
-        secondaryLabel="Batch actions"
-        onSecondaryAction={openActionModal}
-        createLabel="Create passkey"
-        onCreate={openCreate}
+        secondaryLabel={canBatchAct ? "Batch actions" : undefined}
+        secondaryHref={canBatchAct ? `/passkeys/actions?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}` : undefined}
+        createLabel={canManage ? "Create passkey" : undefined}
+        createHref={canManage ? `/passkeys/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}` : undefined}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -3342,7 +3838,9 @@ function PasskeysPage({
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => navigate(`/passkeys/${encodeURIComponent(item.id)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit</button>
+                        {canManage ? (
+                          <Link className="app-button-secondary py-2.5 inline-flex items-center gap-2" to={`/passkeys/${encodeURIComponent(item.id)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`}><PencilIcon className="app-button-icon" />Edit</Link>
+                        ) : null}
                       <RowActionsMenu items={[{ label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.passkeyMask })) }]} />
                     </div>
                   </td>
@@ -3356,15 +3854,16 @@ function PasskeysPage({
       <PreviewDrawer open={previewItem != null} title={previewItem?.passkeyMask ?? ""} subtitle={previewItem ? `User ${previewItem.userId}` : undefined} onClose={() => setView((current) => ({ ...current, preview: null }))}>
         {previewItem ? (
           <div className="space-y-4">
-            <div className="app-detail-grid">
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Owner</div><div className="font-mono text-xs text-ink">{previewItem.userId}</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">State</div><StatusPill tone={previewItem.isRevoked ? "warn" : "good"}>{previewItem.isRevoked ? dictionary.common.revoked : dictionary.common.active}</StatusPill></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Expires</div><div className="font-semibold text-ink">{previewItem.expiresAtUtc ? new Date(previewItem.expiresAtUtc).toLocaleString() : dictionary.common.never}</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Version</div><div className="font-semibold text-ink">{previewItem.version}</div></div>
-            </div>
+            <TrackerReadOnlySummary
+              items={[
+                { label: "Owner", value: previewItem.userId, tone: "mono" },
+                { label: "State", value: <StatusPill tone={previewItem.isRevoked ? "warn" : "good"}>{previewItem.isRevoked ? dictionary.common.revoked : dictionary.common.active}</StatusPill> },
+                { label: "Expires", value: previewItem.expiresAtUtc ? new Date(previewItem.expiresAtUtc).toLocaleString() : dictionary.common.never },
+                { label: "Version", value: previewItem.version }
+              ]}
+            />
             {result?.passkeyItems?.some((item) => item.passkeyMask === previewItem.passkeyMask) ? (
-              <div className="space-y-3">
-                <div className="app-kicker">Latest operation</div>
+              <TrackerOperationSummary>
                 {result.passkeyItems.filter((item) => item.passkeyMask === previewItem.passkeyMask).map((item) => (
                   <div key={`${item.passkeyMask}-${item.newPasskeyMask ?? "same"}`} className="app-subtle-panel space-y-2">
                     <div className="flex items-center justify-between gap-3">
@@ -3375,11 +3874,13 @@ function PasskeysPage({
                     {item.newPasskey ? <div className="rounded-2xl bg-moss/10 px-3 py-3"><div className="text-xs uppercase tracking-[0.18em] text-moss">{labels.newPasskey}</div><div className="mt-1 break-all font-mono text-xs text-moss">{item.newPasskey}</div></div> : null}
                   </div>
                 ))}
-              </div>
+              </TrackerOperationSummary>
             ) : null}
-            <div className="flex justify-end">
-              <button type="button" className="app-button-primary inline-flex items-center gap-2" onClick={() => navigate(`/passkeys/${encodeURIComponent(previewItem.id)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit passkey</button>
-            </div>
+            {canManage ? (
+                <TrackerPreviewActions>
+                  <Link className="app-button-primary inline-flex items-center gap-2" to={`/passkeys/${encodeURIComponent(previewItem.id)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`}><PencilIcon className="app-button-icon" />Edit passkey</Link>
+                </TrackerPreviewActions>
+            ) : null}
           </div>
         ) : null}
       </PreviewDrawer>
@@ -3535,8 +4036,8 @@ function BansPage({
         ]}
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
-        createLabel="Create ban rule"
-        onCreate={openCreate}
+        createLabel={canWrite ? "Create ban rule" : undefined}
+        createHref={canWrite ? `/bans/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}` : undefined}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -3575,7 +4076,9 @@ function BansPage({
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex justify-end items-center gap-2">
-                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => navigate(`/bans/${toBanRecordId(item.scope, item.subject)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit</button>
+                        {canWrite ? (
+                          <Link className="app-button-secondary py-2.5 inline-flex items-center gap-2" to={`/bans/${toBanRecordId(item.scope, item.subject)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`}><PencilIcon className="app-button-icon" />Edit</Link>
+                        ) : null}
                       <RowActionsMenu
                         items={[
                           {
@@ -3625,15 +4128,19 @@ function BansPage({
       <PreviewDrawer open={previewItem != null} title={previewItem ? `${previewItem.scope}:${previewItem.subject}` : ""} subtitle={previewItem?.reason} onClose={() => setView((current) => ({ ...current, preview: null }))}>
         {previewItem ? (
           <div className="space-y-4">
-            <div className="app-detail-grid">
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Scope</div><div className="font-semibold text-ink">{previewItem.scope}</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Subject</div><div className="font-mono text-xs text-ink">{previewItem.subject}</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Expires</div><div className="font-semibold text-ink">{previewItem.expiresAtUtc ? new Date(previewItem.expiresAtUtc).toLocaleString() : dictionary.common.never}</div></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Version</div><div className="font-semibold text-ink">{previewItem.version}</div></div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button type="button" className="app-button-primary inline-flex items-center gap-2" onClick={() => navigate(`/bans/${toBanRecordId(previewItem.scope, previewItem.subject)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit rule</button>
-            </div>
+            <TrackerReadOnlySummary
+              items={[
+                { label: "Scope", value: previewItem.scope },
+                { label: "Subject", value: previewItem.subject, tone: "mono" },
+                { label: "Expires", value: previewItem.expiresAtUtc ? new Date(previewItem.expiresAtUtc).toLocaleString() : dictionary.common.never },
+                { label: "Version", value: previewItem.version }
+              ]}
+            />
+            {canWrite ? (
+                <TrackerPreviewActions>
+                  <Link className="app-button-primary inline-flex items-center gap-2" to={`/bans/${toBanRecordId(previewItem.scope, previewItem.subject)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`}><PencilIcon className="app-button-icon" />Edit rule</Link>
+                </TrackerPreviewActions>
+            ) : null}
           </div>
         ) : null}
       </PreviewDrawer>
@@ -3779,8 +4286,10 @@ function TrackerAccessPage({
         ]}
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
-        createLabel="Create access"
-        onCreate={openCreate}
+        secondaryLabel={canWrite ? "Bulk edit" : undefined}
+        secondaryHref={canWrite ? `/permissions/bulk-edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}` : undefined}
+        createLabel={canWrite ? "Create access" : undefined}
+        createHref={canWrite ? `/permissions/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}` : undefined}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -3843,7 +4352,9 @@ function TrackerAccessPage({
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex justify-end items-center gap-2">
-                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => navigate(`/permissions/${encodeURIComponent(item.userId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />{labels.edit}</button>
+                        {canWrite ? (
+                          <Link className="app-button-secondary py-2.5 inline-flex items-center gap-2" to={`/permissions/${encodeURIComponent(item.userId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`}><PencilIcon className="app-button-icon" />{labels.edit}</Link>
+                        ) : null}
                       <RowActionsMenu items={[{ label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.userId })) }]} />
                     </div>
                   </td>
@@ -3857,27 +4368,30 @@ function TrackerAccessPage({
       <PreviewDrawer open={previewItem != null} title={previewItem?.userId ?? ""} subtitle="Current tracker access rights" onClose={() => setView((current) => ({ ...current, preview: null }))}>
         {previewItem ? (
           <div className="space-y-4">
-            <div className="app-detail-grid">
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{labels.leech}</div><StatusPill tone={previewItem.canLeech ? "good" : "neutral"}>{formatBool(previewItem.canLeech, dictionary)}</StatusPill></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{labels.seed}</div><StatusPill tone={previewItem.canSeed ? "good" : "neutral"}>{formatBool(previewItem.canSeed, dictionary)}</StatusPill></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{labels.scrape}</div><StatusPill tone={previewItem.canScrape ? "good" : "neutral"}>{formatBool(previewItem.canScrape, dictionary)}</StatusPill></div>
-              <div className="app-subtle-panel space-y-2"><div className="app-kicker">{labels.privateTracker}</div><StatusPill tone={previewItem.canUsePrivateTracker ? "good" : "neutral"}>{formatBool(previewItem.canUsePrivateTracker, dictionary)}</StatusPill></div>
-            </div>
-            <div className="app-subtle-panel space-y-2"><div className="app-kicker">Version</div><div className="font-semibold text-ink">{previewItem.version}</div></div>
+            <TrackerReadOnlySummary
+              items={[
+                { label: labels.leech, value: <StatusPill tone={previewItem.canLeech ? "good" : "neutral"}>{formatBool(previewItem.canLeech, dictionary)}</StatusPill> },
+                { label: labels.seed, value: <StatusPill tone={previewItem.canSeed ? "good" : "neutral"}>{formatBool(previewItem.canSeed, dictionary)}</StatusPill> },
+                { label: labels.scrape, value: <StatusPill tone={previewItem.canScrape ? "good" : "neutral"}>{formatBool(previewItem.canScrape, dictionary)}</StatusPill> },
+                { label: labels.privateTracker, value: <StatusPill tone={previewItem.canUsePrivateTracker ? "good" : "neutral"}>{formatBool(previewItem.canUsePrivateTracker, dictionary)}</StatusPill> },
+                { label: "Version", value: previewItem.version }
+              ]}
+            />
             {trackerAccessItems.some((item) => item.userId === previewItem.userId) ? (
-              <div className="space-y-3">
-                <div className="app-kicker">Latest operation</div>
+              <TrackerOperationSummary>
                 {trackerAccessItems.filter((item) => item.userId === previewItem.userId).map((item) => (
                   <div key={item.userId} className="app-subtle-panel space-y-2">
                     <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.succeeded : labels.failed}</StatusPill>
                     {item.errorMessage ? <div className="text-sm text-ember">{item.errorMessage}</div> : null}
                   </div>
                 ))}
-              </div>
+              </TrackerOperationSummary>
             ) : null}
-            <div className="flex flex-wrap gap-3">
-              <button type="button" className="app-button-primary inline-flex items-center gap-2" onClick={() => navigate(`/permissions/${encodeURIComponent(previewItem.userId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit access</button>
-            </div>
+            {canWrite ? (
+                <TrackerPreviewActions>
+                  <Link className="app-button-primary inline-flex items-center gap-2" to={`/permissions/${encodeURIComponent(previewItem.userId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`}><PencilIcon className="app-button-icon" />Edit access</Link>
+                </TrackerPreviewActions>
+            ) : null}
           </div>
         ) : null}
       </PreviewDrawer>
@@ -4153,26 +4667,28 @@ function PasskeyEditorPage({
             }
           />
         </div>
-        <TrackerEditorSummary
-          title={isCreate ? "Passkey draft" : "Current passkey"}
-          items={[
-            { label: "Passkey", value: isCreate ? (form.passkey || "Not set") : "Managed by identifier", tone: "mono" },
-            { label: "User ID", value: form.userId || "Not set", tone: "mono" },
-            { label: "State", value: form.isRevoked ? "Revoked" : "Active" },
-            { label: "Expires", value: form.expiresAtLocal || "No expiry" },
-            { label: "Version", value: form.expectedVersion ?? "New" }
-          ]}
-        >
-          {rotatedPasskey ? (
-            <div className="space-y-2">
-              <div className="app-kicker">New passkey</div>
-              <div className="flex items-center gap-3">
-                <div className="break-all font-mono text-xs text-ink">{rotatedPasskey}</div>
-                <CopyValueButton value={rotatedPasskey} label="Copy new passkey" />
+        <div className="app-editor-sidebar">
+          <TrackerEditorSummary
+            title={isCreate ? "Passkey draft" : "Current passkey"}
+            items={[
+              { label: "Passkey", value: isCreate ? (form.passkey || "Not set") : "Managed by identifier", tone: "mono" },
+              { label: "User ID", value: form.userId || "Not set", tone: "mono" },
+              { label: "State", value: form.isRevoked ? "Revoked" : "Active" },
+              { label: "Expires", value: form.expiresAtLocal || "No expiry" },
+              { label: "Version", value: form.expectedVersion ?? "New" }
+            ]}
+          >
+            {rotatedPasskey ? (
+              <div className="space-y-2">
+                <div className="app-kicker">New passkey</div>
+                <div className="flex items-center gap-3">
+                  <div className="break-all font-mono text-xs text-ink">{rotatedPasskey}</div>
+                  <CopyValueButton value={rotatedPasskey} label="Copy new passkey" />
+                </div>
               </div>
-            </div>
-          ) : null}
-        </TrackerEditorSummary>
+            ) : null}
+          </TrackerEditorSummary>
+        </div>
       </div>
       <ConfirmActionModal
         open={confirmDeleteOpen}
@@ -4501,16 +5017,18 @@ function BanEditorPage({
             }
           />
         </div>
-        <TrackerEditorSummary
-          title={isCreate ? "Ban draft" : "Current rule"}
-          items={[
-            { label: labels.scope, value: form.scope || "Not set" },
-            { label: labels.subject, value: form.subject || "Not set", tone: "mono" },
-            { label: labels.reason, value: form.reason || "Not set" },
-            { label: labels.expiresLabel, value: form.expiresAtLocal || "No expiry" },
-            { label: "Version", value: form.expectedVersion ?? "New" }
-          ]}
-        />
+        <div className="app-editor-sidebar">
+          <TrackerEditorSummary
+            title={isCreate ? "Ban draft" : "Current rule"}
+            items={[
+              { label: labels.scope, value: form.scope || "Not set" },
+              { label: labels.subject, value: form.subject || "Not set", tone: "mono" },
+              { label: labels.reason, value: form.reason || "Not set" },
+              { label: labels.expiresLabel, value: form.expiresAtLocal || "No expiry" },
+              { label: "Version", value: form.expectedVersion ?? "New" }
+            ]}
+          />
+        </div>
       </div>
       <ConfirmActionModal
         open={confirmDeleteOpen}
@@ -4685,17 +5203,19 @@ function TrackerAccessEditorPage({
             }
           />
         </div>
-        <TrackerEditorSummary
-          title={isCreate ? "Access draft" : "Current access"}
-          items={[
-            { label: labels.userId, value: form.userId || "Not set", tone: "mono" },
-            { label: labels.canLeech, value: form.canLeech ? "Allowed" : "Blocked" },
-            { label: labels.canSeed, value: form.canSeed ? "Allowed" : "Blocked" },
-            { label: labels.canScrape, value: form.canScrape ? "Allowed" : "Blocked" },
-            { label: labels.canUsePrivateTracker, value: form.canUsePrivateTracker ? "Allowed" : "Blocked" },
-            { label: "Version", value: form.expectedVersion ?? "New" }
-          ]}
-        />
+        <div className="app-editor-sidebar">
+          <TrackerEditorSummary
+            title={isCreate ? "Access draft" : "Current access"}
+            items={[
+              { label: labels.userId, value: form.userId || "Not set", tone: "mono" },
+              { label: labels.canLeech, value: form.canLeech ? "Allowed" : "Blocked" },
+              { label: labels.canSeed, value: form.canSeed ? "Allowed" : "Blocked" },
+              { label: labels.canScrape, value: form.canScrape ? "Allowed" : "Blocked" },
+              { label: labels.canUsePrivateTracker, value: form.canUsePrivateTracker ? "Allowed" : "Blocked" },
+              { label: "Version", value: form.expectedVersion ?? "New" }
+            ]}
+          />
+        </div>
       </div>
       <ConfirmActionModal
         open={confirmDeleteOpen}
@@ -5368,7 +5888,7 @@ function Shell({
             ? { to: "/bans", label: "Ban rules", description: "Create and expire enforcement rules.", icon: "bans" }
             : null,
           hasPermission(session.permissions, "admin.system_settings.view")
-            ? { to: "/tracker-node", label: "Node config", description: "Configure tracker node protocols, runtime and coordination.", icon: "nodeConfig" }
+            ? { to: "/tracker-nodes", label: "Node config", description: "Select and configure tracker node protocols, runtime and coordination.", icon: "nodeConfig" }
             : null
         ].filter((link): link is NavigationLink => link !== null)
       },
@@ -6011,7 +6531,14 @@ function AuthenticatedAdminApp({
             </PermissionGate>
           }
         />
-        <Route path="/torrents" element={<TorrentsPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />} />
+        <Route
+          path="/torrents"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.read.torrents">
+              <TorrentsPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
         <Route
           path="/torrents/bulk-policy"
           element={
@@ -6031,9 +6558,9 @@ function AuthenticatedAdminApp({
         <Route
           path="/passkeys/actions"
           element={
-            <CapabilityGate capabilities={capabilities} action="admin.revoke.passkey">
+            <CapabilityAnyGate capabilities={capabilities} actions={["admin.revoke.passkey", "admin.rotate.passkey"]}>
               <PasskeyBatchActionPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
-            </CapabilityGate>
+            </CapabilityAnyGate>
           }
         />
         <Route
@@ -6150,6 +6677,26 @@ function AuthenticatedAdminApp({
         />
         <Route
           path="/tracker-node"
+          element={<Navigate to="/tracker-nodes" replace />}
+        />
+        <Route
+          path="/tracker-nodes"
+          element={
+            <PermissionGate permissions={session.permissions} permission="admin.system_settings.view">
+              <TrackerNodesPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/tracker-nodes/new"
+          element={
+            <PermissionGate permissions={session.permissions} permission="admin.system_settings.view">
+              <TrackerNodeConfigPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/tracker-nodes/:nodeKey/edit"
           element={
             <PermissionGate permissions={session.permissions} permission="admin.system_settings.view">
               <TrackerNodeConfigPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />

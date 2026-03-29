@@ -514,6 +514,25 @@ internal sealed class EfConfigurationMutationService(
             entity.RequiresRestart);
     }
 
+    public async Task DeleteTrackerNodeConfigurationAsync(string nodeKey, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.TrackerNodeConfigurations.SingleOrDefaultAsync(item => item.NodeKey == nodeKey, cancellationToken);
+        if (entity is null)
+        {
+            throw new ConfigurationEntityNotFoundException("tracker_node_configuration", nodeKey);
+        }
+
+        if (expectedVersion.HasValue && expectedVersion.Value != entity.RowVersion)
+        {
+            throw new ConfigurationConcurrencyException("tracker_node_configuration", nodeKey, expectedVersion.Value, entity.RowVersion);
+        }
+
+        dbContext.TrackerNodeConfigurations.Remove(entity);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await EnqueueAuditAsync(context, "tracker_node_configuration.delete", "tracker_node_configuration", nodeKey, null, cancellationToken);
+    }
+
     public async Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
     {
         var entity = await dbContext.Bans.SingleOrDefaultAsync(item => item.Scope == scope && item.Subject == subject, cancellationToken);

@@ -576,6 +576,17 @@ body {
     @apply space-y-6;
   }
 
+  .app-editor-sidebar {
+    @apply space-y-4 self-start;
+  }
+
+  @screen xl {
+    .app-editor-sidebar {
+      position: sticky;
+      top: 7rem;
+    }
+  }
+
   .app-permission-grid {
     @apply grid gap-2 md:grid-cols-2;
   }

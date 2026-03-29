@@ -33,4 +33,9 @@ public static class AdminCatalogProfiles
         ["active", "expired"],
         ["scope", "subject", "expires"],
         [new("scope", GridSortDirection.Asc), new("subject", GridSortDirection.Asc)]);
+
+    public static readonly GridCatalogProfile TrackerNodes = new(
+        [],
+        ["nodekey", "nodename", "environment", "region", "updated"],
+        [new("nodekey", GridSortDirection.Asc)]);
 }

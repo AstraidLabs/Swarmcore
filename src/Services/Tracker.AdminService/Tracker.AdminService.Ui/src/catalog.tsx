@@ -1,6 +1,6 @@
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   normalizeCatalogQueryState,
   readCatalogViewState,
@@ -320,8 +320,10 @@ export function CatalogToolbar({
   filterOptions,
   secondaryLabel,
   onSecondaryAction,
+  secondaryHref,
   createLabel,
   onCreate,
+  createHref,
   searchPlaceholder = "Search catalog"
 }: {
   title: string;
@@ -339,8 +341,10 @@ export function CatalogToolbar({
   filterOptions: Array<{ value: string; label: string }>;
   secondaryLabel?: string;
   onSecondaryAction?: () => void;
+  secondaryHref?: string;
   createLabel?: string;
   onCreate?: () => void;
+  createHref?: string;
   searchPlaceholder?: string;
 }) {
   const [density, setDensity] = useCatalogDensity();
@@ -392,17 +396,26 @@ export function CatalogToolbar({
             </svg>
             <span className="sr-only">{density === "dense" ? "Comfortable" : "Dense"}</span>
           </button>
-          {secondaryLabel && onSecondaryAction ? (
-            <button type="button" className="app-button-secondary app-toolbar-secondary-action inline-flex items-center gap-2" onClick={onSecondaryAction}>
-              {secondaryLabel}
-            </button>
-          ) : null}
-          {createLabel && onCreate ? (
-            <button type="button" className="app-button-primary app-toolbar-primary-action" onClick={onCreate}>
-              <PlusIcon className="app-button-icon" />
-              {createLabel}
-            </button>
-          ) : null}
+            {secondaryLabel && secondaryHref ? (
+              <Link to={secondaryHref} className="app-button-secondary app-toolbar-secondary-action inline-flex items-center gap-2">
+                {secondaryLabel}
+              </Link>
+            ) : secondaryLabel && onSecondaryAction ? (
+              <button type="button" className="app-button-secondary app-toolbar-secondary-action inline-flex items-center gap-2" onClick={onSecondaryAction}>
+                {secondaryLabel}
+              </button>
+            ) : null}
+            {createLabel && createHref ? (
+              <Link to={createHref} className="app-button-primary app-toolbar-primary-action inline-flex items-center gap-2">
+                <PlusIcon className="app-button-icon" />
+                {createLabel}
+              </Link>
+            ) : createLabel && onCreate ? (
+              <button type="button" className="app-button-primary app-toolbar-primary-action" onClick={onCreate}>
+                <PlusIcon className="app-button-icon" />
+                {createLabel}
+              </button>
+            ) : null}
         </div>
       </div>
     </div>

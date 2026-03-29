@@ -82,6 +82,8 @@ public sealed record GetTrackerAccessRightQuery(Guid UserId) : IRequest<TrackerA
 
 public sealed record GetBanRuleQuery(string Scope, string Subject) : IRequest<BanRuleAdminDto?>;
 
+public sealed record ListTrackerNodeConfigsQuery(GridQuery Query) : IRequest<PageResult<TrackerNodeCatalogItemDto>>;
+
 public sealed record GetTrackerNodeConfigViewQuery(string NodeKey) : IRequest<TrackerNodeConfigViewDto?>;
 
 public sealed record UpsertTorrentPolicyAdminCommand(string InfoHash, TorrentPolicyUpsertRequest Request, AdminMutationContext Context)
@@ -233,12 +235,14 @@ public interface IBanAdminReader
 
 public interface ITrackerNodeConfigAdminReader
 {
+    Task<PageResult<TrackerNodeCatalogItemDto>> ListAsync(GridQuery query, CancellationToken cancellationToken);
     Task<TrackerNodeConfigViewDto?> GetAsync(string nodeKey, CancellationToken cancellationToken);
 }
 
 public interface IAdminMutationOrchestrator
 {
     Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task DeleteTrackerNodeConfigurationAsync(string nodeKey, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<TorrentPolicyDto> UpsertTorrentPolicyAsync(string infoHash, TorrentPolicyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task DeleteTorrentAsync(string infoHash, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkActivateTorrentsAsync(IReadOnlyCollection<BulkTorrentActivationItem> items, AdminMutationContext context, CancellationToken cancellationToken);
@@ -329,6 +333,12 @@ internal sealed class GetBanRuleQueryHandler(IBanAdminReader reader) : IRequestH
 {
     public Task<BanRuleAdminDto?> Handle(GetBanRuleQuery request, CancellationToken cancellationToken)
         => reader.GetAsync(request.Scope, request.Subject, cancellationToken);
+}
+
+internal sealed class ListTrackerNodeConfigsQueryHandler(ITrackerNodeConfigAdminReader reader) : IRequestHandler<ListTrackerNodeConfigsQuery, PageResult<TrackerNodeCatalogItemDto>>
+{
+    public Task<PageResult<TrackerNodeCatalogItemDto>> Handle(ListTrackerNodeConfigsQuery request, CancellationToken cancellationToken)
+        => reader.ListAsync(request.Query, cancellationToken);
 }
 
 internal sealed class GetTrackerNodeConfigViewQueryHandler(ITrackerNodeConfigAdminReader reader) : IRequestHandler<GetTrackerNodeConfigViewQuery, TrackerNodeConfigViewDto?>

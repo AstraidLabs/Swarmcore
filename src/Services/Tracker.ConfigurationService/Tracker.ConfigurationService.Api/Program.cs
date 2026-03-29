@@ -54,6 +54,18 @@ app.MapPut("/api/configuration/nodes/{nodeKey}",
             httpContext);
     });
 
+app.MapDelete("/api/configuration/nodes/{nodeKey}",
+    async (HttpContext httpContext, string nodeKey, long? expectedVersion, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await mutationService.DeleteTrackerNodeConfigurationAsync(nodeKey, expectedVersion, MutationContextFactory.Create(httpContext), cancellationToken);
+                return Results.NoContent();
+            },
+            httpContext);
+    });
+
 app.MapPut("/api/configuration/torrents/{infoHash}/policy",
     async (HttpContext httpContext, string infoHash, TorrentPolicyUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
     {

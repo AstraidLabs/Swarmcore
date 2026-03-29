@@ -761,6 +761,48 @@ public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : 
 public sealed class TrackerNodeConfigAdminReader(
     ITrackerNodeConfigurationReader trackerNodeConfigurationReader) : ITrackerNodeConfigAdminReader
 {
+    public async Task<PageResult<TrackerNodeCatalogItemDto>> ListAsync(GridQuery query, CancellationToken cancellationToken)
+    {
+        query = query.Normalize(defaultPageSize: 25, maxPageSize: 100);
+        var normalizedSearch = query.NormalizedSearch;
+        var configurations = await trackerNodeConfigurationReader.ListTrackerNodeConfigurationsAsync(cancellationToken);
+
+        var items = new List<TrackerNodeCatalogItemDto>(configurations.Count);
+        foreach (var configuration in configurations)
+        {
+            var validation = await trackerNodeConfigurationReader.ValidateTrackerNodeConfigurationAsync(configuration.Configuration, cancellationToken);
+            items.Add(ToCatalogItem(configuration, validation));
+        }
+
+        IEnumerable<TrackerNodeCatalogItemDto> filtered = items;
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            filtered = filtered.Where(item =>
+                item.NodeKey.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
+                item.NodeName.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
+                item.NodeId.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
+                item.Environment.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
+                item.Region.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
+                item.UpdatedBy.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase));
+        }
+
+        IOrderedEnumerable<TrackerNodeCatalogItemDto>? ordered = null;
+        foreach (var term in AdminCatalogProfiles.TrackerNodes.ParseSort(query.Sort))
+        {
+            ordered = ApplyTrackerNodeSort(ordered ?? filtered, term);
+        }
+
+        ordered ??= filtered.OrderBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase);
+        var totalCount = ordered.Count();
+        var pageItems = ordered
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToArray()
+            .AsReadOnly();
+
+        return new PageResult<TrackerNodeCatalogItemDto>(pageItems, totalCount, query.Page, query.PageSize);
+    }
+
     public async Task<TrackerNodeConfigViewDto?> GetAsync(string nodeKey, CancellationToken cancellationToken)
     {
         var snapshot = await trackerNodeConfigurationReader.GetEffectiveTrackerNodeConfigurationAsync(nodeKey, cancellationToken);
@@ -897,6 +939,46 @@ public sealed class TrackerNodeConfigAdminReader(
                 validation.Issues.Where(static issue => issue.Severity == TrackerConfigValidationSeverity.Warning).Select(static issue => issue.Message).ToArray()));
     }
 
+    private static TrackerNodeCatalogItemDto ToCatalogItem(
+        TrackerNodeConfigurationDto configuration,
+        TrackerNodeConfigurationValidationResultDto validation)
+    {
+        var config = configuration.Configuration;
+        return new TrackerNodeCatalogItemDto(
+            configuration.NodeKey,
+            config.Identity.NodeName,
+            config.Identity.NodeId,
+            config.Identity.Environment,
+            config.Identity.Region,
+            config.Http.EnableAnnounce,
+            config.Udp.Enabled,
+            config.Policy.EnablePublicTracker,
+            config.Policy.EnablePrivateTracker,
+            configuration.RequiresRestart,
+            configuration.ApplyMode.ToString(),
+            configuration.UpdatedAtUtc,
+            configuration.UpdatedBy,
+            validation.Issues.Count(static issue => issue.Severity == TrackerConfigValidationSeverity.Error),
+            validation.Issues.Count(static issue => issue.Severity == TrackerConfigValidationSeverity.Warning));
+    }
+
+    private static IOrderedEnumerable<TrackerNodeCatalogItemDto> ApplyTrackerNodeSort(
+        IEnumerable<TrackerNodeCatalogItemDto> source,
+        GridSortTerm term)
+        => (term.Field, term.Direction) switch
+        {
+            ("nodename", GridSortDirection.Asc) => source.OrderBy(item => item.NodeName, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            ("nodename", GridSortDirection.Desc) => source.OrderByDescending(item => item.NodeName, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            ("environment", GridSortDirection.Asc) => source.OrderBy(item => item.Environment, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            ("environment", GridSortDirection.Desc) => source.OrderByDescending(item => item.Environment, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            ("region", GridSortDirection.Asc) => source.OrderBy(item => item.Region, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            ("region", GridSortDirection.Desc) => source.OrderByDescending(item => item.Region, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            ("updated", GridSortDirection.Asc) => source.OrderBy(item => item.UpdatedAtUtc).ThenBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            ("updated", GridSortDirection.Desc) => source.OrderByDescending(item => item.UpdatedAtUtc).ThenBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            ("nodekey", GridSortDirection.Desc) => source.OrderByDescending(item => item.NodeKey, StringComparer.OrdinalIgnoreCase),
+            _ => source.OrderBy(item => item.NodeKey, StringComparer.OrdinalIgnoreCase)
+        };
+
     private static TrackerNodeDependencySummaryDto BuildRedisSummary(RedisCoordinationConfig config)
     {
         if (!config.Enabled)
@@ -945,6 +1027,9 @@ public sealed class ConfigurationMutationOrchestrator(
 {
     public Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
         => configurationMutationService.UpsertTrackerNodeConfigurationAsync(nodeKey, request, context, cancellationToken);
+
+    public Task DeleteTrackerNodeConfigurationAsync(string nodeKey, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.DeleteTrackerNodeConfigurationAsync(nodeKey, expectedVersion, context, cancellationToken);
 
     private static string MaskPasskey(string passkey)
         => passkey.Length <= 6 ? $"pk:{passkey[0]}...{passkey[^1]}" : $"pk:{passkey[..4]}...{passkey[^2..]}";

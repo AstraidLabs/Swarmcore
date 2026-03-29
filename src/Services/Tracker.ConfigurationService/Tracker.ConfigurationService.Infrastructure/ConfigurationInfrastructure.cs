@@ -249,6 +249,16 @@ public sealed class TorrentConfigurationReader(TrackerConfigurationDbContext dbC
 public sealed class TrackerNodeConfigurationReader(
     TrackerConfigurationDbContext dbContext) : ITrackerNodeConfigurationReader
 {
+    public async Task<IReadOnlyCollection<TrackerNodeConfigurationDto>> ListTrackerNodeConfigurationsAsync(CancellationToken cancellationToken)
+    {
+        var entities = await dbContext.TrackerNodeConfigurations
+            .AsNoTracking()
+            .OrderBy(item => item.NodeKey)
+            .ToListAsync(cancellationToken);
+
+        return entities.Select(ToDto).ToArray();
+    }
+
     public async Task<TrackerNodeConfigurationDto?> GetTrackerNodeConfigurationAsync(string nodeKey, CancellationToken cancellationToken)
     {
         var query = dbContext.TrackerNodeConfigurations.AsNoTracking();
