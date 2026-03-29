@@ -437,3 +437,48 @@ public sealed record TrackerNodeConfigViewDto(
     TrackerNodeObservabilityViewDto Observability,
     TrackerNodeAbuseViewDto Abuse,
     ConfigValidationDto Validation);
+
+// ─── Notification Outbox Administration ─────────────────────────────────────
+
+public sealed record NotificationOutboxItemDto(
+    Guid Id,
+    string Recipient,
+    string Subject,
+    string? TemplateName,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? ScheduledAtUtc,
+    DateTimeOffset? ProcessedAtUtc,
+    string Status,
+    int RetryCount,
+    string? LastError,
+    string? CorrelationId);
+
+public sealed record NotificationOutboxDetailDto(
+    Guid Id,
+    string Recipient,
+    string Subject,
+    string? TemplateName,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? ScheduledAtUtc,
+    DateTimeOffset? ProcessedAtUtc,
+    string Status,
+    int RetryCount,
+    string? LastError,
+    string? CorrelationId,
+    IReadOnlyCollection<NotificationDeliveryAttemptDto> Attempts);
+
+public sealed record NotificationDeliveryAttemptDto(
+    Guid Id,
+    DateTimeOffset AttemptedAtUtc,
+    bool Succeeded,
+    string? ErrorMessage,
+    int? SmtpStatusCode,
+    long DurationMs);
+
+public sealed record NotificationOutboxStatsDto(
+    int PendingCount,
+    int ProcessingCount,
+    int SentCount,
+    int FailedCount,
+    int CancelledCount,
+    int TotalCount);

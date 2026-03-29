@@ -28,7 +28,8 @@
       "Bash(docker run:*)",
       "Bash(docker exec:*)",
       "Bash(docker volume:*)",
-      "Bash(for proj:*)"
+      "Bash(for proj:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

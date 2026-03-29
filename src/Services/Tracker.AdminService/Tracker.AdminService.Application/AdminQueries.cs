@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using BeeTracker.BuildingBlocks.Application.Queries;
 using BeeTracker.Contracts.Admin;
 using BeeTracker.Contracts.Configuration;
+using BeeTracker.Contracts.Runtime;
 
 namespace Tracker.AdminService.Application;
 
@@ -237,6 +238,36 @@ public interface ITrackerNodeConfigAdminReader
 {
     Task<PageResult<TrackerNodeCatalogItemDto>> ListAsync(GridQuery query, CancellationToken cancellationToken);
     Task<TrackerNodeConfigViewDto?> GetAsync(string nodeKey, CancellationToken cancellationToken);
+}
+
+// ─── Gateway Admin Proxy ─────────────────────────────────────────────────────
+
+/// <summary>
+/// Proxies administrative operations to individual Tracker.Gateway instances.
+/// Resolves gateway HTTP addresses from persisted node configurations.
+/// </summary>
+public interface IGatewayAdminClient
+{
+    Task<GovernanceStateDto?> GetGovernanceAsync(string nodeKey, CancellationToken cancellationToken);
+    Task<GovernanceStateDto?> UpdateGovernanceAsync(string nodeKey, GovernanceUpdateRequest request, CancellationToken cancellationToken);
+    Task<RuntimeDiagnosticsDto?> GetDiagnosticsAsync(string nodeKey, CancellationToken cancellationToken);
+    Task<AbuseDiagnosticsDto?> GetAbuseDiagnosticsAsync(string nodeKey, CancellationToken cancellationToken);
+    Task<TrackerOverviewDto?> GetOverviewAsync(string nodeKey, CancellationToken cancellationToken);
+    Task<NodeOperationalStateDto?> GetNodeStateAsync(string nodeKey, string nodeId, CancellationToken cancellationToken);
+    Task<NodeOperationalStateDto?> DrainNodeAsync(string nodeKey, string nodeId, CancellationToken cancellationToken);
+    Task<NodeOperationalStateDto?> SetMaintenanceAsync(string nodeKey, string nodeId, CancellationToken cancellationToken);
+    Task<NodeOperationalStateDto?> ActivateNodeAsync(string nodeKey, string nodeId, CancellationToken cancellationToken);
+}
+
+// ─── Notification Outbox Admin Reader ───────────────────────────────────────
+
+public interface INotificationAdminReader
+{
+    Task<PageResult<NotificationOutboxItemDto>> ListAsync(GridQuery query, CancellationToken cancellationToken);
+    Task<NotificationOutboxDetailDto?> GetAsync(Guid id, CancellationToken cancellationToken);
+    Task<NotificationOutboxStatsDto> GetStatsAsync(CancellationToken cancellationToken);
+    Task<bool> RetryAsync(Guid id, CancellationToken cancellationToken);
+    Task<bool> CancelAsync(Guid id, CancellationToken cancellationToken);
 }
 
 public interface IAdminMutationOrchestrator

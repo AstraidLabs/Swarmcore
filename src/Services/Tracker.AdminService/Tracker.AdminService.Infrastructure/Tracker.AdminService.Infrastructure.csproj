@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Runtime\BeeTracker.Contracts.Runtime.csproj" />
     <ProjectReference Include="..\..\..\Shared\BeeTracker.Caching.Redis\BeeTracker.Caching.Redis.csproj" />
     <ProjectReference Include="..\..\..\Shared\BeeTracker.Persistence.Postgres\BeeTracker.Persistence.Postgres.csproj" />
+    <ProjectReference Include="..\..\Notification\Notification.Infrastructure\Notification.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

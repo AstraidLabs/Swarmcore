@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -11,6 +12,7 @@ using BeeTracker.Contracts.Admin;
 using BeeTracker.Contracts.Configuration;
 using BeeTracker.Contracts.Runtime;
 using Tracker.AdminService.Application;
+using Notification.Infrastructure;
 using Tracker.ConfigurationService.Application;
 using Tracker.ConfigurationService.Infrastructure;
 
@@ -1553,6 +1555,239 @@ public sealed class ConfigurationMutationOrchestrator(
 }
 
 #pragma warning restore CS0618
+
+// ─── Notification Outbox Admin Reader ───────────────────────────────────────
+
+public sealed class EfNotificationAdminReader(
+    NotificationDbContext dbContext) : INotificationAdminReader
+{
+    private static readonly string[] StatusNames = ["Pending", "Processing", "Sent", "Failed", "Cancelled"];
+
+    private static string StatusName(int status) => status >= 0 && status < StatusNames.Length ? StatusNames[status] : "Unknown";
+
+    public async Task<PageResult<NotificationOutboxItemDto>> ListAsync(GridQuery query, CancellationToken cancellationToken)
+    {
+        query = query.Normalize(defaultPageSize: 25, maxPageSize: 100);
+
+        IQueryable<EmailOutboxEntity> source = dbContext.EmailOutbox.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(query.NormalizedSearch))
+        {
+            var search = query.NormalizedSearch;
+            source = source.Where(e =>
+                EF.Functions.ILike(e.Recipient, $"%{search}%") ||
+                EF.Functions.ILike(e.Subject, $"%{search}%") ||
+                (e.TemplateName != null && EF.Functions.ILike(e.TemplateName, $"%{search}%")) ||
+                (e.CorrelationId != null && EF.Functions.ILike(e.CorrelationId, $"%{search}%")));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Filter) && query.Filter != "all")
+        {
+            var statusFilter = Array.FindIndex(StatusNames, s => s.Equals(query.Filter, StringComparison.OrdinalIgnoreCase));
+            if (statusFilter >= 0)
+            {
+                source = source.Where(e => e.Status == statusFilter);
+            }
+        }
+
+        var totalCount = await source.CountAsync(cancellationToken);
+
+        source = query.Sort?.ToLowerInvariant() switch
+        {
+            "recipient:asc" => source.OrderBy(e => e.Recipient),
+            "recipient:desc" => source.OrderByDescending(e => e.Recipient),
+            "subject:asc" => source.OrderBy(e => e.Subject),
+            "subject:desc" => source.OrderByDescending(e => e.Subject),
+            "status:asc" => source.OrderBy(e => e.Status),
+            "status:desc" => source.OrderByDescending(e => e.Status),
+            "createdat:desc" => source.OrderByDescending(e => e.CreatedAtUtc),
+            _ => source.OrderByDescending(e => e.CreatedAtUtc)
+        };
+
+        var entities = await source
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken);
+
+        var items = entities.Select(e => new NotificationOutboxItemDto(
+            e.Id,
+            e.Recipient,
+            e.Subject,
+            e.TemplateName,
+            new DateTimeOffset(e.CreatedAtUtc, TimeSpan.Zero),
+            e.ScheduledAtUtc.HasValue ? new DateTimeOffset(e.ScheduledAtUtc.Value, TimeSpan.Zero) : null,
+            e.ProcessedAtUtc.HasValue ? new DateTimeOffset(e.ProcessedAtUtc.Value, TimeSpan.Zero) : null,
+            StatusName(e.Status),
+            e.RetryCount,
+            e.LastError,
+            e.CorrelationId
+        )).ToArray().AsReadOnly();
+
+        return new PageResult<NotificationOutboxItemDto>(items, totalCount, query.Page, query.PageSize);
+    }
+
+    public async Task<NotificationOutboxDetailDto?> GetAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var entry = await dbContext.EmailOutbox.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+        if (entry is null) return null;
+
+        var attempts = await dbContext.EmailDeliveryAttempts.AsNoTracking()
+            .Where(a => a.OutboxEntryId == id)
+            .OrderByDescending(a => a.AttemptedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return new NotificationOutboxDetailDto(
+            entry.Id,
+            entry.Recipient,
+            entry.Subject,
+            entry.TemplateName,
+            new DateTimeOffset(entry.CreatedAtUtc, TimeSpan.Zero),
+            entry.ScheduledAtUtc.HasValue ? new DateTimeOffset(entry.ScheduledAtUtc.Value, TimeSpan.Zero) : null,
+            entry.ProcessedAtUtc.HasValue ? new DateTimeOffset(entry.ProcessedAtUtc.Value, TimeSpan.Zero) : null,
+            StatusName(entry.Status),
+            entry.RetryCount,
+            entry.LastError,
+            entry.CorrelationId,
+            attempts.Select(a => new NotificationDeliveryAttemptDto(
+                a.Id,
+                new DateTimeOffset(a.AttemptedAtUtc, TimeSpan.Zero),
+                a.Succeeded,
+                a.ErrorMessage,
+                a.SmtpStatusCode,
+                a.DurationMs
+            )).ToArray().AsReadOnly());
+    }
+
+    public async Task<NotificationOutboxStatsDto> GetStatsAsync(CancellationToken cancellationToken)
+    {
+        var counts = await dbContext.EmailOutbox.AsNoTracking()
+            .GroupBy(e => e.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        int Get(int status) => counts.FirstOrDefault(c => c.Status == status)?.Count ?? 0;
+
+        return new NotificationOutboxStatsDto(
+            Get(0), Get(1), Get(2), Get(3), Get(4),
+            counts.Sum(c => c.Count));
+    }
+
+    public async Task<bool> RetryAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var entry = await dbContext.EmailOutbox.FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+        if (entry is null || (entry.Status != 3 && entry.Status != 4)) return false;
+
+        entry.Status = 0; // Pending
+        entry.RetryCount = 0;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> CancelAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var entry = await dbContext.EmailOutbox.FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+        if (entry is null || entry.Status == 2 || entry.Status == 4) return false;
+
+        entry.Status = 4; // Cancelled
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+}
+
+// ─── Gateway Admin Proxy Client ─────────────────────────────────────────────
+
+public sealed class HttpGatewayAdminClient(
+    HttpClient httpClient,
+    ITrackerNodeConfigurationReader configReader) : IGatewayAdminClient
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public Task<GovernanceStateDto?> GetGovernanceAsync(string nodeKey, CancellationToken cancellationToken)
+        => GetAsync<GovernanceStateDto>(nodeKey, "/admin/governance", cancellationToken);
+
+    public Task<GovernanceStateDto?> UpdateGovernanceAsync(string nodeKey, GovernanceUpdateRequest request, CancellationToken cancellationToken)
+        => PostAsync<GovernanceUpdateRequest, GovernanceStateDto>(nodeKey, "/admin/governance", request, cancellationToken);
+
+    public Task<RuntimeDiagnosticsDto?> GetDiagnosticsAsync(string nodeKey, CancellationToken cancellationToken)
+        => GetAsync<RuntimeDiagnosticsDto>(nodeKey, "/admin/diagnostics", cancellationToken);
+
+    public Task<AbuseDiagnosticsDto?> GetAbuseDiagnosticsAsync(string nodeKey, CancellationToken cancellationToken)
+        => GetAsync<AbuseDiagnosticsDto>(nodeKey, "/admin/abuse/diagnostics", cancellationToken);
+
+    public Task<TrackerOverviewDto?> GetOverviewAsync(string nodeKey, CancellationToken cancellationToken)
+        => GetAsync<TrackerOverviewDto>(nodeKey, "/admin/overview", cancellationToken);
+
+    public Task<NodeOperationalStateDto?> GetNodeStateAsync(string nodeKey, string nodeId, CancellationToken cancellationToken)
+        => GetAsync<NodeOperationalStateDto>(nodeKey, $"/admin/nodes/{Uri.EscapeDataString(nodeId)}/state", cancellationToken);
+
+    public Task<NodeOperationalStateDto?> DrainNodeAsync(string nodeKey, string nodeId, CancellationToken cancellationToken)
+        => PostAsync<NodeOperationalStateDto>(nodeKey, $"/admin/nodes/{Uri.EscapeDataString(nodeId)}/drain", cancellationToken);
+
+    public Task<NodeOperationalStateDto?> SetMaintenanceAsync(string nodeKey, string nodeId, CancellationToken cancellationToken)
+        => PostAsync<NodeOperationalStateDto>(nodeKey, $"/admin/nodes/{Uri.EscapeDataString(nodeId)}/maintenance", cancellationToken);
+
+    public Task<NodeOperationalStateDto?> ActivateNodeAsync(string nodeKey, string nodeId, CancellationToken cancellationToken)
+        => PostAsync<NodeOperationalStateDto>(nodeKey, $"/admin/nodes/{Uri.EscapeDataString(nodeId)}/activate", cancellationToken);
+
+    private async Task<string?> ResolveBaseUrlAsync(string nodeKey, CancellationToken cancellationToken)
+    {
+        var config = await configReader.GetEffectiveTrackerNodeConfigurationAsync(nodeKey, cancellationToken);
+        return config?.Configuration.Identity.InternalBaseUrl?.TrimEnd('/');
+    }
+
+    private async Task<TResult?> GetAsync<TResult>(string nodeKey, string path, CancellationToken cancellationToken)
+        where TResult : class
+    {
+        var baseUrl = await ResolveBaseUrlAsync(nodeKey, cancellationToken);
+        if (baseUrl is null) return null;
+
+        try
+        {
+            return await httpClient.GetFromJsonAsync<TResult>($"{baseUrl}{path}", JsonOptions, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+    }
+
+    private async Task<TResult?> PostAsync<TResult>(string nodeKey, string path, CancellationToken cancellationToken)
+        where TResult : class
+    {
+        var baseUrl = await ResolveBaseUrlAsync(nodeKey, cancellationToken);
+        if (baseUrl is null) return null;
+
+        try
+        {
+            var response = await httpClient.PostAsync($"{baseUrl}{path}", null, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<TResult>(JsonOptions, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+    }
+
+    private async Task<TResult?> PostAsync<TBody, TResult>(string nodeKey, string path, TBody body, CancellationToken cancellationToken)
+        where TResult : class
+    {
+        var baseUrl = await ResolveBaseUrlAsync(nodeKey, cancellationToken);
+        if (baseUrl is null) return null;
+
+        try
+        {
+            var response = await httpClient.PostAsJsonAsync($"{baseUrl}{path}", body, JsonOptions, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<TResult>(JsonOptions, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+    }
+}
+
 public static class AdminInfrastructureServiceCollectionExtensions
 {
     public static IServiceCollection AddAdminInfrastructure(this IServiceCollection services, IConfiguration configuration)
@@ -1569,6 +1804,8 @@ public static class AdminInfrastructureServiceCollectionExtensions
         services.AddScoped<IBanAdminReader, EfBanAdminReader>();
         services.AddScoped<ITrackerNodeConfigAdminReader, TrackerNodeConfigAdminReader>();
         services.AddScoped<IAdminMutationOrchestrator, ConfigurationMutationOrchestrator>();
+        services.AddScoped<INotificationAdminReader, EfNotificationAdminReader>();
+        services.AddHttpClient<IGatewayAdminClient, HttpGatewayAdminClient>();
         return services;
     }
 }

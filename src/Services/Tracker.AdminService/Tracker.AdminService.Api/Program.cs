@@ -12,6 +12,7 @@ using BeeTracker.BuildingBlocks.Abstractions.Hosting;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
 using BeeTracker.BuildingBlocks.Application.Queries;
 using BeeTracker.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.Contracts.Admin;
 using BeeTracker.Contracts.Configuration;
 using BeeTracker.Hosting;
 using Tracker.ConfigurationService.Application;
@@ -711,6 +712,107 @@ adminApi.MapPost("/bans/bulk/delete",
             async () => Results.Ok(await sender.Send(new BulkDeleteBansAdminCommand(request.Items, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
             httpContext);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansManage));
+
+// ─── Notification Outbox Administration ──────────────────────────────────────
+
+adminApi.MapGet("/notifications",
+    async (string? search, string? filter, string? sort, int? page, int? pageSize, [FromServices] INotificationAdminReader reader, CancellationToken cancellationToken) =>
+    {
+        return Results.Ok(await reader.ListAsync(GridQueryHttp.Bind(search, filter, sort, page, pageSize), cancellationToken));
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.AuditView));
+
+adminApi.MapGet("/notifications/stats",
+    async ([FromServices] INotificationAdminReader reader, CancellationToken cancellationToken) =>
+    {
+        return Results.Ok(await reader.GetStatsAsync(cancellationToken));
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.AuditView));
+
+adminApi.MapGet("/notifications/{id:guid}",
+    async (Guid id, [FromServices] INotificationAdminReader reader, CancellationToken cancellationToken) =>
+    {
+        var detail = await reader.GetAsync(id, cancellationToken);
+        return detail is not null ? Results.Ok(detail) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.AuditView));
+
+adminApi.MapPost("/notifications/{id:guid}/retry",
+    async (Guid id, [FromServices] INotificationAdminReader reader, CancellationToken cancellationToken) =>
+    {
+        var result = await reader.RetryAsync(id, cancellationToken);
+        return result ? Results.Ok() : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
+adminApi.MapPost("/notifications/{id:guid}/cancel",
+    async (Guid id, [FromServices] INotificationAdminReader reader, CancellationToken cancellationToken) =>
+    {
+        var result = await reader.CancelAsync(id, cancellationToken);
+        return result ? Results.Ok() : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
+// ─── Gateway Admin Proxy ────────────────────────────────────────────────────
+
+adminApi.MapGet("/gateway/{nodeKey}/overview",
+    async (string nodeKey, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.GetOverviewAsync(nodeKey, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.DashboardView));
+
+adminApi.MapGet("/gateway/{nodeKey}/governance",
+    async (string nodeKey, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.GetGovernanceAsync(nodeKey, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.SystemSettingsView));
+
+adminApi.MapPost("/gateway/{nodeKey}/governance",
+    async (string nodeKey, GovernanceUpdateRequest request, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.UpdateGovernanceAsync(nodeKey, request, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.SystemSettingsEdit));
+
+adminApi.MapGet("/gateway/{nodeKey}/diagnostics",
+    async (string nodeKey, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.GetDiagnosticsAsync(nodeKey, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.SystemSettingsView));
+
+adminApi.MapGet("/gateway/{nodeKey}/abuse/diagnostics",
+    async (string nodeKey, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.GetAbuseDiagnosticsAsync(nodeKey, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansView));
+
+adminApi.MapGet("/gateway/{nodeKey}/nodes/{nodeId}/state",
+    async (string nodeKey, string nodeId, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.GetNodeStateAsync(nodeKey, nodeId, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.NodesView));
+
+adminApi.MapPost("/gateway/{nodeKey}/nodes/{nodeId}/drain",
+    async (string nodeKey, string nodeId, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.DrainNodeAsync(nodeKey, nodeId, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
+adminApi.MapPost("/gateway/{nodeKey}/nodes/{nodeId}/maintenance",
+    async (string nodeKey, string nodeId, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.SetMaintenanceAsync(nodeKey, nodeId, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
+adminApi.MapPost("/gateway/{nodeKey}/nodes/{nodeId}/activate",
+    async (string nodeKey, string nodeId, [FromServices] IGatewayAdminClient client, CancellationToken cancellationToken) =>
+    {
+        var result = await client.ActivateNodeAsync(nodeKey, nodeId, cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
 adminApi.MapPost("/maintenance/cache-refresh",
     async (HttpContext httpContext, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {

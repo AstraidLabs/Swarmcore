@@ -10,6 +10,7 @@ import {
   useParams
 } from "react-router-dom";
 import { User, UserManager, WebStorageStateStore } from "oidc-client-ts";
+import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import { type I18nDictionary, supportedLocales, useI18n } from "./i18n";
 import {
   AdminUserEditorPage,
@@ -218,6 +219,80 @@ type TrackerNodeConfigViewDto = {
     errors: string[];
     warnings: string[];
   };
+};
+
+type GovernanceStateDto = {
+  announceDisabled: boolean;
+  scrapeDisabled: boolean;
+  globalMaintenanceMode: boolean;
+  readOnlyMode: boolean;
+  emergencyAbuseMitigation: boolean;
+  udpDisabled: boolean;
+  ipv6Frozen: boolean;
+  policyFreezeMode: boolean;
+  compatibilityMode: string;
+  strictnessProfile: string;
+};
+
+type GovernanceUpdateRequest = {
+  announceDisabled?: boolean | null;
+  scrapeDisabled?: boolean | null;
+  globalMaintenanceMode?: boolean | null;
+  readOnlyMode?: boolean | null;
+  emergencyAbuseMitigation?: boolean | null;
+  udpDisabled?: boolean | null;
+  ipv6Frozen?: boolean | null;
+  policyFreezeMode?: boolean | null;
+  compatibilityMode?: string | null;
+  strictnessProfile?: string | null;
+};
+
+type NodeOperationalStateDto = {
+  nodeId: string;
+  state: number;
+  updatedAtUtc: string;
+};
+
+type LiveStatsMessage = {
+  nodeId: string;
+  activePeers: number;
+  activeSwarms: number;
+  telemetryQueueLength: number;
+  timestamp: string;
+};
+
+type NotificationOutboxItemDto = {
+  id: string;
+  recipient: string;
+  subject: string;
+  templateName?: string | null;
+  createdAtUtc: string;
+  scheduledAtUtc?: string | null;
+  processedAtUtc?: string | null;
+  status: string;
+  retryCount: number;
+  lastError?: string | null;
+  correlationId?: string | null;
+};
+
+type NotificationOutboxDetailDto = NotificationOutboxItemDto & {
+  attempts: Array<{
+    id: string;
+    attemptedAtUtc: string;
+    succeeded: boolean;
+    errorMessage?: string | null;
+    smtpStatusCode?: number | null;
+    durationMs: number;
+  }>;
+};
+
+type NotificationOutboxStatsDto = {
+  pendingCount: number;
+  processingCount: number;
+  sentCount: number;
+  failedCount: number;
+  cancelledCount: number;
+  totalCount: number;
 };
 
 type TrackerNodeCatalogItemDto = {
@@ -1507,6 +1582,20 @@ function getRouteMeta(pathname: string, dictionary: I18nDictionary): { eyebrow: 
       description: routes.maintenanceDescription
     };
   }
+  if (pathname.startsWith("/notifications")) {
+    return {
+      eyebrow: "Operations",
+      title: "Notification outbox",
+      description: "Monitor email delivery status, retry failed sends, and cancel pending notifications."
+    };
+  }
+  if (pathname.startsWith("/governance")) {
+    return {
+      eyebrow: "Operations",
+      title: "Governance controls",
+      description: "Toggle runtime governance flags and manage node lifecycle for individual gateway instances."
+    };
+  }
   if (pathname.startsWith("/tracker-node") || pathname.startsWith("/tracker-nodes")) {
     return {
       eyebrow: "Tracker",
@@ -1577,6 +1666,8 @@ function DashboardPage({
   const dashboard = dictionary.dashboard;
   const [overview, setOverview] = useState<ClusterOverviewDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [liveStats, setLiveStats] = useState<Map<string, LiveStatsMessage>>(new Map());
+  const [liveConnected, setLiveConnected] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -1598,6 +1689,34 @@ function DashboardPage({
     };
   }, [accessToken, onReauthenticate]);
 
+  useEffect(() => {
+    const connection = new HubConnectionBuilder()
+      .withUrl("/hubs/live-stats", { accessTokenFactory: () => accessToken })
+      .configureLogging(LogLevel.Warning)
+      .withAutomaticReconnect()
+      .build();
+
+    connection.on("StatsUpdate", (message: string) => {
+      try {
+        const stats: LiveStatsMessage = JSON.parse(message);
+        setLiveStats((prev) => {
+          const next = new Map(prev);
+          next.set(stats.nodeId, stats);
+          return next;
+        });
+      } catch { /* ignore malformed messages */ }
+    });
+
+    connection.start()
+      .then(() => setLiveConnected(true))
+      .catch(() => setLiveConnected(false));
+
+    connection.onreconnected(() => setLiveConnected(true));
+    connection.onclose(() => setLiveConnected(false));
+
+    return () => { connection.stop(); };
+  }, [accessToken]);
+
   if (error) {
     return <Card title={dictionary.routes.overviewTitle}><p className="text-sm text-ember">{error}</p></Card>;
   }
@@ -1613,10 +1732,12 @@ function DashboardPage({
     ? Math.round((readyNodes / overview.activeNodeCount) * 100)
     : 0;
   const capabilityCategories = Array.from(new Set(grantedCapabilities.map((capability) => capability.category)));
+  const totalPeers = Array.from(liveStats.values()).reduce((sum, s) => sum + s.activePeers, 0);
+  const totalSwarms = Array.from(liveStats.values()).reduce((sum, s) => sum + s.activeSwarms, 0);
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-3">
+      <section className="grid gap-4 xl:grid-cols-4">
         <div className="app-stat-card">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.readinessTitle}</p>
           <div className="mt-4 flex items-end justify-between">
@@ -1633,16 +1754,29 @@ function DashboardPage({
           </div>
         </div>
         <div className="app-stat-card">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.postureTitle}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">Active peers</p>
           <div className="mt-4 flex items-end justify-between">
-            <p className="app-stat-value">{grantedCapabilities.length}</p>
-            <span className="text-sm text-steel">{capabilityCategories.length} {dashboard.postureDomains}</span>
+            <p className="app-stat-value">{totalPeers.toLocaleString()}</p>
+            <StatusPill tone={liveConnected ? "good" : "neutral"}>{liveConnected ? "Live" : "Offline"}</StatusPill>
           </div>
           <p className="mt-3 text-sm leading-6 text-steel">
-            Access posture is derived from the current effective permission model.
+            Real-time peer count across {liveStats.size} reporting {liveStats.size === 1 ? "node" : "nodes"}.
           </p>
           <div className="app-stat-bar">
-            <div className="app-stat-bar-fill bg-amber-500" style={{ width: `${capabilities.length ? (grantedCapabilities.length / capabilities.length) * 100 : 0}%` }} />
+            <div className="app-stat-bar-fill bg-brand" style={{ width: `${liveStats.size > 0 ? 100 : 0}%` }} />
+          </div>
+        </div>
+        <div className="app-stat-card">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">Active swarms</p>
+          <div className="mt-4 flex items-end justify-between">
+            <p className="app-stat-value">{totalSwarms.toLocaleString()}</p>
+            <span className="text-sm text-steel">{liveStats.size} {liveStats.size === 1 ? "node" : "nodes"}</span>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-steel">
+            Tracked swarm count from live telemetry stream.
+          </p>
+          <div className="app-stat-bar">
+            <div className="app-stat-bar-fill bg-brand" style={{ width: `${liveStats.size > 0 ? 100 : 0}%` }} />
           </div>
         </div>
         <div className="app-stat-card">
@@ -1663,6 +1797,35 @@ function DashboardPage({
           </div>
         </div>
       </section>
+      {liveStats.size > 0 && (
+        <Card title="Live node telemetry" eyebrow="Real-time">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from(liveStats.entries()).map(([nodeId, stats]) => (
+              <div key={nodeId} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-5 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <p className="text-sm font-semibold text-ink">{nodeId}</p>
+                  <StatusPill tone="good">Live</StatusPill>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <p className="text-lg font-bold text-ink">{stats.activePeers.toLocaleString()}</p>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">Peers</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-ink">{stats.activeSwarms.toLocaleString()}</p>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">Swarms</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-ink">{stats.telemetryQueueLength}</p>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">Queue</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-steel">Updated {new Date(stats.timestamp).toLocaleTimeString()}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       <Card title={dashboard.readinessMapTitle} eyebrow={dashboard.operationsEyebrow}>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {overview.nodes.map((node) => (
@@ -1691,6 +1854,276 @@ function DashboardPage({
           ))}
         </div>
       </Card>
+    </div>
+  );
+}
+
+// ─── Governance Controls Page ───────────────────────────────────────────────
+
+function GovernancePage({
+  accessToken,
+  onReauthenticate,
+  permissions
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  permissions: string[];
+}) {
+  const [nodes, setNodes] = useState<TrackerNodeCatalogItemDto[]>([]);
+  const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
+  const [governance, setGovernance] = useState<GovernanceStateDto | null>(null);
+  const [nodeState, setNodeState] = useState<NodeOperationalStateDto | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const canEdit = hasPermission(permissions, "admin.system_settings.edit");
+  const canMaintenance = hasPermission(permissions, "admin.maintenance.execute");
+
+  useEffect(() => {
+    let isMounted = true;
+    apiRequest<PageResult<TrackerNodeCatalogItemDto>>(
+      "/api/admin/nodes?pageSize=100",
+      accessToken,
+      onReauthenticate
+    )
+      .then((page) => {
+        if (isMounted) {
+          setNodes(page.items);
+          if (page.items.length > 0 && !selectedNodeKey) {
+            setSelectedNodeKey(page.items[0].nodeKey);
+          }
+        }
+      })
+      .catch((err) => {
+        if (isMounted) setError(err instanceof Error ? err.message : "Failed to load nodes.");
+      });
+    return () => { isMounted = false; };
+  }, [accessToken, onReauthenticate]);
+
+  useEffect(() => {
+    if (!selectedNodeKey) return;
+    let isMounted = true;
+    setIsLoading(true);
+    setGovernance(null);
+    setNodeState(null);
+    setError(null);
+
+    const selectedNode = nodes.find((n) => n.nodeKey === selectedNodeKey);
+    const nodeId = selectedNode?.nodeId ?? selectedNodeKey;
+
+    Promise.all([
+      apiRequest<GovernanceStateDto>(
+        `/api/admin/gateway/${encodeURIComponent(selectedNodeKey)}/governance`,
+        accessToken,
+        onReauthenticate
+      ).catch(() => null),
+      apiRequest<NodeOperationalStateDto>(
+        `/api/admin/gateway/${encodeURIComponent(selectedNodeKey)}/nodes/${encodeURIComponent(nodeId)}/state`,
+        accessToken,
+        onReauthenticate
+      ).catch(() => null)
+    ]).then(([gov, ns]) => {
+      if (isMounted) {
+        if (!gov) {
+          setError("Unable to reach the gateway node. Verify the node is running and its internal URL is configured.");
+        } else {
+          setGovernance(gov);
+        }
+        setNodeState(ns);
+        setIsLoading(false);
+      }
+    });
+
+    return () => { isMounted = false; };
+  }, [selectedNodeKey, accessToken, onReauthenticate, nodes]);
+
+  const updateGovernance = async (patch: GovernanceUpdateRequest) => {
+    if (!selectedNodeKey || !canEdit) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      const updated = await apiMutation<GovernanceStateDto, GovernanceUpdateRequest>(
+        `/api/admin/gateway/${encodeURIComponent(selectedNodeKey)}/governance`,
+        "POST",
+        accessToken,
+        patch,
+        onReauthenticate
+      );
+      setGovernance(updated);
+      setStatus("Governance state updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Governance update failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeNodeState = async (action: "drain" | "maintenance" | "activate") => {
+    if (!selectedNodeKey || !canMaintenance) return;
+    const selectedNode = nodes.find((n) => n.nodeKey === selectedNodeKey);
+    const nodeId = selectedNode?.nodeId ?? selectedNodeKey;
+    setSaving(true);
+    setStatus(null);
+    try {
+      const result = await apiMutation<NodeOperationalStateDto, Record<string, never>>(
+        `/api/admin/gateway/${encodeURIComponent(selectedNodeKey)}/nodes/${encodeURIComponent(nodeId)}/${action}`,
+        "POST",
+        accessToken,
+        {},
+        onReauthenticate
+      );
+      setNodeState(result);
+      setStatus(`Node transitioned to ${["Active", "Draining", "Maintenance"][result.state] ?? "unknown"}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Node state change failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const nodeStateName = nodeState ? ["Active", "Draining", "Maintenance"][nodeState.state] ?? "Unknown" : null;
+  const nodeStateTone = nodeState
+    ? nodeState.state === 0 ? "good" : nodeState.state === 1 ? "warn" : "warn"
+    : "neutral";
+
+  return (
+    <div className="app-page-stack">
+      {status && (
+        <div className="app-notice-success">
+          <p>{status}</p>
+        </div>
+      )}
+      {error && (
+        <div className="app-notice-warn">
+          <p>{error}</p>
+        </div>
+      )}
+
+      <Card title="Target node" eyebrow="Gateway">
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-steel">Node</span>
+            <select
+              className="app-input w-64"
+              value={selectedNodeKey ?? ""}
+              onChange={(e) => setSelectedNodeKey(e.target.value || null)}
+            >
+              {nodes.length === 0 && <option value="">No nodes configured</option>}
+              {nodes.map((node) => (
+                <option key={node.nodeKey} value={node.nodeKey}>
+                  {node.nodeName} ({node.nodeKey}) &mdash; {node.region}
+                </option>
+              ))}
+            </select>
+          </label>
+          {nodeState && (
+            <div className="flex items-center gap-3">
+              <StatusPill tone={nodeStateTone as "good" | "warn" | "neutral"}>{nodeStateName ?? "Unknown"}</StatusPill>
+              <span className="text-xs text-steel">since {new Date(nodeState.updatedAtUtc).toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {isLoading && selectedNodeKey && (
+        <Card title="Loading"><p className="text-sm text-ink/60">Fetching governance state from gateway...</p></Card>
+      )}
+
+      {governance && (
+        <Card title="Runtime governance flags" eyebrow="Controls">
+          <div className="grid gap-4 md:grid-cols-2">
+            <GovernanceToggle label="Announce disabled" description="Reject all announce requests." value={governance.announceDisabled} disabled={!canEdit || saving} onChange={(v) => updateGovernance({ announceDisabled: v })} />
+            <GovernanceToggle label="Scrape disabled" description="Reject all scrape requests." value={governance.scrapeDisabled} disabled={!canEdit || saving} onChange={(v) => updateGovernance({ scrapeDisabled: v })} />
+            <GovernanceToggle label="Global maintenance mode" description="Return maintenance response to all clients." value={governance.globalMaintenanceMode} disabled={!canEdit || saving} onChange={(v) => updateGovernance({ globalMaintenanceMode: v })} />
+            <GovernanceToggle label="Read-only mode" description="Accept announce reads but reject state mutations." value={governance.readOnlyMode} disabled={!canEdit || saving} onChange={(v) => updateGovernance({ readOnlyMode: v })} />
+            <GovernanceToggle label="Emergency abuse mitigation" description="Activate aggressive abuse scoring and blocking." value={governance.emergencyAbuseMitigation} disabled={!canEdit || saving} onChange={(v) => updateGovernance({ emergencyAbuseMitigation: v })} />
+            <GovernanceToggle label="UDP disabled" description="Reject all UDP announce/scrape requests." value={governance.udpDisabled} disabled={!canEdit || saving} onChange={(v) => updateGovernance({ udpDisabled: v })} />
+            <GovernanceToggle label="IPv6 frozen" description="Stop accepting new IPv6 peer registrations." value={governance.ipv6Frozen} disabled={!canEdit || saving} onChange={(v) => updateGovernance({ ipv6Frozen: v })} />
+            <GovernanceToggle label="Policy freeze mode" description="Ignore runtime policy changes until unfrozen." value={governance.policyFreezeMode} disabled={!canEdit || saving} onChange={(v) => updateGovernance({ policyFreezeMode: v })} />
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-steel">Compatibility mode</span>
+              <select
+                className="app-input"
+                value={governance.compatibilityMode}
+                disabled={!canEdit || saving}
+                onChange={(e) => updateGovernance({ compatibilityMode: e.target.value })}
+              >
+                <option value="Standard">Standard</option>
+                <option value="Legacy">Legacy</option>
+                <option value="Relaxed">Relaxed</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-steel">Strictness profile</span>
+              <select
+                className="app-input"
+                value={governance.strictnessProfile}
+                disabled={!canEdit || saving}
+                onChange={(e) => updateGovernance({ strictnessProfile: e.target.value })}
+              >
+                <option value="Default">Default</option>
+                <option value="Strict">Strict</option>
+                <option value="Permissive">Permissive</option>
+              </select>
+            </label>
+          </div>
+        </Card>
+      )}
+
+      {canMaintenance && selectedNodeKey && !isLoading && (
+        <Card title="Node lifecycle" eyebrow="Operations">
+          <p className="mb-4 text-sm text-steel">
+            Transition the selected node between operational states. Draining removes it from the load balancer pool; Maintenance signals planned outage.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="app-button-secondary" disabled={saving || nodeState?.state === 0} onClick={() => changeNodeState("activate")}>
+              Activate
+            </button>
+            <button type="button" className="app-button-secondary" disabled={saving || nodeState?.state === 1} onClick={() => changeNodeState("drain")}>
+              Drain
+            </button>
+            <button type="button" className="app-button-secondary" disabled={saving || nodeState?.state === 2} onClick={() => changeNodeState("maintenance")}>
+              Maintenance
+            </button>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function GovernanceToggle({
+  label,
+  description,
+  value,
+  disabled,
+  onChange
+}: {
+  label: string;
+  description: string;
+  value: boolean;
+  disabled: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-5 py-4">
+      <div>
+        <p className="text-sm font-semibold text-ink">{label}</p>
+        <p className="mt-1 text-xs text-steel">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        disabled={disabled}
+        onClick={() => onChange(!value)}
+        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${value ? "bg-brand" : "bg-slate-300"} ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+      >
+        <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${value ? "translate-x-[22px]" : "translate-x-[3px]"}`} />
+      </button>
     </div>
   );
 }
@@ -1811,7 +2244,7 @@ function TrackerNodesPage({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="app-page-stack">
       <CatalogToolbar
         title="Node configurations"
         description="Select a tracker node profile, review effective status and open the dedicated configuration editor."
@@ -1838,14 +2271,14 @@ function TrackerNodesPage({
       />
 
       {status ? <div className="app-notice-success">{status}</div> : null}
-      {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
 
-      <div className="app-card">
-        <div className="app-table-shell">
-          <table className="app-data-table">
-            <thead>
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
               <tr>
-                <th>
+                <th className="px-5 py-4">
                   <SortHeaderButton
                     label="Node"
                     active={activeSortField === "nodekey" || activeSortField === "nodename"}
@@ -1853,7 +2286,7 @@ function TrackerNodesPage({
                     onClick={() => toggleSort("nodekey")}
                   />
                 </th>
-                <th>
+                <th className="px-5 py-4">
                   <SortHeaderButton
                     label="Environment"
                     active={activeSortField === "environment" || activeSortField === "region"}
@@ -1861,10 +2294,10 @@ function TrackerNodesPage({
                     onClick={() => toggleSort("environment")}
                   />
                 </th>
-                <th>Protocols</th>
-                <th>Policy</th>
-                <th>Apply</th>
-                <th>
+                <th className="px-5 py-4">Protocols</th>
+                <th className="px-5 py-4">Policy</th>
+                <th className="px-5 py-4">Apply</th>
+                <th className="px-5 py-4">
                   <SortHeaderButton
                     label="Updated"
                     active={activeSortField === "updated"}
@@ -1872,7 +2305,7 @@ function TrackerNodesPage({
                     onClick={() => toggleSort("updated", "desc")}
                   />
                 </th>
-                <th className="text-right">Actions</th>
+                <th className="px-5 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1880,13 +2313,13 @@ function TrackerNodesPage({
                 <TableStateRow
                   colSpan={7}
                   title="Loading node configurations"
-                  description="Refreshing persisted tracker node profiles from the backend."
+                  message="Refreshing persisted tracker node profiles from the backend."
                 />
               ) : items.length === 0 ? (
                 <TableStateRow
                   colSpan={7}
                   title="No node configurations"
-                  description="Create the first tracker node profile to start configuring protocols, runtime and coordination."
+                  message="Create the first tracker node profile to start configuring protocols, runtime and coordination."
                 />
               ) : (
                 items.map((item) => (
@@ -1894,7 +2327,7 @@ function TrackerNodesPage({
                     key={item.nodeKey}
                     onOpen={() => setView((current) => ({ ...current, preview: item.nodeKey }))}
                   >
-                    <td>
+                    <td className="px-5 py-4">
                       <div className="app-grid-primary">{item.nodeName || item.nodeKey}</div>
                       <div className="app-grid-secondary">{item.environment} / {item.region}</div>
                       <div className="app-grid-meta inline-flex items-center gap-2">
@@ -1902,45 +2335,45 @@ function TrackerNodesPage({
                         <CopyValueButton value={item.nodeKey} label="Copy node key" />
                       </div>
                     </td>
-                    <td>
+                    <td className="px-5 py-4">
                       <div className="app-grid-primary">{item.environment}</div>
                       <div className="app-grid-secondary">{item.region}</div>
                       <div className="app-grid-meta">{item.nodeId || "Node id not configured"}</div>
                     </td>
-                    <td>
+                    <td className="px-5 py-4">
                       <div className="app-grid-primary">{formatProtocols(item)}</div>
                       <div className="app-grid-meta">{item.httpEnabled ? "HTTP enabled" : "HTTP disabled"}</div>
                     </td>
-                    <td>
+                    <td className="px-5 py-4">
                       <div className="app-grid-primary">{formatPolicy(item)}</div>
                       <div className="app-grid-meta">
                         {item.privateTrackerEnabled ? "Private tracker ready" : "Private tracker disabled"}
                       </div>
                     </td>
-                    <td>
+                    <td className="px-5 py-4">
                       <span className={item.requiresRestart ? "app-chip-warn" : "app-chip-soft"}>
                         {item.requiresRestart ? "Restart recommended" : "Dynamic"}
                       </span>
                       <div className="app-grid-meta mt-2">{item.applyMode}</div>
                     </td>
-                    <td>
+                    <td className="px-5 py-4">
                       <div className="app-grid-primary">{formatDateTime(item.updatedAtUtc)}</div>
                       <div className="app-grid-meta">{item.updatedBy}</div>
                     </td>
-                    <td className="text-right">
+                    <td className="px-5 py-4 text-right">
                       <div className="flex justify-end gap-2">
                         <Link
-                          className="app-button-secondary inline-flex items-center gap-2"
+                          className="app-button-secondary py-2.5 inline-flex items-center gap-2"
                           to={`/tracker-nodes/${encodeURIComponent(item.nodeKey)}/edit?returnTo=${returnTo}`}
                         >
                           <PencilIcon className="app-button-icon" />
                           Edit
                         </Link>
                         <RowActionsMenu
-                          actions={[
+                          items={[
                             {
                               label: "Preview",
-                              icon: <EyeIcon className="app-button-icon" />,
+                              icon: <EyeIcon />,
                               onClick: () => setView((current) => ({ ...current, preview: item.nodeKey }))
                             }
                           ]}
@@ -3756,7 +4189,7 @@ function PasskeysPage({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="app-page-stack">
       <CatalogToolbar
         title={labels.cardTitle}
         description="Search passkeys and run revoke or rotate workflows."
@@ -4256,7 +4689,7 @@ function TrackerAccessPage({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="app-page-stack">
       <CatalogToolbar
         title={labels.cardTitle}
         description="Search and manage tracker access assignments."
@@ -5768,6 +6201,294 @@ function MaintenancePage({
   );
 }
 
+// ─── Notification Outbox Page ────────────────────────────────────────────────
+
+function NotificationsPage({
+  accessToken,
+  onReauthenticate,
+  permissions
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  permissions: string[];
+}) {
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "createdat:desc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview } = view;
+  const [items, setItems] = useState<NotificationOutboxItemDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [stats, setStats] = useState<NotificationOutboxStatsDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [status, setStatus] = useState<string | null>(null);
+  const [detail, setDetail] = useState<NotificationOutboxDetailDto | null>(null);
+  const canExecute = hasPermission(permissions, "admin.maintenance.execute");
+  const previewItem = items.find((item) => item.id === preview) ?? null;
+  const [activeSortField, activeSortDirection = "desc"] = query.sort.split(":");
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
+
+  const reload = useCallback(async () => {
+    const [page, statsResult] = await Promise.all([
+      apiRequest<PageResult<NotificationOutboxItemDto>>(
+        `/api/admin/notifications?${buildGridQueryString(query)}`,
+        accessToken,
+        onReauthenticate
+      ),
+      apiRequest<NotificationOutboxStatsDto>(
+        "/api/admin/notifications/stats",
+        accessToken,
+        onReauthenticate
+      )
+    ]);
+    setItems(page.items);
+    setTotalCount(page.totalCount);
+    setStats(statsResult);
+  }, [accessToken, onReauthenticate, query]);
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+    reload()
+      .then(() => { if (isMounted) setError(null); })
+      .catch((err) => {
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : "Failed to load notifications.");
+          setItems([]);
+          setTotalCount(0);
+        }
+      })
+      .finally(() => { if (isMounted) setIsLoading(false); });
+    return () => { isMounted = false; };
+  }, [reload]);
+
+  useEffect(() => {
+    if (!previewItem) { setDetail(null); return; }
+    apiRequest<NotificationOutboxDetailDto>(
+      `/api/admin/notifications/${previewItem.id}`,
+      accessToken,
+      onReauthenticate
+    ).then(setDetail).catch(() => setDetail(null));
+  }, [previewItem, accessToken, onReauthenticate]);
+
+  const toggleSort = (field: string) => {
+    const nextDirection = activeSortField === field && activeSortDirection === "asc" ? "desc" : "asc";
+    setView((current) => ({ ...current, query: { ...current.query, sort: `${field}:${nextDirection}`, page: 1 } }));
+  };
+
+  const handleRetry = async (id: string) => {
+    try {
+      await apiMutation<unknown, Record<string, never>>(`/api/admin/notifications/${id}/retry`, "POST", accessToken, {}, onReauthenticate);
+      setStatus("Notification queued for retry.");
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Retry failed.");
+    }
+  };
+
+  const handleCancel = async (id: string) => {
+    try {
+      await apiMutation<unknown, Record<string, never>>(`/api/admin/notifications/${id}/cancel`, "POST", accessToken, {}, onReauthenticate);
+      setStatus("Notification cancelled.");
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed.");
+    }
+  };
+
+  const statusTone = (s: string): "good" | "warn" | "neutral" =>
+    s === "Sent" ? "good" : s === "Failed" || s === "Cancelled" ? "warn" : "neutral";
+
+  return (
+    <div className="app-page-stack">
+      {status && <div className="app-notice-success"><p>{status}</p></div>}
+      {error && <div className="app-notice-warn"><p>{error}</p></div>}
+
+      {stats && (
+        <section className="grid gap-4 md:grid-cols-5">
+          {([
+            ["Pending", stats.pendingCount],
+            ["Processing", stats.processingCount],
+            ["Sent", stats.sentCount],
+            ["Failed", stats.failedCount],
+            ["Cancelled", stats.cancelledCount]
+          ] as const).map(([label, count]) => (
+            <div key={label} className="app-stat-card">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{label}</p>
+              <p className="mt-2 text-2xl font-bold text-ink">{count}</p>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <CatalogToolbar
+        title="Email outbox"
+        description="View notification delivery status, retry failed messages, or cancel pending sends."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search recipient, subject, template or correlation"
+        filter={query.filter}
+        onFilterChange={(value) => setView((current) => ({ ...current, query: { ...current.query, filter: value, page: 1 } }))}
+        filterOptions={[
+          { value: "all", label: "All" },
+          { value: "Pending", label: "Pending" },
+          { value: "Processing", label: "Processing" },
+          { value: "Sent", label: "Sent" },
+          { value: "Failed", label: "Failed" },
+          { value: "Cancelled", label: "Cancelled" }
+        ]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "createdat:desc", label: "Newest first" },
+          { value: "createdat:asc", label: "Oldest first" },
+          { value: "recipient:asc", label: "Recipient A-Z" },
+          { value: "subject:asc", label: "Subject A-Z" },
+          { value: "status:asc", label: "Status A-Z" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+      />
+
+      <div className="app-data-table">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="app-table-head">
+              <tr>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Recipient" active={activeSortField === "recipient"} direction={activeSortDirection as "asc" | "desc"} onClick={() => toggleSort("recipient")} />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Subject" active={activeSortField === "subject"} direction={activeSortDirection as "asc" | "desc"} onClick={() => toggleSort("subject")} />
+                </th>
+                <th className="px-5 py-4">Template</th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Created" active={activeSortField === "createdat"} direction={activeSortDirection as "asc" | "desc"} onClick={() => toggleSort("createdat")} />
+                </th>
+                <th className="px-5 py-4">
+                  <SortHeaderButton label="Status" active={activeSortField === "status"} direction={activeSortDirection as "asc" | "desc"} onClick={() => toggleSort("status")} />
+                </th>
+                <th className="px-5 py-4">Retries</th>
+                {canExecute && <th className="px-5 py-4" />}
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <TableStateRow colSpan={canExecute ? 7 : 6} message="Loading notifications..." />
+              ) : items.length === 0 ? (
+                <TableStateRow colSpan={canExecute ? 7 : 6} message="No notifications found." />
+              ) : (
+                items.map((item) => (
+                  <CatalogTableRow key={item.id} previewKey={item.id} currentPreview={preview} onPreview={(key) => setView((current) => ({ ...current, preview: current.preview === key ? null : key }))}>
+                    <td className="px-5 py-4 font-medium text-ink">{item.recipient}</td>
+                    <td className="px-5 py-4 max-w-[200px] truncate">{item.subject}</td>
+                    <td className="px-5 py-4 text-steel">{item.templateName ?? "—"}</td>
+                    <td className="px-5 py-4 text-steel">{new Date(item.createdAtUtc).toLocaleString()}</td>
+                    <td className="px-5 py-4"><StatusPill tone={statusTone(item.status)}>{item.status}</StatusPill></td>
+                    <td className="px-5 py-4 text-steel">{item.retryCount}</td>
+                    {canExecute && (
+                      <td className="px-5 py-4">
+                        <RowActionsMenu items={[
+                          ...(item.status === "Failed" || item.status === "Cancelled" ? [{ label: "Retry", onClick: () => handleRetry(item.id) }] : []),
+                          ...(item.status !== "Sent" && item.status !== "Cancelled" ? [{ label: "Cancel", onClick: () => handleCancel(item.id) }] : [])
+                        ]} />
+                      </td>
+                    )}
+                  </CatalogTableRow>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <PaginationFooter
+        page={query.page}
+        pageCount={pageCount}
+        totalCount={totalCount}
+        pageSize={query.pageSize}
+        onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))}
+      />
+
+      <PreviewDrawer
+        open={previewItem !== null}
+        title={previewItem?.subject ?? ""}
+        subtitle={previewItem?.recipient}
+        onClose={() => setView((current) => ({ ...current, preview: null }))}
+      >
+        {previewItem ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Recipient</div>
+                <div className="font-semibold text-ink">{previewItem.recipient}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Status</div>
+                <StatusPill tone={statusTone(previewItem.status)}>{previewItem.status}</StatusPill>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Template</div>
+                <div className="font-semibold text-ink">{previewItem.templateName ?? "None"}</div>
+              </div>
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Created</div>
+                <div className="font-semibold text-ink">{new Date(previewItem.createdAtUtc).toLocaleString()}</div>
+              </div>
+              {previewItem.processedAtUtc && (
+                <div className="app-subtle-panel space-y-2">
+                  <div className="app-kicker">Processed</div>
+                  <div className="font-semibold text-ink">{new Date(previewItem.processedAtUtc).toLocaleString()}</div>
+                </div>
+              )}
+              {previewItem.lastError && (
+                <div className="app-subtle-panel space-y-2 col-span-full">
+                  <div className="app-kicker">Last error</div>
+                  <div className="text-sm text-ember">{previewItem.lastError}</div>
+                </div>
+              )}
+            </div>
+            {detail && detail.attempts.length > 0 && (
+              <div>
+                <p className="app-kicker mb-2">Delivery attempts</p>
+                <div className="space-y-2">
+                  {detail.attempts.map((attempt) => (
+                    <div key={attempt.id} className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-ink">{new Date(attempt.attemptedAtUtc).toLocaleString()}</span>
+                        <StatusPill tone={attempt.succeeded ? "good" : "warn"}>{attempt.succeeded ? "OK" : `Failed${attempt.smtpStatusCode ? ` (${attempt.smtpStatusCode})` : ""}`}</StatusPill>
+                      </div>
+                      <div className="mt-1 flex gap-4 text-xs text-steel">
+                        <span>{attempt.durationMs}ms</span>
+                        {attempt.errorMessage && <span className="text-ember">{attempt.errorMessage}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="app-subtle-panel space-y-2">
+              <div className="app-kicker">Notification ID</div>
+              <div className="font-mono text-xs text-steel">{previewItem.id}</div>
+            </div>
+            {previewItem.correlationId && (
+              <div className="app-subtle-panel space-y-2">
+                <div className="app-kicker">Correlation ID</div>
+                <div className="font-mono text-xs text-steel">{previewItem.correlationId}</div>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </PreviewDrawer>
+    </div>
+  );
+}
+
 function CallbackPage({
   manager,
   onSignedIn
@@ -5889,6 +6610,20 @@ function Shell({
             : null,
           hasPermission(session.permissions, "admin.system_settings.view")
             ? { to: "/tracker-nodes", label: "Node config", description: "Select and configure tracker node protocols, runtime and coordination.", icon: "nodeConfig" }
+            : null
+        ].filter((link): link is NavigationLink => link !== null)
+      },
+      {
+        id: "operations",
+        label: "Operations",
+        to: "/governance",
+        icon: "maintenance",
+        links: [
+          hasPermission(session.permissions, "admin.system_settings.view")
+            ? { to: "/governance", label: "Governance", description: "Runtime governance flags and node lifecycle controls.", icon: "maintenance" }
+            : null,
+          hasPermission(session.permissions, permissionKeys.auditView)
+            ? { to: "/notifications", label: "Notifications", description: "Email outbox delivery status and retry controls.", icon: "audit" }
             : null
         ].filter((link): link is NavigationLink => link !== null)
       },
@@ -6673,6 +7408,22 @@ function AuthenticatedAdminApp({
             <CapabilityGate capabilities={capabilities} action="admin.read.maintenance">
               <MaintenancePage accessToken={accessToken} onReauthenticate={onSignin} />
             </CapabilityGate>
+          }
+        />
+        <Route
+          path="/governance"
+          element={
+            <PermissionGate permissions={session.permissions} permission="admin.system_settings.view">
+              <GovernancePage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <PermissionGate permissions={session.permissions} permission={permissionKeys.auditView}>
+              <NotificationsPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
           }
         />
         <Route

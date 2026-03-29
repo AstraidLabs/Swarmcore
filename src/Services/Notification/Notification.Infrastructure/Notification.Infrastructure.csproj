@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Notification.UnitTests" />
+    <InternalsVisibleTo Include="Tracker.AdminService.Infrastructure" />
   </ItemGroup>
 
   <ItemGroup>
