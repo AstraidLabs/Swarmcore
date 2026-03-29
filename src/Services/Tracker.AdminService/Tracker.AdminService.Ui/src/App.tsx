@@ -62,6 +62,7 @@ type TorrentAdminDto = {
 };
 
 type PasskeyAdminDto = {
+  id: string;
   passkeyMask: string;
   userId: string;
   isRevoked: boolean;
@@ -708,6 +709,14 @@ type TorrentPolicyFormState = {
   expectedVersion: number;
 };
 
+type PasskeyFormState = {
+  passkey: string;
+  userId: string;
+  isRevoked: boolean;
+  expiresAtLocal: string;
+  expectedVersion?: number;
+};
+
 type BanFormState = {
   scope: string;
   subject: string;
@@ -723,6 +732,25 @@ type TrackerAccessFormState = {
   canScrape: boolean;
   canUsePrivateTracker: boolean;
   expectedVersion?: number;
+};
+
+type PasskeyMutationPairDto = {
+  revokedSnapshot: {
+    id: string;
+    passkey: string;
+    userId: string;
+    isRevoked: boolean;
+    expiresAtUtc: string | null;
+    version: number;
+  };
+  newSnapshot: {
+    id: string;
+    passkey: string;
+    userId: string;
+    isRevoked: boolean;
+    expiresAtUtc: string | null;
+    version: number;
+  };
 };
 
 type BulkTorrentPolicySelectionItem = {
@@ -1084,6 +1112,35 @@ async function apiMutation<TResponse, TRequest>(
   return response.json() as Promise<TResponse>;
 }
 
+async function apiDelete(path: string, accessToken: string, onReauthenticate: (fresh: boolean) => Promise<void>): Promise<void> {
+  const response = await fetch(path, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (response.status === 401) {
+    await onReauthenticate(false);
+    throw new Error("Admin authentication is required.");
+  }
+
+  if (response.status === 403) {
+    const errorPayload = await readAdminError(response);
+    if (errorPayload.code === "admin_reauthentication_required") {
+      await onReauthenticate(true);
+      throw new Error("Recent authentication is required.");
+    }
+
+    throw new Error(errorPayload.message ?? "Admin mutation is forbidden.");
+  }
+
+  if (!response.ok) {
+    const errorPayload = await readAdminError(response);
+    throw new Error(errorPayload.message ?? `Admin mutation failed (${response.status}).`);
+  }
+}
+
 function useAdminSession(accessToken: string, onReauthenticate: (fresh: boolean) => Promise<void>) {
   const [session, setSession] = useState<AdminSessionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1125,6 +1182,16 @@ function toPolicyForm(snapshot: TorrentAdminDto): TorrentPolicyFormState {
     defaultNumWant: snapshot.defaultNumWant,
     maxNumWant: snapshot.maxNumWant,
     allowScrape: snapshot.allowScrape,
+    expectedVersion: snapshot.version
+  };
+}
+
+function toPasskeyForm(snapshot: PasskeyAdminDto): PasskeyFormState {
+  return {
+    passkey: "",
+    userId: snapshot.userId,
+    isRevoked: snapshot.isRevoked,
+    expiresAtLocal: toLocalDateTimeInput(snapshot.expiresAtUtc),
     expectedVersion: snapshot.version
   };
 }
@@ -1606,6 +1673,53 @@ function TrackerEditorLayout({
   );
 }
 
+function TrackerEditorSummary({
+  eyebrow = "Summary",
+  title,
+  items,
+  children
+}: {
+  eyebrow?: string;
+  title: string;
+  items: Array<{ label: string; value: ReactNode; tone?: "default" | "mono" }>;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="app-subtle-panel space-y-4">
+      <div>
+        <div className="app-kicker">{eyebrow}</div>
+        <div className="text-sm font-semibold text-ink">{title}</div>
+      </div>
+      <div className="space-y-3">
+        {items.map((item) => (
+          <div key={item.label} className="space-y-1">
+            <div className="app-kicker">{item.label}</div>
+            <div className={item.tone === "mono" ? "break-all font-mono text-sm text-ink" : "text-sm font-medium text-ink"}>
+              {item.value}
+            </div>
+          </div>
+        ))}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function TrackerEditorFooter({
+  left,
+  right
+}: {
+  left?: ReactNode;
+  right: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/10 pt-4">
+      <div className="flex flex-wrap items-center gap-3">{left}</div>
+      <div className="flex flex-wrap items-center justify-end gap-3">{right}</div>
+    </div>
+  );
+}
+
 function TrackerConfigSection({
   title,
   description,
@@ -2047,6 +2161,18 @@ async function findTrackerAccessRecord(
   );
 }
 
+async function findPasskeyRecord(
+  accessToken: string,
+  onReauthenticate: (fresh?: boolean) => Promise<void>,
+  id: string
+) {
+  return await apiRequest<PasskeyAdminDto | null>(
+    `/api/admin/passkeys/${encodeURIComponent(id)}`,
+    accessToken,
+    onReauthenticate
+  );
+}
+
 async function findBanRuleRecord(
   accessToken: string,
   onReauthenticate: (fresh?: boolean) => Promise<void>,
@@ -2093,6 +2219,7 @@ function TorrentsPage({
   const canActivate = hasGrantedCapability(capabilities, "admin.activate.torrent");
   const canDeactivate = hasGrantedCapability(capabilities, "admin.deactivate.torrent");
   const canBulkEditPolicy = hasGrantedCapability(capabilities, "admin.bulk_upsert.torrent_policy");
+  const canCreatePolicy = hasGrantedCapability(capabilities, "admin.write.torrent_policy");
   const previewItem = items.find((item) => item.infoHash === preview) ?? null;
   const [activeSortField, activeSortDirection = "asc"] = query.sort.split(":");
   const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
@@ -2209,6 +2336,10 @@ function TorrentsPage({
     navigate("/torrents/bulk-policy");
   };
 
+  const openCreate = () => {
+    navigate(`/torrents/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
+  };
+
   return (
     <div className="space-y-6">
       <CatalogToolbar
@@ -2238,6 +2369,8 @@ function TorrentsPage({
         ]}
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+        createLabel="Create torrent"
+        onCreate={canCreatePolicy ? openCreate : undefined}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -2301,7 +2434,7 @@ function TorrentsPage({
                   <td className="px-5 py-4 text-right">
                     <div className="flex justify-end items-center gap-2">
                       {canEditPolicy ? (
-                        <Link className="app-button-secondary py-2.5 no-underline inline-flex items-center gap-2" to={`/torrents/${item.infoHash}`}>
+                        <Link className="app-button-secondary py-2.5 no-underline inline-flex items-center gap-2" to={`/torrents/${encodeURIComponent(item.infoHash)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`}>
                           <SettingsIcon className="app-button-icon" />
                           {labels.openPolicy}
                         </Link>
@@ -2342,6 +2475,18 @@ function TorrentsPage({
                 ))}
               </div>
             ) : null}
+            <div className="flex flex-wrap gap-3">
+              {canEditPolicy ? (
+                <button
+                  type="button"
+                  className="app-button-primary inline-flex items-center gap-2"
+                  onClick={() => navigate(`/torrents/${encodeURIComponent(previewItem.infoHash)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}
+                >
+                  <SettingsIcon className="app-button-icon" />
+                  Edit policy
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </PreviewDrawer>
@@ -2358,18 +2503,40 @@ function TorrentPolicyEditorPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.policyEditor;
+  const navigate = useNavigate();
+  const location = useLocation();
   const params = useParams();
   const infoHash = params.infoHash ?? "";
+  const isCreate = !infoHash;
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/torrents");
+  const [infoHashInput, setInfoHashInput] = useState(infoHash);
   const [current, setCurrent] = useState<TorrentAdminDto | null>(null);
-  const [form, setForm] = useState<TorrentPolicyFormState | null>(null);
+  const [form, setForm] = useState<TorrentPolicyFormState | null>(
+    isCreate
+      ? {
+          isPrivate: true,
+          isEnabled: true,
+          announceIntervalSeconds: 1800,
+          minAnnounceIntervalSeconds: 900,
+          defaultNumWant: 50,
+          maxNumWant: 100,
+          allowScrape: true,
+          expectedVersion: undefined
+        }
+      : null
+  );
   const [dryRun, setDryRun] = useState<TorrentPolicyDryRunItemDto | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
-    let isMounted = true;
+    if (isCreate) {
+      return;
+    }
 
+    let isMounted = true;
     apiRequest<TorrentAdminDto>(`/api/admin/torrents/${infoHash}`, accessToken, onReauthenticate)
       .then((snapshot) => {
         if (isMounted) {
@@ -2388,7 +2555,7 @@ function TorrentPolicyEditorPage({
     return () => {
       isMounted = false;
     };
-  }, [accessToken, infoHash, onReauthenticate]);
+  }, [accessToken, infoHash, isCreate, onReauthenticate]);
 
   const updateField = <K extends keyof TorrentPolicyFormState>(key: K, value: TorrentPolicyFormState[K]) => {
     setForm((currentForm) => (currentForm ? { ...currentForm, [key]: value } : currentForm));
@@ -2426,7 +2593,7 @@ function TorrentPolicyEditorPage({
         {
           items: [
             {
-              infoHash,
+              infoHash: infoHashInput.trim(),
               ...buildPayload()
             }
           ]
@@ -2448,8 +2615,13 @@ function TorrentPolicyEditorPage({
       setIsSubmitting(true);
       setStatus(null);
       setError(null);
+      const targetInfoHash = infoHashInput.trim();
+      if (!targetInfoHash) {
+        throw new Error("Info hash is required.");
+      }
+
       const snapshot = await apiMutation<TorrentAdminDto, ReturnType<typeof buildPayload>>(
-        `/api/admin/torrents/${infoHash}/policy`,
+        `/api/admin/torrents/${encodeURIComponent(targetInfoHash)}/policy`,
         "PUT",
         accessToken,
         buildPayload(),
@@ -2457,9 +2629,16 @@ function TorrentPolicyEditorPage({
       );
 
       setCurrent(snapshot);
+      setInfoHashInput(snapshot.infoHash);
       setForm(toPolicyForm(snapshot));
       setDryRun(null);
-      setStatus(labels.updated);
+      navigate(returnTo, {
+        replace: true,
+        state: {
+          message: isCreate ? "Torrent policy created." : labels.updated,
+          tone: "good"
+        } satisfies NavigationBannerState
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : labels.saveFailed);
     } finally {
@@ -2467,125 +2646,213 @@ function TorrentPolicyEditorPage({
     }
   };
 
+  const handleDelete = async () => {
+    try {
+      setIsSubmitting(true);
+      setStatus(null);
+      setError(null);
+      if (!current) {
+        throw new Error("Torrent is not loaded.");
+      }
+
+      await apiDelete(
+        `/api/admin/torrents/${encodeURIComponent(current.infoHash)}?expectedVersion=${encodeURIComponent(String(current.version))}`,
+        accessToken,
+        onReauthenticate
+      );
+
+      navigate(returnTo, {
+        replace: true,
+        state: {
+          message: "Torrent deleted.",
+          tone: "good"
+        } satisfies NavigationBannerState
+      });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Deleting torrent failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   if (error && !form) {
     return (
-      <Card title={dictionary.routes.torrentPolicyTitle} eyebrow={dictionary.routes.torrentPolicyEyebrow}>
-        <p className="text-sm text-ember">{error}</p>
-      </Card>
+      <TrackerEditorLayout
+        eyebrow={dictionary.routes.torrentPolicyEyebrow}
+        title={dictionary.routes.torrentPolicyTitle}
+        description={labels.loading}
+        error={error}
+      >
+        <></>
+      </TrackerEditorLayout>
     );
   }
 
-  if (!form || !current) {
+  if (!form || (!isCreate && !current)) {
     return (
-      <Card title={dictionary.routes.torrentPolicyTitle} eyebrow={dictionary.routes.torrentPolicyEyebrow}>
-        <p className="text-sm text-ink/60">{labels.loading}</p>
-      </Card>
+      <TrackerEditorLayout
+        eyebrow={dictionary.routes.torrentPolicyEyebrow}
+        title={dictionary.routes.torrentPolicyTitle}
+        description={labels.loading}
+      >
+        <div className="text-sm text-ink/60">{labels.loading}</div>
+      </TrackerEditorLayout>
     );
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-      <Card title={labels.editTitle} eyebrow={labels.editEyebrow}>
-        <p className="text-xs uppercase tracking-[0.18em] text-ink/40">{labels.infoHash}</p>
-        <p className="mt-2 break-all font-mono text-sm text-ink">{infoHash}</p>
-        <div className="mt-6 grid gap-5 md:grid-cols-2">
+    <TrackerEditorLayout
+      eyebrow={labels.editEyebrow}
+      title={labels.editTitle}
+      description={isCreate ? "Create a torrent policy in a dedicated editor." : "Update or remove a torrent policy outside the list grid."}
+      error={error}
+      message={status}
+    >
+      <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+        <div className="space-y-6">
           <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.announceInterval}</span>
-            <input className="w-full rounded-2xl border border-ink/15 px-4 py-3" type="number" value={form.announceIntervalSeconds} onChange={(event) => updateField("announceIntervalSeconds", Number(event.target.value))} />
+            <span className="text-sm font-medium text-ink">{labels.infoHash}</span>
+            <input
+              className="app-input font-mono text-sm"
+              value={infoHashInput}
+              disabled={!isCreate || isSubmitting}
+              onChange={(event) => setInfoHashInput(event.target.value)}
+            />
           </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.minAnnounceInterval}</span>
-            <input className="w-full rounded-2xl border border-ink/15 px-4 py-3" type="number" value={form.minAnnounceIntervalSeconds} onChange={(event) => updateField("minAnnounceIntervalSeconds", Number(event.target.value))} />
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.defaultNumwant}</span>
-            <input className="w-full rounded-2xl border border-ink/15 px-4 py-3" type="number" value={form.defaultNumWant} onChange={(event) => updateField("defaultNumWant", Number(event.target.value))} />
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.maxNumwant}</span>
-            <input className="w-full rounded-2xl border border-ink/15 px-4 py-3" type="number" value={form.maxNumWant} onChange={(event) => updateField("maxNumWant", Number(event.target.value))} />
-          </label>
-        </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
-            <input type="checkbox" checked={form.isPrivate} onChange={(event) => updateField("isPrivate", event.target.checked)} />
-            {labels.privateTracker}
-          </label>
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
-            <input type="checkbox" checked={form.isEnabled} onChange={(event) => updateField("isEnabled", event.target.checked)} />
-            {labels.enabled}
-          </label>
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
-            <input type="checkbox" checked={form.allowScrape} onChange={(event) => updateField("allowScrape", event.target.checked)} />
-            {labels.allowScrape}
-          </label>
-        </div>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => void handleDryRun()}
-            className="rounded-2xl border border-ink/20 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.previewChanges}
-          </button>
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => void handleSave()}
-            className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.applyPolicy}
-          </button>
-        </div>
-        {status ? <p className="mt-4 text-sm text-moss">{status}</p> : null}
-        {error ? <p className="mt-2 text-sm text-ember">{error}</p> : null}
-      </Card>
-      <Card title={labels.previewTitle} eyebrow={labels.previewEyebrow}>
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-ink/10 bg-white px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-ink/45">{labels.currentSnapshot}</p>
-            <div className="mt-3 grid gap-2 text-sm text-ink/70">
-              <p>{dictionary.common.mode}: {formatMode(current.isPrivate, dictionary)}</p>
-              <p>{dictionary.common.state}: {formatState(current.isEnabled, dictionary)}</p>
-              <p>{dictionary.common.interval}: {current.announceIntervalSeconds}s / min {current.minAnnounceIntervalSeconds}s</p>
-              <p>Numwant: {current.defaultNumWant} / {current.maxNumWant}</p>
-              <p>{dictionary.common.scrape}: {formatScrape(current.allowScrape, dictionary)}</p>
-              <p>{dictionary.common.version}: {current.version}</p>
-            </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">{labels.announceInterval}</span>
+              <input className="app-input" type="number" value={form.announceIntervalSeconds} onChange={(event) => updateField("announceIntervalSeconds", Number(event.target.value))} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">{labels.minAnnounceInterval}</span>
+              <input className="app-input" type="number" value={form.minAnnounceIntervalSeconds} onChange={(event) => updateField("minAnnounceIntervalSeconds", Number(event.target.value))} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">{labels.defaultNumwant}</span>
+              <input className="app-input" type="number" value={form.defaultNumWant} onChange={(event) => updateField("defaultNumWant", Number(event.target.value))} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">{labels.maxNumwant}</span>
+              <input className="app-input" type="number" value={form.maxNumWant} onChange={(event) => updateField("maxNumWant", Number(event.target.value))} />
+            </label>
           </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
+              <input type="checkbox" checked={form.isPrivate} onChange={(event) => updateField("isPrivate", event.target.checked)} />
+              {labels.privateTracker}
+            </label>
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
+              <input type="checkbox" checked={form.isEnabled} onChange={(event) => updateField("isEnabled", event.target.checked)} />
+              {labels.enabled}
+            </label>
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
+              <input type="checkbox" checked={form.allowScrape} onChange={(event) => updateField("allowScrape", event.target.checked)} />
+              {labels.allowScrape}
+            </label>
+          </div>
+          <TrackerEditorFooter
+            left={!isCreate ? (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => setConfirmDeleteOpen(true)}
+                className="app-button-danger inline-flex items-center gap-2"
+              >
+                <TrashIcon className="app-button-icon" />
+                Delete torrent
+              </button>
+            ) : undefined}
+            right={
+              <>
+                <button type="button" className="app-button-secondary" disabled={isSubmitting} onClick={() => navigate(returnTo)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => void handleDryRun()}
+                  className="app-button-secondary inline-flex items-center gap-2"
+                >
+                  <EyeIcon className="app-button-icon" />
+                  {labels.previewChanges}
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || !infoHashInput.trim()}
+                  onClick={() => void handleSave()}
+                  className="app-button-primary inline-flex items-center gap-2"
+                >
+                  <PencilIcon className="app-button-icon" />
+                  {isCreate ? "Create torrent" : labels.applyPolicy}
+                </button>
+              </>
+            }
+          />
+        </div>
+        <div className="space-y-4">
+          <TrackerEditorSummary
+            eyebrow={labels.previewEyebrow}
+            title={current ? labels.currentSnapshot : "Draft policy"}
+            items={[
+              { label: labels.infoHash, value: infoHashInput || "Not set", tone: "mono" },
+              { label: dictionary.common.mode, value: current ? formatMode(current.isPrivate, dictionary) : formatMode(form.isPrivate, dictionary) },
+              { label: dictionary.common.state, value: current ? formatState(current.isEnabled, dictionary) : formatState(form.isEnabled, dictionary) },
+              { label: dictionary.common.interval, value: `${current?.announceIntervalSeconds ?? form.announceIntervalSeconds}s / min ${current?.minAnnounceIntervalSeconds ?? form.minAnnounceIntervalSeconds}s` },
+              { label: "Numwant", value: `${current?.defaultNumWant ?? form.defaultNumWant} / ${current?.maxNumWant ?? form.maxNumWant}` },
+              { label: dictionary.common.scrape, value: current ? formatScrape(current.allowScrape, dictionary) : formatScrape(form.allowScrape, dictionary) },
+              { label: dictionary.common.version, value: current?.version ?? form.expectedVersion ?? "New" }
+            ]}
+          >
+            {!current ? <div className="text-sm text-steel">A new torrent policy will appear here after the first save.</div> : null}
+          </TrackerEditorSummary>
           {dryRun ? (
-            <div className="rounded-2xl border border-ink/10 bg-slate-50 px-4 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-ink/45">{labels.dryRunResult}</p>
-                <StatusPill tone={dryRun.canApply ? "good" : "warn"}>{dryRun.canApply ? labels.canApply : labels.rejected}</StatusPill>
-              </div>
-              {dryRun.errorMessage ? <p className="mt-3 text-sm text-ember">{dryRun.errorMessage}</p> : null}
-              <div className="mt-3 grid gap-2 text-sm text-ink/70">
-                <p>{dictionary.common.mode}: {formatMode(dryRun.proposedSnapshot.isPrivate, dictionary)}</p>
-                <p>{dictionary.common.state}: {formatState(dryRun.proposedSnapshot.isEnabled, dictionary)}</p>
-                <p>{dictionary.common.interval}: {dryRun.proposedSnapshot.announceIntervalSeconds}s / min {dryRun.proposedSnapshot.minAnnounceIntervalSeconds}s</p>
-                <p>Numwant: {dryRun.proposedSnapshot.defaultNumWant} / {dryRun.proposedSnapshot.maxNumWant}</p>
-                <p>{dictionary.common.scrape}: {formatScrape(dryRun.proposedSnapshot.allowScrape, dictionary)}</p>
-                <p>{labels.versionTarget}: {dryRun.proposedSnapshot.version}</p>
-              </div>
+            <TrackerEditorSummary
+              eyebrow={labels.previewEyebrow}
+              title={labels.dryRunResult}
+              items={[
+                { label: dictionary.common.mode, value: formatMode(dryRun.proposedSnapshot.isPrivate, dictionary) },
+                { label: dictionary.common.state, value: formatState(dryRun.proposedSnapshot.isEnabled, dictionary) },
+                { label: dictionary.common.interval, value: `${dryRun.proposedSnapshot.announceIntervalSeconds}s / min ${dryRun.proposedSnapshot.minAnnounceIntervalSeconds}s` },
+                { label: "Numwant", value: `${dryRun.proposedSnapshot.defaultNumWant} / ${dryRun.proposedSnapshot.maxNumWant}` },
+                { label: dictionary.common.scrape, value: formatScrape(dryRun.proposedSnapshot.allowScrape, dictionary) },
+                { label: labels.versionTarget, value: dryRun.proposedSnapshot.version }
+              ]}
+            >
+              <StatusPill tone={dryRun.canApply ? "good" : "warn"}>{dryRun.canApply ? labels.canApply : labels.rejected}</StatusPill>
+              {dryRun.errorMessage ? <div className="text-sm text-ember">{dryRun.errorMessage}</div> : null}
               {dryRun.warnings.length > 0 ? (
-                <div className="mt-4 rounded-2xl bg-ember/10 px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-ember">{dictionary.common.warnings}</p>
-                  <ul className="mt-2 space-y-2 text-sm text-ember">
+                <div className="space-y-2">
+                  <div className="app-kicker">{dictionary.common.warnings}</div>
+                  <ul className="space-y-1 text-sm text-ember">
                     {dryRun.warnings.map((warning) => (
                       <li key={warning}>{warning}</li>
                     ))}
                   </ul>
                 </div>
               ) : null}
-            </div>
+            </TrackerEditorSummary>
           ) : (
-            <p className="text-sm text-ink/55">{labels.previewHint}</p>
+            <TrackerEditorSummary
+              eyebrow={labels.previewEyebrow}
+              title={labels.previewTitle}
+              items={[{ label: "Preview", value: labels.previewHint }]}
+            />
           )}
         </div>
-      </Card>
-    </div>
+      </div>
+      <ConfirmActionModal
+        open={confirmDeleteOpen}
+        title="Delete torrent"
+        description={`Delete ${infoHashInput}? This removes the configured torrent policy.`}
+        confirmLabel="Delete torrent"
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          void handleDelete();
+        }}
+      />
+    </TrackerEditorLayout>
   );
 }
 
@@ -2775,34 +3042,42 @@ function BulkTorrentPolicyEditorPage({
             {dictionary.policyEditor.allowScrape}
           </label>
         </div>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={isSubmitting || selection.length === 0}
-            onClick={() => void runDryRun()}
-            className="rounded-2xl border border-ink/20 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.previewRollout}
-          </button>
-          <button
-            type="button"
-            disabled={isSubmitting || selection.length === 0}
-            onClick={() => void applyBulkUpdate()}
-            className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.applyRollout}
-          </button>
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => {
-              clearBulkTorrentPolicySelection();
-              navigate("/torrents", { replace: true });
-            }}
-            className="rounded-2xl border border-ember/30 px-5 py-3 text-sm font-semibold text-ember transition hover:bg-ember/5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {labels.backToCatalog}
-          </button>
+        <div className="mt-6">
+          <TrackerEditorFooter
+            right={
+              <>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    clearBulkTorrentPolicySelection();
+                    navigate("/torrents", { replace: true });
+                  }}
+                  className="app-button-secondary"
+                >
+                  {labels.backToCatalog}
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || selection.length === 0}
+                  onClick={() => void runDryRun()}
+                  className="app-button-secondary inline-flex items-center gap-2"
+                >
+                  <EyeIcon className="app-button-icon" />
+                  {labels.previewRollout}
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || selection.length === 0}
+                  onClick={() => void applyBulkUpdate()}
+                  className="app-button-primary inline-flex items-center gap-2"
+                >
+                  <PencilIcon className="app-button-icon" />
+                  {labels.applyRollout}
+                </button>
+              </>
+            }
+          />
         </div>
         {status ? <p className="mt-4 text-sm text-moss">{status}</p> : null}
         {error ? <p className="mt-2 text-sm text-ember">{error}</p> : null}
@@ -2977,6 +3252,13 @@ function PasskeysPage({
     navigate(`/passkeys/actions?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
   };
 
+  const openCreate = () => {
+    setError(null);
+    setStatus(null);
+    setResult(null);
+    navigate(`/passkeys/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
+  };
+
   return (
     <div className="space-y-6">
       <CatalogToolbar
@@ -3005,8 +3287,10 @@ function PasskeysPage({
         ]}
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
-        createLabel="Run batch"
-        onCreate={openActionModal}
+        secondaryLabel="Batch actions"
+        onSecondaryAction={openActionModal}
+        createLabel="Create passkey"
+        onCreate={openCreate}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
       {error ? <div className="app-notice-warn">{error}</div> : null}
@@ -3057,7 +3341,10 @@ function PasskeysPage({
                   <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
-                    <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => setView((current) => ({ ...current, preview: item.passkeyMask }))}><EyeIcon className="app-button-icon" />Preview</button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => navigate(`/passkeys/${encodeURIComponent(item.id)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit</button>
+                      <RowActionsMenu items={[{ label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.passkeyMask })) }]} />
+                    </div>
                   </td>
                 </CatalogTableRow>
               ))}
@@ -3090,6 +3377,9 @@ function PasskeysPage({
                 ))}
               </div>
             ) : null}
+            <div className="flex justify-end">
+              <button type="button" className="app-button-primary inline-flex items-center gap-2" onClick={() => navigate(`/passkeys/${encodeURIComponent(previewItem.id)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit passkey</button>
+            </div>
           </div>
         ) : null}
       </PreviewDrawer>
@@ -3595,6 +3885,310 @@ function TrackerAccessPage({
   );
 }
 
+function PasskeyEditorPage({
+  accessToken,
+  onReauthenticate,
+  capabilities
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  capabilities: CapabilityDto[];
+}) {
+  const { dictionary } = useI18n();
+  const labels = dictionary.passkeys;
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  const passkeyId = params.id ?? null;
+  const isCreate = passkeyId === null;
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/passkeys");
+  const canManage = hasGrantedCapability(capabilities, "admin.write.passkey");
+  const [form, setForm] = useState<PasskeyFormState>({
+    passkey: "",
+    userId: "",
+    isRevoked: false,
+    expiresAtLocal: "",
+    expectedVersion: undefined
+  });
+  const [isLoading, setIsLoading] = useState(!isCreate);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [rotatedPasskey, setRotatedPasskey] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  useEffect(() => {
+    if (isCreate || !passkeyId) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    void findPasskeyRecord(accessToken, onReauthenticate, passkeyId)
+      .then((item) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (!item) {
+          setError("Unable to load the requested passkey.");
+          return;
+        }
+
+        setForm(toPasskeyForm(item));
+      })
+      .catch((requestError) => {
+        if (!cancelled) {
+          setError(requestError instanceof Error ? requestError.message : labels.loadError);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isCreate, labels.loadError, onReauthenticate, passkeyId]);
+
+  const savePasskey = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      setMessage(null);
+      setRotatedPasskey(null);
+
+      if (isCreate) {
+        await apiMutation<PasskeyAdminDto, { passkey: string; userId: string; isRevoked: boolean; expiresAtUtc: string | null; expectedVersion?: number }>(
+          "/api/admin/passkeys",
+          "POST",
+          accessToken,
+          {
+            passkey: form.passkey,
+            userId: form.userId,
+            isRevoked: form.isRevoked,
+            expiresAtUtc: fromLocalDateTimeInput(form.expiresAtLocal),
+            expectedVersion: form.expectedVersion
+          },
+          onReauthenticate
+        );
+
+        navigate(returnTo, { state: { message: "Passkey created.", tone: "good" } satisfies NavigationBannerState });
+        return;
+      }
+
+      await apiMutation<PasskeyAdminDto, { userId: string; isRevoked: boolean; expiresAtUtc: string | null; expectedVersion?: number }>(
+        `/api/admin/passkeys/id/${encodeURIComponent(passkeyId!)}`,
+        "PUT",
+        accessToken,
+        {
+          userId: form.userId,
+          isRevoked: form.isRevoked,
+          expiresAtUtc: fromLocalDateTimeInput(form.expiresAtLocal),
+          expectedVersion: form.expectedVersion
+        },
+        onReauthenticate
+      );
+
+      navigate(returnTo, { state: { message: "Passkey updated.", tone: "good" } satisfies NavigationBannerState });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Saving passkey failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const revokePasskey = async () => {
+    if (!passkeyId) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      setMessage(null);
+      setRotatedPasskey(null);
+      const snapshot = await apiMutation<{ id: string; userId: string; isRevoked: boolean; expiresAtUtc: string | null; version: number }, { expectedVersion?: number }>(
+        `/api/admin/passkeys/id/${encodeURIComponent(passkeyId)}/revoke`,
+        "POST",
+        accessToken,
+        { expectedVersion: form.expectedVersion },
+        onReauthenticate
+      );
+
+      setForm((current) => ({ ...current, isRevoked: true, expectedVersion: snapshot.version }));
+      setMessage("Passkey revoked.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Revoking passkey failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const rotatePasskey = async () => {
+    if (!passkeyId) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      setMessage(null);
+      const result = await apiMutation<PasskeyMutationPairDto, { expiresAtUtc: string | null; expectedVersion?: number }>(
+        `/api/admin/passkeys/id/${encodeURIComponent(passkeyId)}/rotate`,
+        "POST",
+        accessToken,
+        {
+          expiresAtUtc: fromLocalDateTimeInput(form.expiresAtLocal),
+          expectedVersion: form.expectedVersion
+        },
+        onReauthenticate
+      );
+
+      setRotatedPasskey(result.newSnapshot.passkey);
+      setMessage("Passkey rotated. Copy the new passkey now; it will not be shown again.");
+      navigate(`/passkeys/${encodeURIComponent(result.newSnapshot.id)}/edit?returnTo=${encodeURIComponent(returnTo)}`, {
+        replace: true,
+        state: { message: "Passkey rotated. Copy the new passkey now; it will not be shown again.", rotatedPasskey: result.newSnapshot.passkey }
+      });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Rotating passkey failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const deletePasskey = async () => {
+    if (!passkeyId) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      setMessage(null);
+      await apiDelete(`/api/admin/passkeys/id/${encodeURIComponent(passkeyId)}?expectedVersion=${encodeURIComponent(String(form.expectedVersion ?? ""))}`, accessToken, onReauthenticate);
+      navigate(returnTo, { state: { message: "Passkey deleted.", tone: "good" } satisfies NavigationBannerState });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Deleting passkey failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    const banner = location.state as (NavigationBannerState & { rotatedPasskey?: string }) | null;
+    if (!banner) {
+      return;
+    }
+
+    if (banner.message) {
+      setMessage(banner.message);
+    }
+
+    if (banner.rotatedPasskey) {
+      setRotatedPasskey(banner.rotatedPasskey);
+    }
+
+    navigate(location.pathname + location.search, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
+
+  return (
+    <TrackerEditorLayout
+      eyebrow="Tracker"
+      title={isCreate ? "Create passkey" : "Edit passkey"}
+      description={isCreate ? "Create a passkey in a dedicated editor." : "Update, revoke, rotate or delete a passkey outside the list grid."}
+      error={error}
+      message={message}
+    >
+      <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+        <div className="space-y-4">
+          {isCreate ? (
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">Raw passkey</span>
+              <input className="app-input font-mono text-sm" value={form.passkey} onChange={(event) => setForm((current) => ({ ...current, passkey: event.target.value }))} />
+            </label>
+          ) : null}
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink">User ID</span>
+            <input className="app-input font-mono text-sm" value={form.userId} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, userId: event.target.value }))} />
+          </label>
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
+            <input type="checkbox" checked={form.isRevoked} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, isRevoked: event.target.checked }))} />
+            Revoked
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink">Expires at</span>
+            <input className="app-input" type="datetime-local" value={form.expiresAtLocal} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, expiresAtLocal: event.target.value }))} />
+          </label>
+          <TrackerEditorFooter
+            left={!isCreate ? (
+              <>
+                <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={!canManage || isSubmitting} onClick={() => void revokePasskey()}>
+                  <TrashIcon className="app-button-icon" />
+                  Revoke
+                </button>
+                <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={!canManage || isSubmitting} onClick={() => void rotatePasskey()}>
+                  <PencilIcon className="app-button-icon" />
+                  Rotate
+                </button>
+                <button type="button" className="app-button-danger inline-flex items-center gap-2" disabled={!canManage || isSubmitting} onClick={() => setConfirmDeleteOpen(true)}>
+                  <TrashIcon className="app-button-icon" />
+                  Delete
+                </button>
+              </>
+            ) : undefined}
+            right={
+              <>
+                <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+                  Cancel
+                </button>
+                <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canManage || isLoading || isSubmitting || !form.userId.trim() || (isCreate && !form.passkey.trim())} onClick={() => void savePasskey()}>
+                  <PencilIcon className="app-button-icon" />
+                  {isCreate ? "Create passkey" : "Save passkey"}
+                </button>
+              </>
+            }
+          />
+        </div>
+        <TrackerEditorSummary
+          title={isCreate ? "Passkey draft" : "Current passkey"}
+          items={[
+            { label: "Passkey", value: isCreate ? (form.passkey || "Not set") : "Managed by identifier", tone: "mono" },
+            { label: "User ID", value: form.userId || "Not set", tone: "mono" },
+            { label: "State", value: form.isRevoked ? "Revoked" : "Active" },
+            { label: "Expires", value: form.expiresAtLocal || "No expiry" },
+            { label: "Version", value: form.expectedVersion ?? "New" }
+          ]}
+        >
+          {rotatedPasskey ? (
+            <div className="space-y-2">
+              <div className="app-kicker">New passkey</div>
+              <div className="flex items-center gap-3">
+                <div className="break-all font-mono text-xs text-ink">{rotatedPasskey}</div>
+                <CopyValueButton value={rotatedPasskey} label="Copy new passkey" />
+              </div>
+            </div>
+          ) : null}
+        </TrackerEditorSummary>
+      </div>
+      <ConfirmActionModal
+        open={confirmDeleteOpen}
+        title="Delete passkey"
+        description="Delete this passkey? This cannot be undone."
+        confirmLabel="Delete passkey"
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          void deletePasskey();
+        }}
+      />
+    </TrackerEditorLayout>
+  );
+}
+
 function PasskeyBatchActionPage({
   accessToken,
   onReauthenticate,
@@ -3685,19 +4279,23 @@ function PasskeyBatchActionPage({
             ))}
           </div>
         ) : null}
-        <div className="flex flex-wrap justify-end gap-3">
-          <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
-            Cancel
-          </button>
-          <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={!canRevoke || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/revoke", "revoke")}>
-            <TrashIcon className="app-button-icon" />
-            {labels.revoke}
-          </button>
-          <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canRotate || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/rotate", "rotate")}>
-            <PencilIcon className="app-button-icon" />
-            {labels.rotate}
-          </button>
-        </div>
+        <TrackerEditorFooter
+          right={
+            <>
+              <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+                Cancel
+              </button>
+              <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={!canRevoke || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/revoke", "revoke")}>
+                <TrashIcon className="app-button-icon" />
+                {labels.revoke}
+              </button>
+              <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canRotate || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/rotate", "rotate")}>
+                <PencilIcon className="app-button-icon" />
+                {labels.rotate}
+              </button>
+            </>
+          }
+        />
       </div>
     </TrackerEditorLayout>
   );
@@ -3814,20 +4412,11 @@ function BanEditorPage({
         throw new Error(labels.expiryRequired);
       }
 
-      await apiMutation<BulkOperationResultDto, { items: Array<{ scope: string; subject: string; expiresAtUtc: string; expectedVersion?: number }> }>(
-        "/api/admin/bans/bulk/expire",
+      await apiMutation<BanRuleAdminDto, { expiresAtUtc: string; expectedVersion?: number }>(
+        `/api/admin/bans/${encodeURIComponent(form.scope)}/${encodeURIComponent(form.subject)}/expire`,
         "POST",
         accessToken,
-        {
-          items: [
-            {
-              scope: form.scope,
-              subject: form.subject,
-              expiresAtUtc,
-              expectedVersion: form.expectedVersion
-            }
-          ]
-        },
+        { expiresAtUtc, expectedVersion: form.expectedVersion },
         onReauthenticate
       );
 
@@ -3844,19 +4433,9 @@ function BanEditorPage({
       setIsSubmitting(true);
       setError(null);
       setMessage(null);
-      await apiMutation<BulkOperationResultDto, { items: Array<{ scope: string; subject: string; expectedVersion?: number }> }>(
-        "/api/admin/bans/bulk/delete",
-        "POST",
+      await apiDelete(
+        `/api/admin/bans/${encodeURIComponent(form.scope)}/${encodeURIComponent(form.subject)}?expectedVersion=${encodeURIComponent(String(form.expectedVersion ?? ""))}`,
         accessToken,
-        {
-          items: [
-            {
-              scope: form.scope,
-              subject: form.subject,
-              expectedVersion: form.expectedVersion
-            }
-          ]
-        },
         onReauthenticate
       );
 
@@ -3876,46 +4455,62 @@ function BanEditorPage({
       error={error}
       message={message}
     >
-      <div className="space-y-4">
-        <div className="app-form-grid">
+      <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+        <div className="space-y-4">
+          <div className="app-form-grid">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">{labels.scope}</span>
+              <input className="app-input" value={form.scope} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value }))} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">{labels.subject}</span>
+              <input className="app-input font-mono text-sm" value={form.subject} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
+            </label>
+          </div>
           <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.scope}</span>
-            <input className="app-input" value={form.scope} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value }))} />
+            <span className="text-sm font-medium text-ink">{labels.reason}</span>
+            <textarea className="app-input min-h-32" value={form.reason} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.subject}</span>
-            <input className="app-input font-mono text-sm" value={form.subject} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
+            <span className="text-sm font-medium text-ink">{labels.expiresLabel}</span>
+            <input className="app-input" type="datetime-local" value={form.expiresAtLocal} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, expiresAtLocal: event.target.value }))} />
           </label>
+          <TrackerEditorFooter
+            left={!isCreate ? (
+              <>
+                <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={!canExpire || isSubmitting || !form.scope.trim() || !form.subject.trim()} onClick={() => void expireBan()}>
+                  <PowerIcon className="app-button-icon" />
+                  {labels.expireBan}
+                </button>
+                <button type="button" className="app-button-danger inline-flex items-center gap-2" disabled={!canDelete || isSubmitting} onClick={() => setConfirmDeleteOpen(true)}>
+                  <TrashIcon className="app-button-icon" />
+                  Delete rule
+                </button>
+              </>
+            ) : undefined}
+            right={
+              <>
+                <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+                  Cancel
+                </button>
+                <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canWrite || isLoading || isSubmitting || !form.scope.trim() || !form.subject.trim() || !form.reason.trim()} onClick={() => void saveBan()}>
+                  <PencilIcon className="app-button-icon" />
+                  {isCreate ? "Create rule" : labels.saveBan}
+                </button>
+              </>
+            }
+          />
         </div>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">{labels.reason}</span>
-          <textarea className="app-input min-h-32" value={form.reason} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">{labels.expiresLabel}</span>
-          <input className="app-input" type="datetime-local" value={form.expiresAtLocal} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, expiresAtLocal: event.target.value }))} />
-        </label>
-        <div className="flex flex-wrap justify-end gap-3">
-          {!isCreate ? (
-            <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={!canExpire || isSubmitting || !form.scope.trim() || !form.subject.trim()} onClick={() => void expireBan()}>
-              <PowerIcon className="app-button-icon" />
-              {labels.expireBan}
-            </button>
-          ) : null}
-          {!isCreate ? (
-            <button type="button" className="app-button-danger inline-flex items-center gap-2" disabled={!canDelete || isSubmitting} onClick={() => setConfirmDeleteOpen(true)}>
-              <TrashIcon className="app-button-icon" />
-              Delete rule
-            </button>
-          ) : null}
-          <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
-            Cancel
-          </button>
-          <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canWrite || isLoading || isSubmitting || !form.scope.trim() || !form.subject.trim() || !form.reason.trim()} onClick={() => void saveBan()}>
-            <PencilIcon className="app-button-icon" />
-            {isCreate ? "Create rule" : labels.saveBan}
-          </button>
-        </div>
+        <TrackerEditorSummary
+          title={isCreate ? "Ban draft" : "Current rule"}
+          items={[
+            { label: labels.scope, value: form.scope || "Not set" },
+            { label: labels.subject, value: form.subject || "Not set", tone: "mono" },
+            { label: labels.reason, value: form.reason || "Not set" },
+            { label: labels.expiresLabel, value: form.expiresAtLocal || "No expiry" },
+            { label: "Version", value: form.expectedVersion ?? "New" }
+          ]}
+        />
       </div>
       <ConfirmActionModal
         open={confirmDeleteOpen}
@@ -3962,6 +4557,7 @@ function TrackerAccessEditorPage({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
     if (isCreate || !userId) {
@@ -4026,6 +4622,29 @@ function TrackerAccessEditorPage({
     }
   };
 
+  const deletePermissions = async () => {
+    if (isCreate || !form.userId.trim()) {
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setError(null);
+      setMessage(null);
+      await apiDelete(
+        `/api/admin/users/${encodeURIComponent(form.userId)}/tracker-access?expectedVersion=${encodeURIComponent(String(form.expectedVersion ?? ""))}`,
+        accessToken,
+        onReauthenticate
+      );
+
+      navigate(returnTo, { state: { message: "Tracker access deleted.", tone: "good" } satisfies NavigationBannerState });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Deleting tracker access failed.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <TrackerEditorLayout
       eyebrow="Tracker"
@@ -4034,27 +4653,61 @@ function TrackerAccessEditorPage({
       error={error}
       message={message}
     >
-      <div className="space-y-4">
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">{labels.userId}</span>
-          <input className="app-input font-mono text-sm" value={form.userId} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, userId: event.target.value }))} />
-        </label>
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canLeech} onChange={(event) => setForm((current) => ({ ...current, canLeech: event.target.checked }))} />{labels.canLeech}</label>
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canSeed} onChange={(event) => setForm((current) => ({ ...current, canSeed: event.target.checked }))} />{labels.canSeed}</label>
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canScrape} onChange={(event) => setForm((current) => ({ ...current, canScrape: event.target.checked }))} />{labels.canScrape}</label>
-          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />{labels.canUsePrivateTracker}</label>
+      <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+        <div className="space-y-4">
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink">{labels.userId}</span>
+            <input className="app-input font-mono text-sm" value={form.userId} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, userId: event.target.value }))} />
+          </label>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canLeech} onChange={(event) => setForm((current) => ({ ...current, canLeech: event.target.checked }))} />{labels.canLeech}</label>
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canSeed} onChange={(event) => setForm((current) => ({ ...current, canSeed: event.target.checked }))} />{labels.canSeed}</label>
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canScrape} onChange={(event) => setForm((current) => ({ ...current, canScrape: event.target.checked }))} />{labels.canScrape}</label>
+            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />{labels.canUsePrivateTracker}</label>
+          </div>
+          <TrackerEditorFooter
+            left={!isCreate ? (
+              <button type="button" className="app-button-danger inline-flex items-center gap-2" disabled={!canWrite || isSaving} onClick={() => setConfirmDeleteOpen(true)}>
+                <TrashIcon className="app-button-icon" />
+                Delete access
+              </button>
+            ) : undefined}
+            right={
+              <>
+                <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+                  Cancel
+                </button>
+                <button type="button" disabled={!canWrite || isSaving || isLoading || !form.userId.trim()} className="app-button-primary inline-flex items-center gap-2" onClick={() => void savePermissions()}>
+                  <PencilIcon className="app-button-icon" />
+                  {labels.savePermissions}
+                </button>
+              </>
+            }
+          />
         </div>
-        <div className="flex flex-wrap justify-end gap-3">
-          <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
-            Cancel
-          </button>
-          <button type="button" disabled={!canWrite || isSaving || isLoading || !form.userId.trim()} className="app-button-primary inline-flex items-center gap-2" onClick={() => void savePermissions()}>
-            <PencilIcon className="app-button-icon" />
-            {labels.savePermissions}
-          </button>
-        </div>
+        <TrackerEditorSummary
+          title={isCreate ? "Access draft" : "Current access"}
+          items={[
+            { label: labels.userId, value: form.userId || "Not set", tone: "mono" },
+            { label: labels.canLeech, value: form.canLeech ? "Allowed" : "Blocked" },
+            { label: labels.canSeed, value: form.canSeed ? "Allowed" : "Blocked" },
+            { label: labels.canScrape, value: form.canScrape ? "Allowed" : "Blocked" },
+            { label: labels.canUsePrivateTracker, value: form.canUsePrivateTracker ? "Allowed" : "Blocked" },
+            { label: "Version", value: form.expectedVersion ?? "New" }
+          ]}
+        />
       </div>
+      <ConfirmActionModal
+        open={confirmDeleteOpen}
+        title="Delete tracker access"
+        description={`Delete tracker access for ${form.userId}? This cannot be undone.`}
+        confirmLabel="Delete access"
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          void deletePermissions();
+        }}
+      />
     </TrackerEditorLayout>
   );
 }
@@ -4154,15 +4807,19 @@ function BulkTrackerAccessEditorPage({
           <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canScrape} onChange={(event) => setForm((current) => ({ ...current, canScrape: event.target.checked }))} />{labels.canScrape}</label>
           <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />{labels.canUsePrivateTracker}</label>
         </div>
-        <div className="flex flex-wrap justify-end gap-3">
-          <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
-            Cancel
-          </button>
-          <button type="button" disabled={!canWrite || isSaving || selectedItems.length === 0} className="app-button-primary inline-flex items-center gap-2" onClick={() => void saveBulk()}>
-            <PencilIcon className="app-button-icon" />
-            {labels.applySelected} ({selectedItems.length})
-          </button>
-        </div>
+        <TrackerEditorFooter
+          right={
+            <>
+              <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+                Cancel
+              </button>
+              <button type="button" disabled={!canWrite || isSaving || selectedItems.length === 0} className="app-button-primary inline-flex items-center gap-2" onClick={() => void saveBulk()}>
+                <PencilIcon className="app-button-icon" />
+                {labels.applySelected} ({selectedItems.length})
+              </button>
+            </>
+          }
+        />
       </div>
     </TrackerEditorLayout>
   );
@@ -5380,6 +6037,22 @@ function AuthenticatedAdminApp({
           }
         />
         <Route
+          path="/passkeys/new"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.passkey">
+              <PasskeyEditorPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
+          path="/passkeys/:id/edit"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.passkey">
+              <PasskeyEditorPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
           path="/permissions"
           element={
             <CapabilityGate capabilities={capabilities} action="admin.read.permissions">
@@ -5432,6 +6105,22 @@ function AuthenticatedAdminApp({
           element={
             <CapabilityGate capabilities={capabilities} action="admin.write.ban">
               <BanEditorPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
+          path="/torrents/new"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.torrent_policy">
+              <TorrentPolicyEditorPage accessToken={accessToken} onReauthenticate={onSignin} />
+            </CapabilityGate>
+          }
+        />
+        <Route
+          path="/torrents/:infoHash/edit"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.torrent_policy">
+              <TorrentPolicyEditorPage accessToken={accessToken} onReauthenticate={onSignin} />
             </CapabilityGate>
           }
         />

@@ -139,11 +139,16 @@ public sealed class TrackerConfigurationDbContext(DbContextOptions<TrackerConfig
         {
             entity.ToTable("passkeys");
             entity.HasKey(static passkey => passkey.Passkey);
+            entity.Property(static passkey => passkey.Id)
+                .ValueGeneratedOnAdd()
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
             entity.Property(static passkey => passkey.Passkey).HasColumnName("passkey").HasMaxLength(64);
             entity.Property(static passkey => passkey.UserId).HasColumnName("user_id");
             entity.Property(static passkey => passkey.IsRevoked).HasColumnName("is_revoked");
             entity.Property(static passkey => passkey.ExpiresAtUtc).HasColumnName("expires_at_utc");
             entity.Property(static passkey => passkey.RowVersion).HasColumnName("row_version");
+            entity.HasIndex(static passkey => passkey.Id).IsUnique();
             entity.HasIndex(static passkey => passkey.UserId);
         });
 

@@ -417,6 +417,230 @@ public sealed class AdminApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task TrackerCrud_Passkey_Create_Update_Revoke_Delete_Flow_Works()
+    {
+        var passkey = $"crud-passkey-{Guid.NewGuid():N}";
+        var userId = Guid.Parse("00000000-0000-0000-0000-000000000002");
+
+        using var createRequest = CreateAdminRequest(HttpMethod.Post, "/api/admin/passkeys", "corr-passkey-create");
+        createRequest.Content = JsonContent.Create(new
+        {
+            passkey,
+            userId,
+            isRevoked = false,
+            expiresAtUtc = (DateTimeOffset?)null
+        });
+
+        using var createResponse = await _adminClient.SendAsync(createRequest);
+        var createBody = await createResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, createResponse.StatusCode);
+
+        using var createdDocument = JsonDocument.Parse(createBody);
+        var id = createdDocument.RootElement.GetProperty("id").GetGuid();
+        var createVersion = createdDocument.RootElement.GetProperty("version").GetInt64();
+
+        using var detailResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, $"/api/admin/passkeys/{id}", "corr-passkey-detail"));
+        var detailBody = await detailResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, detailResponse.StatusCode);
+        using (var detailDocument = JsonDocument.Parse(detailBody))
+        {
+            Assert.Equal(id, detailDocument.RootElement.GetProperty("id").GetGuid());
+            Assert.Equal(userId, detailDocument.RootElement.GetProperty("userId").GetGuid());
+            Assert.False(detailDocument.RootElement.GetProperty("isRevoked").GetBoolean());
+        }
+
+        var expiresAtUtc = DateTimeOffset.UtcNow.AddDays(7);
+        using var updateRequest = CreateAdminRequest(HttpMethod.Put, $"/api/admin/passkeys/id/{id}", "corr-passkey-update");
+        updateRequest.Content = JsonContent.Create(new
+        {
+            userId,
+            isRevoked = false,
+            expiresAtUtc,
+            expectedVersion = createVersion
+        });
+
+        using var updateResponse = await _adminClient.SendAsync(updateRequest);
+        var updateBody = await updateResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, updateResponse.StatusCode);
+        using var updateDocument = JsonDocument.Parse(updateBody);
+        var updateVersion = updateDocument.RootElement.GetProperty("version").GetInt64();
+        Assert.True(updateVersion > createVersion);
+
+        using var revokeRequest = CreateAdminRequest(HttpMethod.Post, $"/api/admin/passkeys/id/{id}/revoke", "corr-passkey-revoke");
+        revokeRequest.Content = JsonContent.Create(new
+        {
+            expectedVersion = updateVersion
+        });
+
+        using var revokeResponse = await _adminClient.SendAsync(revokeRequest);
+        var revokeBody = await revokeResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, revokeResponse.StatusCode);
+        using var revokeDocument = JsonDocument.Parse(revokeBody);
+        var revokeVersion = revokeDocument.RootElement.GetProperty("version").GetInt64();
+        Assert.True(revokeDocument.RootElement.GetProperty("isRevoked").GetBoolean());
+
+        using var deleteRequest = CreateAdminRequest(HttpMethod.Delete, $"/api/admin/passkeys/id/{id}?expectedVersion={revokeVersion}", "corr-passkey-delete");
+        using var deleteResponse = await _adminClient.SendAsync(deleteRequest);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        using var missingResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, $"/api/admin/passkeys/{id}", "corr-passkey-missing"));
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, missingResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task TrackerCrud_TrackerAccess_Create_Update_Delete_Flow_Works()
+    {
+        var userId = Guid.NewGuid();
+
+        using var createRequest = CreateAdminRequest(HttpMethod.Put, $"/api/admin/users/{userId}/tracker-access", "corr-tracker-access-create");
+        createRequest.Content = JsonContent.Create(new TrackerAccessRightsUpsertRequest(
+            CanLeech: true,
+            CanSeed: false,
+            CanScrape: true,
+            CanUsePrivateTracker: false));
+
+        using var createResponse = await _adminClient.SendAsync(createRequest);
+        var createBody = await createResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, createResponse.StatusCode);
+        using var createDocument = JsonDocument.Parse(createBody);
+        var createVersion = createDocument.RootElement.GetProperty("version").GetInt64();
+        Assert.False(createDocument.RootElement.GetProperty("canSeed").GetBoolean());
+
+        using var detailResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, $"/api/admin/tracker-access/{userId}", "corr-tracker-access-detail"));
+        var detailBody = await detailResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, detailResponse.StatusCode);
+        using (var detailDocument = JsonDocument.Parse(detailBody))
+        {
+            Assert.Equal(userId, detailDocument.RootElement.GetProperty("userId").GetGuid());
+            Assert.False(detailDocument.RootElement.GetProperty("canUsePrivateTracker").GetBoolean());
+        }
+
+        using var updateRequest = CreateAdminRequest(HttpMethod.Put, $"/api/admin/users/{userId}/tracker-access", "corr-tracker-access-update");
+        updateRequest.Content = JsonContent.Create(new TrackerAccessRightsUpsertRequest(
+            CanLeech: true,
+            CanSeed: true,
+            CanScrape: false,
+            CanUsePrivateTracker: true,
+            ExpectedVersion: createVersion));
+
+        using var updateResponse = await _adminClient.SendAsync(updateRequest);
+        var updateBody = await updateResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, updateResponse.StatusCode);
+        using var updateDocument = JsonDocument.Parse(updateBody);
+        var updateVersion = updateDocument.RootElement.GetProperty("version").GetInt64();
+        Assert.True(updateDocument.RootElement.GetProperty("canUsePrivateTracker").GetBoolean());
+        Assert.False(updateDocument.RootElement.GetProperty("canScrape").GetBoolean());
+
+        using var deleteRequest = CreateAdminRequest(HttpMethod.Delete, $"/api/admin/users/{userId}/tracker-access?expectedVersion={updateVersion}", "corr-tracker-access-delete");
+        using var deleteResponse = await _adminClient.SendAsync(deleteRequest);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        using var missingResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, $"/api/admin/tracker-access/{userId}", "corr-tracker-access-missing"));
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, missingResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task TrackerCrud_Ban_Create_Expire_Delete_Flow_Works()
+    {
+        var subject = Guid.NewGuid().ToString("D");
+
+        using var createRequest = CreateAdminRequest(HttpMethod.Put, $"/api/admin/bans/user/{subject}", "corr-ban-create");
+        createRequest.Content = JsonContent.Create(new BanRuleUpsertRequest(
+            "integration test ban",
+            null,
+            null));
+
+        using var createResponse = await _adminClient.SendAsync(createRequest);
+        var createBody = await createResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, createResponse.StatusCode);
+        using var createDocument = JsonDocument.Parse(createBody);
+        var createVersion = createDocument.RootElement.GetProperty("version").GetInt64();
+
+        using var detailResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, $"/api/admin/bans/user/{subject}", "corr-ban-detail"));
+        var detailBody = await detailResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, detailResponse.StatusCode);
+        using (var detailDocument = JsonDocument.Parse(detailBody))
+        {
+            Assert.Equal("integration test ban", detailDocument.RootElement.GetProperty("reason").GetString());
+        }
+
+        var expiresAtUtc = DateTimeOffset.UtcNow.AddHours(2);
+        using var expireRequest = CreateAdminRequest(HttpMethod.Post, $"/api/admin/bans/user/{subject}/expire", "corr-ban-expire");
+        expireRequest.Content = JsonContent.Create(new BanRuleExpireRequest(expiresAtUtc, createVersion));
+
+        using var expireResponse = await _adminClient.SendAsync(expireRequest);
+        var expireBody = await expireResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, expireResponse.StatusCode);
+        using var expireDocument = JsonDocument.Parse(expireBody);
+        var expireVersion = expireDocument.RootElement.GetProperty("version").GetInt64();
+        Assert.Equal(expiresAtUtc.ToString("O"), expireDocument.RootElement.GetProperty("expiresAtUtc").GetDateTimeOffset().ToString("O"));
+
+        using var deleteRequest = CreateAdminRequest(HttpMethod.Delete, $"/api/admin/bans/user/{subject}?expectedVersion={expireVersion}", "corr-ban-delete");
+        using var deleteResponse = await _adminClient.SendAsync(deleteRequest);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        using var missingResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, $"/api/admin/bans/user/{subject}", "corr-ban-missing"));
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, missingResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task TrackerCrud_Torrent_Create_Update_Delete_Flow_Works()
+    {
+        var infoHash = $"{Guid.NewGuid():N}AAAAAAAA".ToUpperInvariant()[..40];
+
+        using var createRequest = CreateAdminRequest(HttpMethod.Put, $"/api/admin/torrents/{infoHash}/policy", "corr-torrent-create");
+        createRequest.Content = JsonContent.Create(new TorrentPolicyUpsertRequest(
+            IsPrivate: true,
+            IsEnabled: true,
+            AnnounceIntervalSeconds: 1800,
+            MinAnnounceIntervalSeconds: 900,
+            DefaultNumWant: 40,
+            MaxNumWant: 80,
+            AllowScrape: true));
+
+        using var createResponse = await _adminClient.SendAsync(createRequest);
+        var createBody = await createResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, createResponse.StatusCode);
+        using var createDocument = JsonDocument.Parse(createBody);
+        var createVersion = createDocument.RootElement.GetProperty("version").GetInt64();
+
+        using var detailResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, $"/api/admin/torrents/{infoHash}", "corr-torrent-detail"));
+        var detailBody = await detailResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, detailResponse.StatusCode);
+        using (var detailDocument = JsonDocument.Parse(detailBody))
+        {
+            Assert.Equal(infoHash, detailDocument.RootElement.GetProperty("infoHash").GetString());
+            Assert.Equal(40, detailDocument.RootElement.GetProperty("defaultNumWant").GetInt32());
+        }
+
+        using var updateRequest = CreateAdminRequest(HttpMethod.Put, $"/api/admin/torrents/{infoHash}/policy", "corr-torrent-update");
+        updateRequest.Content = JsonContent.Create(new TorrentPolicyUpsertRequest(
+            IsPrivate: false,
+            IsEnabled: true,
+            AnnounceIntervalSeconds: 2100,
+            MinAnnounceIntervalSeconds: 1200,
+            DefaultNumWant: 60,
+            MaxNumWant: 120,
+            AllowScrape: false,
+            ExpectedVersion: createVersion));
+
+        using var updateResponse = await _adminClient.SendAsync(updateRequest);
+        var updateBody = await updateResponse.Content.ReadAsStringAsync();
+        Assert.Equal(System.Net.HttpStatusCode.OK, updateResponse.StatusCode);
+        using var updateDocument = JsonDocument.Parse(updateBody);
+        var updateVersion = updateDocument.RootElement.GetProperty("version").GetInt64();
+        Assert.False(updateDocument.RootElement.GetProperty("isPrivate").GetBoolean());
+        Assert.False(updateDocument.RootElement.GetProperty("allowScrape").GetBoolean());
+
+        using var deleteRequest = CreateAdminRequest(HttpMethod.Delete, $"/api/admin/torrents/{infoHash}?expectedVersion={updateVersion}", "corr-torrent-delete");
+        using var deleteResponse = await _adminClient.SendAsync(deleteRequest);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        using var missingResponse = await _adminClient.SendAsync(CreateAdminRequest(HttpMethod.Get, $"/api/admin/torrents/{infoHash}", "corr-torrent-missing"));
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, missingResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task AuthorizationCodeFlow_IssuesAccessToken_WithPkce()
     {
         using var browserClient = _adminFactory.CreateClient(new WebApplicationFactoryClientOptions

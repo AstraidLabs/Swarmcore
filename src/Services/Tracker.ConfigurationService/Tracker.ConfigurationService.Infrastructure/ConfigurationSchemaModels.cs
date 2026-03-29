@@ -24,6 +24,7 @@ internal sealed class TorrentPolicyEntity
 
 internal sealed class PasskeyCredentialEntity
 {
+    public Guid Id { get; set; }
     public string Passkey { get; set; } = string.Empty;
     public Guid UserId { get; set; }
     public bool IsRevoked { get; set; }

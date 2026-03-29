@@ -211,6 +211,7 @@ internal sealed class RedisPostgresAccessSnapshotStore(
         command.CommandText =
             """
             select
+                p.id,
                 p.passkey,
                 p.user_id,
                 p.is_revoked,
@@ -229,11 +230,12 @@ internal sealed class RedisPostgresAccessSnapshotStore(
         }
 
         var loadedAccess = new PasskeyAccessDto(
-            reader.GetString(0),
-            reader.GetGuid(1),
-            reader.GetBoolean(2),
-            reader.IsDBNull(3) ? null : new DateTimeOffset(reader.GetFieldValue<DateTime>(3), TimeSpan.Zero),
-            reader.GetInt64(4));
+            reader.GetGuid(0),
+            reader.GetString(1),
+            reader.GetGuid(2),
+            reader.GetBoolean(3),
+            reader.IsDBNull(4) ? null : new DateTimeOffset(reader.GetFieldValue<DateTime>(4), TimeSpan.Zero),
+            reader.GetInt64(5));
 
         try
         {

@@ -62,6 +62,26 @@ app.MapPut("/api/configuration/torrents/{infoHash}/policy",
             httpContext);
     });
 
+app.MapDelete("/api/configuration/torrents/{infoHash}",
+    async (HttpContext httpContext, string infoHash, long? expectedVersion, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await mutationService.DeleteTorrentAsync(infoHash, expectedVersion, MutationContextFactory.Create(httpContext), cancellationToken);
+                return Results.NoContent();
+            },
+            httpContext);
+    });
+
+app.MapPost("/api/configuration/passkeys",
+    async (HttpContext httpContext, PasskeyCreateRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await mutationService.CreatePasskeyAsync(request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            httpContext);
+    });
+
 app.MapPut("/api/configuration/passkeys/{passkey}",
     async (HttpContext httpContext, string passkey, PasskeyUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
     {
@@ -70,11 +90,59 @@ app.MapPut("/api/configuration/passkeys/{passkey}",
             httpContext);
     });
 
+app.MapPut("/api/configuration/passkeys/id/{id:guid}",
+    async (HttpContext httpContext, Guid id, PasskeyUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await mutationService.UpsertPasskeyByIdAsync(id, request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            httpContext);
+    });
+
+app.MapPost("/api/configuration/passkeys/id/{id:guid}/revoke",
+    async (HttpContext httpContext, Guid id, PasskeyRevokeRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await mutationService.RevokePasskeyByIdAsync(id, request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            httpContext);
+    });
+
+app.MapPost("/api/configuration/passkeys/id/{id:guid}/rotate",
+    async (HttpContext httpContext, Guid id, PasskeyRotateRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await mutationService.RotatePasskeyByIdAsync(id, request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            httpContext);
+    });
+
+app.MapDelete("/api/configuration/passkeys/id/{id:guid}",
+    async (HttpContext httpContext, Guid id, long? expectedVersion, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await mutationService.DeletePasskeyByIdAsync(id, expectedVersion, MutationContextFactory.Create(httpContext), cancellationToken);
+                return Results.NoContent();
+            },
+            httpContext);
+    });
+
 app.MapPut("/api/configuration/users/{userId:guid}/tracker-access",
     async (HttpContext httpContext, Guid userId, TrackerAccessRightsUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
     {
         return await MutationEndpointExecutor.ExecuteAsync(
             async () => Results.Ok(await mutationService.UpsertTrackerAccessRightsAsync(userId, request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            httpContext);
+    });
+
+app.MapDelete("/api/configuration/users/{userId:guid}/tracker-access",
+    async (HttpContext httpContext, Guid userId, long? expectedVersion, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await mutationService.DeleteTrackerAccessRightsAsync(userId, expectedVersion, MutationContextFactory.Create(httpContext), cancellationToken);
+                return Results.NoContent();
+            },
             httpContext);
     });
 
@@ -95,6 +163,14 @@ app.MapPut("/api/configuration/bans/{scope}/{subject}",
     {
         return await MutationEndpointExecutor.ExecuteAsync(
             async () => Results.Ok(await mutationService.UpsertBanRuleAsync(scope, subject, request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            httpContext);
+    });
+
+app.MapPost("/api/configuration/bans/{scope}/{subject}/expire",
+    async (HttpContext httpContext, string scope, string subject, BanRuleExpireRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await mutationService.ExpireBanRuleAsync(scope, subject, request, MutationContextFactory.Create(httpContext), cancellationToken)),
             httpContext);
     });
 

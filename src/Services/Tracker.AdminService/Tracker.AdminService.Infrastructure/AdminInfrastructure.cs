@@ -528,6 +528,7 @@ public sealed class EfPasskeyAdminReader(TrackerConfigurationDbContext dbContext
         var (passkeys, totalCount) = await orderedQuery.ToPageAsync(query.Page, query.PageSize, cancellationToken);
 
         return new PageResult<PasskeyAdminDto>(passkeys.Select(static passkey => new PasskeyAdminDto(
+                passkey.Id,
                 MaskPasskey(passkey.Passkey),
                 passkey.UserId,
                 passkey.IsRevoked,
@@ -537,6 +538,25 @@ public sealed class EfPasskeyAdminReader(TrackerConfigurationDbContext dbContext
                 passkey.RowVersion))
             .ToArray()
             .AsReadOnly(), totalCount, query.Page, query.PageSize);
+    }
+
+    public async Task<PasskeyAdminDto?> GetAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var passkey = await dbContext.Passkeys
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+
+        return passkey is null
+            ? null
+            : new PasskeyAdminDto(
+                passkey.Id,
+                MaskPasskey(passkey.Passkey),
+                passkey.UserId,
+                passkey.IsRevoked,
+                passkey.ExpiresAtUtc.HasValue
+                    ? new DateTimeOffset(DateTime.SpecifyKind(passkey.ExpiresAtUtc.Value, DateTimeKind.Utc))
+                    : null,
+                passkey.RowVersion);
     }
 
     private static string MaskPasskey(string passkey)
@@ -936,6 +956,7 @@ public sealed class ConfigurationMutationOrchestrator(
             null,
             null,
             new PasskeyAdminDto(
+                snapshot.Id,
                 MaskPasskey(snapshot.Passkey),
                 snapshot.UserId,
                 snapshot.IsRevoked,
@@ -1016,6 +1037,9 @@ public sealed class ConfigurationMutationOrchestrator(
 
     public Task<TorrentPolicyDto> UpsertTorrentPolicyAsync(string infoHash, TorrentPolicyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
         => configurationMutationService.UpsertTorrentPolicyAsync(infoHash, request, context, cancellationToken);
+
+    public Task DeleteTorrentAsync(string infoHash, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.DeleteTorrentAsync(infoHash, expectedVersion, context, cancellationToken);
 
     public async Task<BulkOperationResultDto> BulkActivateTorrentsAsync(IReadOnlyCollection<BulkTorrentActivationItem> items, AdminMutationContext context, CancellationToken cancellationToken)
     {
@@ -1167,6 +1191,21 @@ public sealed class ConfigurationMutationOrchestrator(
     public Task<PasskeyAccessDto> UpsertPasskeyAsync(string passkey, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
         => configurationMutationService.UpsertPasskeyAsync(passkey, request, context, cancellationToken);
 
+    public Task<PasskeyAccessDto> CreatePasskeyAsync(PasskeyCreateRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.CreatePasskeyAsync(request, context, cancellationToken);
+
+    public Task<PasskeyAccessDto> UpsertPasskeyByIdAsync(Guid id, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.UpsertPasskeyByIdAsync(id, request, context, cancellationToken);
+
+    public Task<PasskeyAccessDto> RevokePasskeyByIdAsync(Guid id, PasskeyRevokeRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.RevokePasskeyByIdAsync(id, request, context, cancellationToken);
+
+    public Task<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)> RotatePasskeyByIdAsync(Guid id, PasskeyRotateRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.RotatePasskeyByIdAsync(id, request, context, cancellationToken);
+
+    public Task DeletePasskeyByIdAsync(Guid id, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.DeletePasskeyByIdAsync(id, expectedVersion, context, cancellationToken);
+
     public async Task<BulkOperationResultDto> BulkRevokePasskeysAsync(IReadOnlyCollection<BulkPasskeyRevokeItem> items, AdminMutationContext context, CancellationToken cancellationToken)
     {
         var results = new List<BulkPasskeyOperationItemDto>(items.Count);
@@ -1251,6 +1290,9 @@ public sealed class ConfigurationMutationOrchestrator(
             cancellationToken);
     }
 
+    public Task DeleteTrackerAccessRightsAsync(Guid userId, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.DeleteTrackerAccessRightsAsync(userId, expectedVersion, context, cancellationToken);
+
     public async Task<BulkOperationResultDto> BulkUpsertTrackerAccessRightsAsync(IReadOnlyCollection<BulkTrackerAccessRightsUpsertItem> items, AdminMutationContext context, CancellationToken cancellationToken)
     {
         var results = new List<BulkTrackerAccessOperationItemDto>(items.Count);
@@ -1297,6 +1339,9 @@ public sealed class ConfigurationMutationOrchestrator(
 
     public Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
         => configurationMutationService.UpsertBanRuleAsync(scope, subject, request, context, cancellationToken);
+
+    public Task<BanRuleDto> ExpireBanRuleAsync(string scope, string subject, BanRuleExpireRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.ExpireBanRuleAsync(scope, subject, request, context, cancellationToken);
 
     public async Task<BulkOperationResultDto> BulkUpsertBanRulesAsync(IReadOnlyCollection<BulkBanRuleUpsertItem> items, AdminMutationContext context, CancellationToken cancellationToken)
     {

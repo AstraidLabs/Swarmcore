@@ -1,0 +1,5 @@
+C:\Users\tomas\source\repos\BeeTracker\src\Contracts\BeeTracker.Contracts.Admin\objverify\Verify\net10.0\BeeTracker.Contracts.Admin.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\tomas\source\repos\BeeTracker\src\Contracts\BeeTracker.Contracts.Admin\objverify\Verify\net10.0\BeeTracker.Contracts.Admin.AssemblyInfoInputs.cache
+C:\Users\tomas\source\repos\BeeTracker\src\Contracts\BeeTracker.Contracts.Admin\objverify\Verify\net10.0\BeeTracker.Contracts.Admin.AssemblyInfo.cs
+C:\Users\tomas\source\repos\BeeTracker\src\Contracts\BeeTracker.Contracts.Admin\objverify\Verify\net10.0\BeeTracker.Contracts.Admin.csproj.CoreCompileInputs.cache
+C:\Users\tomas\source\repos\BeeTracker\src\Contracts\BeeTracker.Contracts.Admin\objverify\Verify\net10.0\BeeTracker.Contracts.Admin.sourcelink.json

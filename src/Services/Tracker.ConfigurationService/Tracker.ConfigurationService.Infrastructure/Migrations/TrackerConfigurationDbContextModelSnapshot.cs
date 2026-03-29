@@ -188,6 +188,12 @@ namespace Tracker.ConfigurationService.Infrastructure.Migrations
 
             modelBuilder.Entity("Tracker.ConfigurationService.Infrastructure.PasskeyCredentialEntity", b =>
                 {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
                     b.Property<string>("Passkey")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
@@ -210,6 +216,9 @@ namespace Tracker.ConfigurationService.Infrastructure.Migrations
                         .HasColumnName("user_id");
 
                     b.HasKey("Passkey");
+
+                    b.HasIndex("Id")
+                        .IsUnique();
 
                     b.HasIndex("UserId");
 

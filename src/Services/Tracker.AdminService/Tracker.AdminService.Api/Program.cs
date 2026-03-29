@@ -301,7 +301,7 @@ adminApi.MapPut("/nodes/{nodeKey}/config",
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
 
 adminApi.MapGet("/audit",
-    async (string? search, string? filter, string? sort, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         var result = await sender.Send(new ListAuditRecordsQuery(
         GridQueryHttp.Bind(search, filter, sort, page, pageSize, AdminCatalogProfiles.Audit),
@@ -310,7 +310,7 @@ adminApi.MapGet("/audit",
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.AuditView));
 
 adminApi.MapGet("/maintenance",
-    async (string? search, string? filter, string? sort, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         var result = await sender.Send(new ListMaintenanceRunsQuery(
         GridQueryHttp.Bind(search, filter, sort, page, pageSize, AdminCatalogProfiles.Maintenance),
@@ -319,7 +319,7 @@ adminApi.MapGet("/maintenance",
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.SystemSettingsView));
 
 adminApi.MapGet("/torrents",
-    async (string? search, string? filter, string? sort, bool? isEnabled, bool? isPrivate, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, bool? isEnabled, bool? isPrivate, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         var result = await sender.Send(new ListTorrentsQuery(
         GridQueryHttp.Bind(search, filter, sort, page, pageSize, AdminCatalogProfiles.Torrents),
@@ -337,7 +337,7 @@ adminApi.MapGet("/torrents/{infoHash}",
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TorrentsView));
 
 adminApi.MapGet("/passkeys",
-    async (string? search, string? filter, string? sort, Guid? userId, bool? isRevoked, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, Guid? userId, bool? isRevoked, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         var result = await sender.Send(new ListPasskeysQuery(
         GridQueryHttp.Bind(search, filter, sort, page, pageSize, AdminCatalogProfiles.Passkeys),
@@ -347,8 +347,15 @@ adminApi.MapGet("/passkeys",
         return Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysView));
 
+adminApi.MapGet("/passkeys/{id:guid}",
+    async (Guid id, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(new GetPasskeyDetailQuery(id), cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysView));
+
 adminApi.MapGet("/tracker-access",
-    async (string? search, string? filter, string? sort, bool? canUsePrivateTracker, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, bool? canUsePrivateTracker, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         var result = await sender.Send(new ListTrackerAccessRightsQuery(
         GridQueryHttp.Bind(search, filter, sort, page, pageSize, AdminCatalogProfiles.TrackerAccess),
@@ -365,7 +372,7 @@ adminApi.MapGet("/tracker-access/{userId:guid}",
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerAccessView));
 
 adminApi.MapGet("/permissions",
-    async (HttpContext httpContext, string? search, string? filter, string? sort, bool? canUsePrivateTracker, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (HttpContext httpContext, string? search, string? filter, string? sort, bool? canUsePrivateTracker, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         DeprecatedApiAlias.Apply(httpContext, "/api/admin/tracker-access");
         var result = await sender.Send(new ListTrackerAccessRightsQuery(
@@ -378,7 +385,7 @@ adminApi.MapGet("/permissions",
     .RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerAccessView));
 
 adminApi.MapGet("/bans",
-    async (string? search, string? filter, string? sort, string? scope, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    async (string? search, string? filter, string? sort, string? scope, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         var result = await sender.Send(new ListBansQuery(
         GridQueryHttp.Bind(search, filter, sort, page, pageSize, AdminCatalogProfiles.Bans),
@@ -394,6 +401,26 @@ adminApi.MapGet("/bans/{scope}/{subject}",
         return result is null ? Results.NotFound() : Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansView));
 
+adminApi.MapPost("/bans/{scope}/{subject}/expire",
+    async (HttpContext httpContext, string scope, string subject, BanRuleExpireRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await sender.Send(new ExpireBanAdminCommand(scope, subject, request, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansManage));
+
+adminApi.MapDelete("/bans/{scope}/{subject}",
+    async (HttpContext httpContext, string scope, string subject, long? expectedVersion, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await sender.Send(new DeleteBanAdminCommand(scope, subject, expectedVersion, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken);
+                return Results.NoContent();
+            },
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansManage));
+
 adminApi.MapPut("/torrents/{infoHash}/policy",
     async (HttpContext httpContext, string infoHash, TorrentPolicyUpsertRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
@@ -401,6 +428,18 @@ adminApi.MapPut("/torrents/{infoHash}/policy",
             async () => Results.Ok(await sender.Send(new UpsertTorrentPolicyAdminCommand(infoHash, request, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
             httpContext);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerPoliciesEdit));
+
+adminApi.MapDelete("/torrents/{infoHash}",
+    async (HttpContext httpContext, string infoHash, long? expectedVersion, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await sender.Send(new DeleteTorrentAdminCommand(infoHash, expectedVersion, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken);
+                return Results.NoContent();
+            },
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TorrentsEdit));
 
 adminApi.MapPost("/torrents/bulk/activate",
     async (HttpContext httpContext, BulkTorrentActivationRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
@@ -456,11 +495,57 @@ adminApi.MapPost("/torrents/bulk/policy/dry-run",
         return Results.Ok(await sender.Send(new DryRunBulkUpsertTorrentPoliciesAdminCommand(request.Items), cancellationToken));
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerPoliciesEdit));
 
+adminApi.MapPost("/passkeys",
+    async (HttpContext httpContext, CreatePasskeyAdminRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await sender.Send(new CreatePasskeyAdminCommand(
+                new PasskeyCreateRequest(request.Passkey, request.UserId, request.IsRevoked, request.ExpiresAtUtc, request.ExpectedVersion),
+                AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysManage));
+
 adminApi.MapPut("/passkeys/{passkey}",
     async (HttpContext httpContext, string passkey, PasskeyUpsertRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
         return await AdminMutationEndpointExecutor.ExecuteAsync(
             async () => Results.Ok(await sender.Send(new UpsertPasskeyAdminCommand(passkey, request, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysManage));
+
+adminApi.MapPut("/passkeys/id/{id:guid}",
+    async (HttpContext httpContext, Guid id, PasskeyUpsertRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await sender.Send(new UpsertPasskeyByIdAdminCommand(id, request, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysManage));
+
+adminApi.MapPost("/passkeys/id/{id:guid}/revoke",
+    async (HttpContext httpContext, Guid id, PasskeyRevokeRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await sender.Send(new RevokePasskeyByIdAdminCommand(id, request, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysManage));
+
+adminApi.MapPost("/passkeys/id/{id:guid}/rotate",
+    async (HttpContext httpContext, Guid id, PasskeyRotateRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await sender.Send(new RotatePasskeyByIdAdminCommand(id, request, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysManage));
+
+adminApi.MapDelete("/passkeys/id/{id:guid}",
+    async (HttpContext httpContext, Guid id, long? expectedVersion, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await sender.Send(new DeletePasskeyAdminCommand(id, expectedVersion, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken);
+                return Results.NoContent();
+            },
             httpContext);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.PasskeysManage));
 
@@ -497,6 +582,18 @@ adminApi.MapPut("/users/{userId:guid}/tracker-access",
     {
         return await AdminMutationEndpointExecutor.ExecuteAsync(
             async () => Results.Ok(await sender.Send(new UpsertTrackerAccessRightsAdminCommand(userId, request, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerAccessManage));
+
+adminApi.MapDelete("/users/{userId:guid}/tracker-access",
+    async (HttpContext httpContext, Guid userId, long? expectedVersion, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () =>
+            {
+                await sender.Send(new DeleteTrackerAccessRightsAdminCommand(userId, expectedVersion, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken);
+                return Results.NoContent();
+            },
             httpContext);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerAccessManage));
 
@@ -593,19 +690,6 @@ adminApi.MapPost("/bans/bulk/delete",
             async () => Results.Ok(await sender.Send(new BulkDeleteBansAdminCommand(request.Items, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
             httpContext);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansManage));
-
-adminApi.MapDelete("/bans/{scope}/{subject}",
-    async (HttpContext httpContext, string scope, string subject, long? expectedVersion, [FromServices] ISender sender, CancellationToken cancellationToken) =>
-    {
-        return await AdminMutationEndpointExecutor.ExecuteAsync(
-            async () =>
-            {
-                await sender.Send(new DeleteBanAdminCommand(scope, subject, expectedVersion, AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken);
-                return Results.NoContent();
-            },
-            httpContext);
-    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansManage));
-
 adminApi.MapPost("/maintenance/cache-refresh",
     async (HttpContext httpContext, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
@@ -671,6 +755,13 @@ sealed record AdminSessionResponse(
 sealed record BulkPasskeyRevokeRequest(IReadOnlyCollection<BulkPasskeyRevokeItem> Items);
 
 sealed record BulkPasskeyRotateRequest(IReadOnlyCollection<BulkPasskeyRotateItem> Items);
+
+sealed record CreatePasskeyAdminRequest(
+    string Passkey,
+    Guid UserId,
+    bool IsRevoked,
+    DateTimeOffset? ExpiresAtUtc,
+    long? ExpectedVersion = null);
 
 sealed record BulkTorrentActivationRequest(IReadOnlyCollection<BulkTorrentActivationItem> Items);
 

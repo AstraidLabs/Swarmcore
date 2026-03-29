@@ -35,10 +35,17 @@ public interface IConfigurationMutationService
     Task<TorrentPolicyDto> UpsertTorrentPolicyAsync(string infoHash, TorrentPolicyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<TorrentPolicyDto> ActivateTorrentAsync(string infoHash, TorrentActivationRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<TorrentPolicyDto> DeactivateTorrentAsync(string infoHash, TorrentActivationRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task DeleteTorrentAsync(string infoHash, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<PasskeyAccessDto> UpsertPasskeyAsync(string passkey, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<PasskeyAccessDto> CreatePasskeyAsync(PasskeyCreateRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<PasskeyAccessDto> UpsertPasskeyByIdAsync(Guid id, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<PasskeyAccessDto> RevokePasskeyAsync(string passkey, PasskeyRevokeRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<PasskeyAccessDto> RevokePasskeyByIdAsync(Guid id, PasskeyRevokeRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)> RotatePasskeyAsync(string passkey, PasskeyRotateRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)> RotatePasskeyByIdAsync(Guid id, PasskeyRotateRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task DeletePasskeyByIdAsync(Guid id, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<TrackerAccessRightsDto> UpsertTrackerAccessRightsAsync(Guid userId, TrackerAccessRightsUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task DeleteTrackerAccessRightsAsync(Guid userId, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BanRuleDto> ExpireBanRuleAsync(string scope, string subject, BanRuleExpireRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task DeleteBanRuleAsync(string scope, string subject, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);

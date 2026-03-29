@@ -89,6 +89,7 @@ public sealed record TorrentAdminDto(
     bool TemporaryRestriction = false);
 
 public sealed record PasskeyAdminDto(
+    Guid Id,
     string PasskeyMask,
     Guid UserId,
     bool IsRevoked,

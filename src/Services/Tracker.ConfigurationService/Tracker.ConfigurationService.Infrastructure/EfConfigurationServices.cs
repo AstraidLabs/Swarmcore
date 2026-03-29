@@ -120,6 +120,36 @@ internal sealed class EfConfigurationMutationService(
     public Task<TorrentPolicyDto> DeactivateTorrentAsync(string infoHash, TorrentActivationRequest request, AdminMutationContext context, CancellationToken cancellationToken)
         => SetTorrentEnabledAsync(infoHash, false, request, context, cancellationToken);
 
+    public async Task DeleteTorrentAsync(string infoHash, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var normalizedInfoHash = infoHash.ToUpperInvariant();
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var torrent = await dbContext.Torrents.Include(static item => item.Policy)
+            .SingleOrDefaultAsync(item => item.InfoHash == normalizedInfoHash, cancellationToken);
+        if (torrent is null)
+        {
+            throw new ConfigurationEntityNotFoundException("torrent", normalizedInfoHash);
+        }
+
+        var currentVersion = torrent.Policy?.RowVersion ?? 0;
+        if (expectedVersion.HasValue && expectedVersion.Value != currentVersion)
+        {
+            throw new ConfigurationConcurrencyException("torrent", normalizedInfoHash, expectedVersion.Value, currentVersion);
+        }
+
+        if (torrent.Policy is not null)
+        {
+            dbContext.TorrentPolicies.Remove(torrent.Policy);
+        }
+
+        dbContext.Torrents.Remove(torrent);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        await invalidationPublisher.PublishTorrentPolicyInvalidationAsync(normalizedInfoHash, cancellationToken);
+        await EnqueueAuditAsync(context, "torrent.delete", "torrent", normalizedInfoHash, null, cancellationToken);
+    }
+
     public async Task<PasskeyAccessDto> UpsertPasskeyAsync(string passkey, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
     {
         var entity = await dbContext.Passkeys.SingleOrDefaultAsync(item => item.Passkey == passkey, cancellationToken);
@@ -134,6 +164,7 @@ internal sealed class EfConfigurationMutationService(
 
             entity = new PasskeyCredentialEntity
             {
+                Id = Guid.NewGuid(),
                 Passkey = passkey
             };
             dbContext.Passkeys.Add(entity);
@@ -169,12 +200,25 @@ internal sealed class EfConfigurationMutationService(
             }, AuditJsonOptions),
             cancellationToken);
 
-        return new PasskeyAccessDto(
-            passkey,
-            entity.UserId,
-            entity.IsRevoked,
-            entity.ExpiresAtUtc is null ? null : new DateTimeOffset(DateTime.SpecifyKind(entity.ExpiresAtUtc.Value, DateTimeKind.Utc)),
-            nextVersion);
+        return MapPasskey(entity, nextVersion);
+    }
+
+    public Task<PasskeyAccessDto> CreatePasskeyAsync(PasskeyCreateRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+        => UpsertPasskeyAsync(
+            request.Passkey,
+            new PasskeyUpsertRequest(request.UserId, request.IsRevoked, request.ExpiresAtUtc, request.ExpectedVersion),
+            context,
+            cancellationToken);
+
+    public async Task<PasskeyAccessDto> UpsertPasskeyByIdAsync(Guid id, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var entity = await LoadPasskeyByIdAsync(id, cancellationToken);
+        if (entity is null)
+        {
+            throw new ConfigurationEntityNotFoundException("passkey", id.ToString("D"));
+        }
+
+        return await UpsertPasskeyAsync(entity.Passkey, request, context, cancellationToken);
     }
 
     public async Task<PasskeyAccessDto> RevokePasskeyAsync(string passkey, PasskeyRevokeRequest request, AdminMutationContext context, CancellationToken cancellationToken)
@@ -208,12 +252,18 @@ internal sealed class EfConfigurationMutationService(
             }, AuditJsonOptions),
             cancellationToken);
 
-        return new PasskeyAccessDto(
-            passkey,
-            entity.UserId,
-            true,
-            entity.ExpiresAtUtc is null ? null : new DateTimeOffset(DateTime.SpecifyKind(entity.ExpiresAtUtc.Value, DateTimeKind.Utc)),
-            nextVersion);
+        return MapPasskey(entity, nextVersion);
+    }
+
+    public async Task<PasskeyAccessDto> RevokePasskeyByIdAsync(Guid id, PasskeyRevokeRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var entity = await LoadPasskeyByIdAsync(id, cancellationToken);
+        if (entity is null)
+        {
+            throw new ConfigurationEntityNotFoundException("passkey", id.ToString("D"));
+        }
+
+        return await RevokePasskeyAsync(entity.Passkey, request, context, cancellationToken);
     }
 
     public async Task<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)> RotatePasskeyAsync(string passkey, PasskeyRotateRequest request, AdminMutationContext context, CancellationToken cancellationToken)
@@ -241,6 +291,7 @@ internal sealed class EfConfigurationMutationService(
         currentEntity.RowVersion = revokedVersion;
         dbContext.Passkeys.Add(new PasskeyCredentialEntity
         {
+            Id = Guid.NewGuid(),
             Passkey = newPasskey,
             UserId = currentEntity.UserId,
             IsRevoked = false,
@@ -266,9 +317,41 @@ internal sealed class EfConfigurationMutationService(
             }, AuditJsonOptions),
             cancellationToken);
 
+        var newEntity = await dbContext.Passkeys.SingleAsync(item => item.Passkey == newPasskey, cancellationToken);
         return (
-            new PasskeyAccessDto(passkey, currentEntity.UserId, true, currentExpiresAtUtc, revokedVersion),
-            new PasskeyAccessDto(newPasskey, currentEntity.UserId, false, nextExpiresAtUtc, 1));
+            MapPasskey(currentEntity, revokedVersion),
+            MapPasskey(newEntity, 1));
+    }
+
+    public async Task<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)> RotatePasskeyByIdAsync(Guid id, PasskeyRotateRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var entity = await LoadPasskeyByIdAsync(id, cancellationToken);
+        if (entity is null)
+        {
+            throw new ConfigurationEntityNotFoundException("passkey", id.ToString("D"));
+        }
+
+        return await RotatePasskeyAsync(entity.Passkey, request, context, cancellationToken);
+    }
+
+    public async Task DeletePasskeyByIdAsync(Guid id, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var entity = await LoadPasskeyByIdAsync(id, cancellationToken);
+        if (entity is null)
+        {
+            throw new ConfigurationEntityNotFoundException("passkey", id.ToString("D"));
+        }
+
+        if (expectedVersion.HasValue && expectedVersion.Value != entity.RowVersion)
+        {
+            throw new ConfigurationConcurrencyException("passkey", MaskPasskey(entity.Passkey), expectedVersion.Value, entity.RowVersion);
+        }
+
+        dbContext.Passkeys.Remove(entity);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await invalidationPublisher.PublishPasskeyInvalidationAsync(entity.Passkey, cancellationToken);
+        await EnqueueAuditAsync(context, "passkey.delete", "passkey", MaskPasskey(entity.Passkey), null, cancellationToken);
     }
 
     public async Task<TrackerAccessRightsDto> UpsertTrackerAccessRightsAsync(Guid userId, TrackerAccessRightsUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
@@ -316,6 +399,26 @@ internal sealed class EfConfigurationMutationService(
             cancellationToken);
 
         return new TrackerAccessRightsDto(userId, request.CanLeech, request.CanSeed, request.CanScrape, request.CanUsePrivateTracker, nextVersion);
+    }
+
+    public async Task DeleteTrackerAccessRightsAsync(Guid userId, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.Permissions.SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+        if (entity is null)
+        {
+            throw new ConfigurationEntityNotFoundException("tracker_access", userId.ToString("D"));
+        }
+
+        if (expectedVersion.HasValue && expectedVersion.Value != entity.RowVersion)
+        {
+            throw new ConfigurationConcurrencyException("tracker_access", userId.ToString("D"), expectedVersion.Value, entity.RowVersion);
+        }
+
+        dbContext.Permissions.Remove(entity);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await invalidationPublisher.PublishUserPermissionInvalidationAsync(userId, cancellationToken);
+        await EnqueueAuditAsync(context, "tracker_access.delete", "user", userId.ToString("D"), null, cancellationToken);
     }
 
     public async Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
@@ -717,6 +820,18 @@ internal sealed class EfConfigurationMutationService(
             throw new ConfigurationConcurrencyException("torrent_policy", normalizedInfoHash, expectedVersion.Value, currentVersion);
         }
     }
+
+    private async Task<PasskeyCredentialEntity?> LoadPasskeyByIdAsync(Guid id, CancellationToken cancellationToken)
+        => await dbContext.Passkeys.SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+
+    private static PasskeyAccessDto MapPasskey(PasskeyCredentialEntity entity, long version)
+        => new(
+            entity.Id,
+            entity.Passkey,
+            entity.UserId,
+            entity.IsRevoked,
+            entity.ExpiresAtUtc is null ? null : new DateTimeOffset(DateTime.SpecifyKind(entity.ExpiresAtUtc.Value, DateTimeKind.Utc)),
+            version);
 }
 
 internal sealed class EfConfigurationMaintenanceService(

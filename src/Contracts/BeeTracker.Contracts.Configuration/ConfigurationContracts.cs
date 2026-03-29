@@ -39,6 +39,7 @@ public sealed record TorrentPolicyMutationPreviewDto(
     IReadOnlyList<string> Warnings);
 
 public sealed record PasskeyAccessDto(
+    Guid Id,
     string Passkey,
     Guid UserId,
     bool IsRevoked,
@@ -108,6 +109,13 @@ public sealed record BulkTorrentPolicyUpsertItem(
     bool TemporaryRestriction = false);
 
 public sealed record PasskeyUpsertRequest(
+    Guid UserId,
+    bool IsRevoked,
+    DateTimeOffset? ExpiresAtUtc,
+    long? ExpectedVersion = null);
+
+public sealed record PasskeyCreateRequest(
+    string Passkey,
     Guid UserId,
     bool IsRevoked,
     DateTimeOffset? ExpiresAtUtc,

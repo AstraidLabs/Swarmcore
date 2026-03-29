@@ -4,14 +4,14 @@ namespace Tracker.AdminService.Api;
 
 internal static class GridQueryHttp
 {
-    public static GridQuery Bind(string? search, string? filter, string? sort, int page, int pageSize)
-        => new(search, filter, sort, page, pageSize);
+    public static GridQuery Bind(string? search, string? filter, string? sort, int? page, int? pageSize)
+        => new(search, filter, sort, page ?? 1, pageSize ?? 25);
 
-    public static GridQuery Bind(string? search, string? filter, string? sort, int page, int pageSize, params string[] allowedFilters)
-        => new(search, GridFilterParser.Normalize(filter, allowedFilters), sort, page, pageSize);
+    public static GridQuery Bind(string? search, string? filter, string? sort, int? page, int? pageSize, params string[] allowedFilters)
+        => new(search, GridFilterParser.Normalize(filter, allowedFilters), sort, page ?? 1, pageSize ?? 25);
 
-    public static GridQuery Bind(string? search, string? filter, string? sort, int page, int pageSize, GridCatalogProfile profile)
-        => new(search, profile.NormalizeFilter(filter), sort, page, pageSize);
+    public static GridQuery Bind(string? search, string? filter, string? sort, int? page, int? pageSize, GridCatalogProfile profile)
+        => new(search, profile.NormalizeFilter(filter), sort, page ?? 1, pageSize ?? 25);
 
     public static TFilter ParseFilter<TFilter>(string? filter)
         where TFilter : struct, Enum

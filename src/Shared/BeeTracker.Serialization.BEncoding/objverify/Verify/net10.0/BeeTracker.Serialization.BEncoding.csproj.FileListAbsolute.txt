@@ -1,0 +1,5 @@
+C:\Users\tomas\source\repos\BeeTracker\src\Shared\BeeTracker.Serialization.BEncoding\objverify\Verify\net10.0\BeeTracker.Serialization.BEncoding.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\tomas\source\repos\BeeTracker\src\Shared\BeeTracker.Serialization.BEncoding\objverify\Verify\net10.0\BeeTracker.Serialization.BEncoding.AssemblyInfoInputs.cache
+C:\Users\tomas\source\repos\BeeTracker\src\Shared\BeeTracker.Serialization.BEncoding\objverify\Verify\net10.0\BeeTracker.Serialization.BEncoding.AssemblyInfo.cs
+C:\Users\tomas\source\repos\BeeTracker\src\Shared\BeeTracker.Serialization.BEncoding\objverify\Verify\net10.0\BeeTracker.Serialization.BEncoding.csproj.CoreCompileInputs.cache
+C:\Users\tomas\source\repos\BeeTracker\src\Shared\BeeTracker.Serialization.BEncoding\objverify\Verify\net10.0\BeeTracker.Serialization.BEncoding.sourcelink.json

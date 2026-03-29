@@ -318,6 +318,8 @@ export function CatalogToolbar({
   filter,
   onFilterChange,
   filterOptions,
+  secondaryLabel,
+  onSecondaryAction,
   createLabel,
   onCreate,
   searchPlaceholder = "Search catalog"
@@ -335,6 +337,8 @@ export function CatalogToolbar({
   filter: string;
   onFilterChange: (value: string) => void;
   filterOptions: Array<{ value: string; label: string }>;
+  secondaryLabel?: string;
+  onSecondaryAction?: () => void;
   createLabel?: string;
   onCreate?: () => void;
   searchPlaceholder?: string;
@@ -388,6 +392,11 @@ export function CatalogToolbar({
             </svg>
             <span className="sr-only">{density === "dense" ? "Comfortable" : "Dense"}</span>
           </button>
+          {secondaryLabel && onSecondaryAction ? (
+            <button type="button" className="app-button-secondary app-toolbar-secondary-action inline-flex items-center gap-2" onClick={onSecondaryAction}>
+              {secondaryLabel}
+            </button>
+          ) : null}
           {createLabel && onCreate ? (
             <button type="button" className="app-button-primary app-toolbar-primary-action" onClick={onCreate}>
               <PlusIcon className="app-button-icon" />

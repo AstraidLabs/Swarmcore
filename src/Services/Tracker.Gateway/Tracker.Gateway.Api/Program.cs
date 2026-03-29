@@ -81,29 +81,6 @@ builder.Services.AddGatewayClusterInfrastructure();
 builder.Services.AddGatewayObservabilityServices();
 builder.Services.AddUdpTracker(builder.Configuration);
 
-// ── Startup configuration validation ──
-{
-    var securityOpts = builder.Configuration.GetSection(TrackerSecurityOptions.SectionName).Get<TrackerSecurityOptions>() ?? new TrackerSecurityOptions();
-    var compatOpts = builder.Configuration.GetSection(TrackerCompatibilityOptions.SectionName).Get<TrackerCompatibilityOptions>() ?? new TrackerCompatibilityOptions();
-    var govOpts = builder.Configuration.GetSection(TrackerGovernanceOptions.SectionName).Get<TrackerGovernanceOptions>() ?? new TrackerGovernanceOptions();
-    var abuseOpts = builder.Configuration.GetSection(TrackerAbuseProtectionOptions.SectionName).Get<TrackerAbuseProtectionOptions>() ?? new TrackerAbuseProtectionOptions();
-    var runtimeOpts = builder.Configuration.GetSection(GatewayRuntimeOptions.SectionName).Get<GatewayRuntimeOptions>() ?? new GatewayRuntimeOptions();
-    var validation = StartupConfigurationValidator.Validate(securityOpts, compatOpts, govOpts, abuseOpts, runtimeOpts);
-    var startupLogger = LoggerFactory.Create(static b => b.AddConsole()).CreateLogger("BeeTracker.Startup");
-    foreach (var warning in validation.Warnings)
-    {
-        startupLogger.LogWarning("Config validation warning: {Warning}", warning);
-    }
-    foreach (var error in validation.Errors)
-    {
-        startupLogger.LogError("Config validation error: {Error}", error);
-    }
-    if (!validation.IsValid)
-    {
-        throw new InvalidOperationException("Startup configuration validation failed. See logged errors above.");
-    }
-}
-
 var app = builder.Build();
 
 using (var startupScope = app.Services.CreateScope())

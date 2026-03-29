@@ -141,8 +141,8 @@ public static class RbacEndpoints
         [FromQuery] string? search,
         [FromQuery] string? filter,
         [FromQuery] string? sort,
-        [FromQuery] int page,
-        [FromQuery] int pageSize,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
         [FromServices] ISender sender,
         CancellationToken ct)
     {
@@ -352,8 +352,8 @@ public static class RbacEndpoints
         [FromQuery] string? search,
         [FromQuery] string? filter,
         [FromQuery] string? sort,
-        [FromQuery] int page,
-        [FromQuery] int pageSize,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
         [FromServices] ISender sender,
         CancellationToken ct)
     {
@@ -488,8 +488,8 @@ public static class RbacEndpoints
         [FromQuery] string? search,
         [FromQuery] string? filter,
         [FromQuery] string? sort,
-        [FromQuery] int page,
-        [FromQuery] int pageSize,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
         [FromServices] ISender sender,
         CancellationToken ct)
     {

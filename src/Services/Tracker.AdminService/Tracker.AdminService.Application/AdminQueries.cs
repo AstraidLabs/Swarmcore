@@ -70,6 +70,8 @@ public sealed record GetTorrentDetailQuery(string InfoHash) : IRequest<TorrentAd
 public sealed record ListPasskeysQuery(GridQuery Query, PasskeyCatalogFilter Filter, Guid? UserId = null, bool? IsRevoked = null)
     : IRequest<PageResult<PasskeyAdminDto>>;
 
+public sealed record GetPasskeyDetailQuery(Guid Id) : IRequest<PasskeyAdminDto?>;
+
 public sealed record ListTrackerAccessRightsQuery(GridQuery Query, TrackerAccessRightsFilter Filter, bool? CanUsePrivateTracker = null)
     : IRequest<PageResult<TrackerAccessAdminDto>>;
 
@@ -84,6 +86,9 @@ public sealed record GetTrackerNodeConfigViewQuery(string NodeKey) : IRequest<Tr
 
 public sealed record UpsertTorrentPolicyAdminCommand(string InfoHash, TorrentPolicyUpsertRequest Request, AdminMutationContext Context)
     : IRequest<TorrentPolicyDto>;
+
+public sealed record DeleteTorrentAdminCommand(string InfoHash, long? ExpectedVersion, AdminMutationContext Context)
+    : IRequest<Unit>;
 
 public sealed record BulkActivateTorrentsAdminCommand(IReadOnlyCollection<BulkTorrentActivationItem> Items, AdminMutationContext Context)
     : IRequest<BulkOperationResultDto>;
@@ -100,6 +105,21 @@ public sealed record DryRunBulkUpsertTorrentPoliciesAdminCommand(IReadOnlyCollec
 public sealed record UpsertPasskeyAdminCommand(string Passkey, PasskeyUpsertRequest Request, AdminMutationContext Context)
     : IRequest<PasskeyAccessDto>;
 
+public sealed record CreatePasskeyAdminCommand(PasskeyCreateRequest Request, AdminMutationContext Context)
+    : IRequest<PasskeyAccessDto>;
+
+public sealed record UpsertPasskeyByIdAdminCommand(Guid Id, PasskeyUpsertRequest Request, AdminMutationContext Context)
+    : IRequest<PasskeyAccessDto>;
+
+public sealed record RevokePasskeyByIdAdminCommand(Guid Id, PasskeyRevokeRequest Request, AdminMutationContext Context)
+    : IRequest<PasskeyAccessDto>;
+
+public sealed record RotatePasskeyByIdAdminCommand(Guid Id, PasskeyRotateRequest Request, AdminMutationContext Context)
+    : IRequest<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)>;
+
+public sealed record DeletePasskeyAdminCommand(Guid Id, long? ExpectedVersion, AdminMutationContext Context)
+    : IRequest<Unit>;
+
 public sealed record BulkRevokePasskeysAdminCommand(IReadOnlyCollection<BulkPasskeyRevokeItem> Items, AdminMutationContext Context)
     : IRequest<BulkOperationResultDto>;
 
@@ -108,6 +128,9 @@ public sealed record BulkRotatePasskeysAdminCommand(IReadOnlyCollection<BulkPass
 
 public sealed record UpsertTrackerAccessRightsAdminCommand(Guid UserId, TrackerAccessRightsUpsertRequest Request, AdminMutationContext Context)
     : IRequest<TrackerAccessRightsDto>;
+
+public sealed record DeleteTrackerAccessRightsAdminCommand(Guid UserId, long? ExpectedVersion, AdminMutationContext Context)
+    : IRequest<Unit>;
 
 public sealed record BulkUpsertTrackerAccessRightsAdminCommand(IReadOnlyCollection<BulkTrackerAccessRightsUpsertItem> Items, AdminMutationContext Context)
     : IRequest<BulkOperationResultDto>;
@@ -123,6 +146,9 @@ public sealed record BulkExpireBansAdminCommand(IReadOnlyCollection<BulkBanRuleE
 
 public sealed record BulkDeleteBansAdminCommand(IReadOnlyCollection<BulkBanRuleDeleteItem> Items, AdminMutationContext Context)
     : IRequest<BulkOperationResultDto>;
+
+public sealed record ExpireBanAdminCommand(string Scope, string Subject, BanRuleExpireRequest Request, AdminMutationContext Context)
+    : IRequest<BanRuleDto>;
 
 public sealed record DeleteBanAdminCommand(string Scope, string Subject, long? ExpectedVersion, AdminMutationContext Context)
     : IRequest<Unit>;
@@ -190,6 +216,7 @@ public interface ITorrentAdminReader
 public interface IPasskeyAdminReader
 {
     Task<PageResult<PasskeyAdminDto>> ListAsync(GridQuery query, PasskeyCatalogFilter filter, Guid? userId, bool? isRevoked, CancellationToken cancellationToken);
+    Task<PasskeyAdminDto?> GetAsync(Guid id, CancellationToken cancellationToken);
 }
 
 public interface ITrackerAccessRightsAdminReader
@@ -213,16 +240,24 @@ public interface IAdminMutationOrchestrator
 {
     Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<TorrentPolicyDto> UpsertTorrentPolicyAsync(string infoHash, TorrentPolicyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task DeleteTorrentAsync(string infoHash, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkActivateTorrentsAsync(IReadOnlyCollection<BulkTorrentActivationItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkDeactivateTorrentsAsync(IReadOnlyCollection<BulkTorrentActivationItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkUpsertTorrentPoliciesAsync(IReadOnlyCollection<BulkTorrentPolicyUpsertItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkDryRunResultDto> DryRunBulkUpsertTorrentPoliciesAsync(IReadOnlyCollection<BulkTorrentPolicyUpsertItem> items, CancellationToken cancellationToken);
     Task<PasskeyAccessDto> UpsertPasskeyAsync(string passkey, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<PasskeyAccessDto> CreatePasskeyAsync(PasskeyCreateRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<PasskeyAccessDto> UpsertPasskeyByIdAsync(Guid id, PasskeyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<PasskeyAccessDto> RevokePasskeyByIdAsync(Guid id, PasskeyRevokeRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)> RotatePasskeyByIdAsync(Guid id, PasskeyRotateRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task DeletePasskeyByIdAsync(Guid id, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkRevokePasskeysAsync(IReadOnlyCollection<BulkPasskeyRevokeItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkRotatePasskeysAsync(IReadOnlyCollection<BulkPasskeyRotateItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<TrackerAccessRightsDto> UpsertTrackerAccessRightsAsync(Guid userId, TrackerAccessRightsUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task DeleteTrackerAccessRightsAsync(Guid userId, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkUpsertTrackerAccessRightsAsync(IReadOnlyCollection<BulkTrackerAccessRightsUpsertItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<BanRuleDto> ExpireBanRuleAsync(string scope, string subject, BanRuleExpireRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkUpsertBanRulesAsync(IReadOnlyCollection<BulkBanRuleUpsertItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkExpireBanRulesAsync(IReadOnlyCollection<BulkBanRuleExpireItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkDeleteBanRulesAsync(IReadOnlyCollection<BulkBanRuleDeleteItem> items, AdminMutationContext context, CancellationToken cancellationToken);
@@ -266,6 +301,12 @@ internal sealed class ListPasskeysQueryHandler(IPasskeyAdminReader reader) : IRe
         => reader.ListAsync(request.Query, request.Filter, request.UserId, request.IsRevoked, cancellationToken);
 }
 
+internal sealed class GetPasskeyDetailQueryHandler(IPasskeyAdminReader reader) : IRequestHandler<GetPasskeyDetailQuery, PasskeyAdminDto?>
+{
+    public Task<PasskeyAdminDto?> Handle(GetPasskeyDetailQuery request, CancellationToken cancellationToken)
+        => reader.GetAsync(request.Id, cancellationToken);
+}
+
 internal sealed class ListTrackerAccessRightsQueryHandler(ITrackerAccessRightsAdminReader reader) : IRequestHandler<ListTrackerAccessRightsQuery, PageResult<TrackerAccessAdminDto>>
 {
     public Task<PageResult<TrackerAccessAdminDto>> Handle(ListTrackerAccessRightsQuery request, CancellationToken cancellationToken)
@@ -302,6 +343,15 @@ internal sealed class UpsertTorrentPolicyAdminCommandHandler(IAdminMutationOrche
         => orchestrator.UpsertTorrentPolicyAsync(request.InfoHash, request.Request, request.Context, cancellationToken);
 }
 
+internal sealed class DeleteTorrentAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<DeleteTorrentAdminCommand, Unit>
+{
+    public async Task<Unit> Handle(DeleteTorrentAdminCommand request, CancellationToken cancellationToken)
+    {
+        await orchestrator.DeleteTorrentAsync(request.InfoHash, request.ExpectedVersion, request.Context, cancellationToken);
+        return Unit.Value;
+    }
+}
+
 internal sealed class BulkActivateTorrentsAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<BulkActivateTorrentsAdminCommand, BulkOperationResultDto>
 {
     public Task<BulkOperationResultDto> Handle(BulkActivateTorrentsAdminCommand request, CancellationToken cancellationToken)
@@ -332,6 +382,39 @@ internal sealed class UpsertPasskeyAdminCommandHandler(IAdminMutationOrchestrato
         => orchestrator.UpsertPasskeyAsync(request.Passkey, request.Request, request.Context, cancellationToken);
 }
 
+internal sealed class CreatePasskeyAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<CreatePasskeyAdminCommand, PasskeyAccessDto>
+{
+    public Task<PasskeyAccessDto> Handle(CreatePasskeyAdminCommand request, CancellationToken cancellationToken)
+        => orchestrator.CreatePasskeyAsync(request.Request, request.Context, cancellationToken);
+}
+
+internal sealed class UpsertPasskeyByIdAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<UpsertPasskeyByIdAdminCommand, PasskeyAccessDto>
+{
+    public Task<PasskeyAccessDto> Handle(UpsertPasskeyByIdAdminCommand request, CancellationToken cancellationToken)
+        => orchestrator.UpsertPasskeyByIdAsync(request.Id, request.Request, request.Context, cancellationToken);
+}
+
+internal sealed class RevokePasskeyByIdAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<RevokePasskeyByIdAdminCommand, PasskeyAccessDto>
+{
+    public Task<PasskeyAccessDto> Handle(RevokePasskeyByIdAdminCommand request, CancellationToken cancellationToken)
+        => orchestrator.RevokePasskeyByIdAsync(request.Id, request.Request, request.Context, cancellationToken);
+}
+
+internal sealed class RotatePasskeyByIdAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<RotatePasskeyByIdAdminCommand, (PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)>
+{
+    public Task<(PasskeyAccessDto RevokedSnapshot, PasskeyAccessDto NewSnapshot)> Handle(RotatePasskeyByIdAdminCommand request, CancellationToken cancellationToken)
+        => orchestrator.RotatePasskeyByIdAsync(request.Id, request.Request, request.Context, cancellationToken);
+}
+
+internal sealed class DeletePasskeyAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<DeletePasskeyAdminCommand, Unit>
+{
+    public async Task<Unit> Handle(DeletePasskeyAdminCommand request, CancellationToken cancellationToken)
+    {
+        await orchestrator.DeletePasskeyByIdAsync(request.Id, request.ExpectedVersion, request.Context, cancellationToken);
+        return Unit.Value;
+    }
+}
+
 internal sealed class BulkRevokePasskeysAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<BulkRevokePasskeysAdminCommand, BulkOperationResultDto>
 {
     public Task<BulkOperationResultDto> Handle(BulkRevokePasskeysAdminCommand request, CancellationToken cancellationToken)
@@ -350,6 +433,15 @@ internal sealed class UpsertTrackerAccessRightsAdminCommandHandler(IAdminMutatio
         => orchestrator.UpsertTrackerAccessRightsAsync(request.UserId, request.Request, request.Context, cancellationToken);
 }
 
+internal sealed class DeleteTrackerAccessRightsAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<DeleteTrackerAccessRightsAdminCommand, Unit>
+{
+    public async Task<Unit> Handle(DeleteTrackerAccessRightsAdminCommand request, CancellationToken cancellationToken)
+    {
+        await orchestrator.DeleteTrackerAccessRightsAsync(request.UserId, request.ExpectedVersion, request.Context, cancellationToken);
+        return Unit.Value;
+    }
+}
+
 internal sealed class BulkUpsertTrackerAccessRightsAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<BulkUpsertTrackerAccessRightsAdminCommand, BulkOperationResultDto>
 {
     public Task<BulkOperationResultDto> Handle(BulkUpsertTrackerAccessRightsAdminCommand request, CancellationToken cancellationToken)
@@ -360,6 +452,12 @@ internal sealed class UpsertBanAdminCommandHandler(IAdminMutationOrchestrator or
 {
     public Task<BanRuleDto> Handle(UpsertBanAdminCommand request, CancellationToken cancellationToken)
         => orchestrator.UpsertBanRuleAsync(request.Scope, request.Subject, request.Request, request.Context, cancellationToken);
+}
+
+internal sealed class ExpireBanAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<ExpireBanAdminCommand, BanRuleDto>
+{
+    public Task<BanRuleDto> Handle(ExpireBanAdminCommand request, CancellationToken cancellationToken)
+        => orchestrator.ExpireBanRuleAsync(request.Scope, request.Subject, request.Request, request.Context, cancellationToken);
 }
 
 internal sealed class BulkUpsertBansAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<BulkUpsertBansAdminCommand, BulkOperationResultDto>

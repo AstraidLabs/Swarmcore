@@ -1,0 +1,5 @@
+C:\Users\tomas\source\repos\BeeTracker\src\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\objverify\Verify\net10.0\BeeTracker.BuildingBlocks.Abstractions.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\tomas\source\repos\BeeTracker\src\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\objverify\Verify\net10.0\BeeTracker.BuildingBlocks.Abstractions.AssemblyInfoInputs.cache
+C:\Users\tomas\source\repos\BeeTracker\src\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\objverify\Verify\net10.0\BeeTracker.BuildingBlocks.Abstractions.AssemblyInfo.cs
+C:\Users\tomas\source\repos\BeeTracker\src\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\objverify\Verify\net10.0\BeeTracker.BuildingBlocks.Abstractions.csproj.CoreCompileInputs.cache
+C:\Users\tomas\source\repos\BeeTracker\src\BuildingBlocks\BeeTracker.BuildingBlocks.Abstractions\objverify\Verify\net10.0\BeeTracker.BuildingBlocks.Abstractions.sourcelink.json
