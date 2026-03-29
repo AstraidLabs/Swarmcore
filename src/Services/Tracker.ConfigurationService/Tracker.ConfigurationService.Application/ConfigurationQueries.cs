@@ -23,6 +23,13 @@ public interface ITorrentConfigurationReader
     Task<IReadOnlyCollection<TorrentPolicyDto>> GetTorrentPoliciesAsync(CancellationToken cancellationToken);
 }
 
+public interface ITrackerNodeConfigurationReader
+{
+    Task<TrackerNodeConfigurationDto?> GetTrackerNodeConfigurationAsync(string nodeKey, CancellationToken cancellationToken);
+    Task<TrackerNodeConfigurationDto?> GetEffectiveTrackerNodeConfigurationAsync(string nodeKey, CancellationToken cancellationToken);
+    Task<TrackerNodeConfigurationValidationResultDto> ValidateTrackerNodeConfigurationAsync(TrackerNodeConfigurationDocument configuration, CancellationToken cancellationToken);
+}
+
 public interface IConfigurationMutationService
 {
     Task<TorrentPolicyDto> UpsertTorrentPolicyAsync(string infoHash, TorrentPolicyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
@@ -35,6 +42,7 @@ public interface IConfigurationMutationService
     Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BanRuleDto> ExpireBanRuleAsync(string scope, string subject, BanRuleExpireRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task DeleteBanRuleAsync(string scope, string subject, long? expectedVersion, AdminMutationContext context, CancellationToken cancellationToken);
+    Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
 }
 
 public interface IConfigurationMutationPreviewService

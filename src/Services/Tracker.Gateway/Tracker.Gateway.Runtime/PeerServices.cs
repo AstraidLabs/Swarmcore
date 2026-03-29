@@ -84,6 +84,7 @@ public static class GatewayRuntimeServiceCollectionExtensions
             .Validate(static options => options.ShardCount > 0, "ShardCount must be positive.")
             .Validate(static options => options.MaxPeersPerResponse > 0, "MaxPeersPerResponse must be positive.")
             .Validate(static options => options.PeerTtlSeconds >= 60, "PeerTtlSeconds must be at least 60.")
+            .Validate(static options => options.MaxPeersPerSwarm is null || options.MaxPeersPerSwarm > 0, "MaxPeersPerSwarm must be positive when configured.")
             .ValidateOnStart();
 
         services.AddOptions<ClusterShardingOptions>()

@@ -6,6 +6,7 @@ public sealed class TrackerSecurityOptions
 
     public int AnnounceMaxQueryLength { get; init; } = 2048;
     public int ScrapeMaxQueryLength { get; init; } = 4096;
+    public int MaxQueryParameterCount { get; init; } = 32;
     public int HardMaxNumWant { get; init; } = 200;
     public bool RequireCompactResponses { get; init; } = true;
     public bool AllowPasskeyInQueryString { get; init; } = false;

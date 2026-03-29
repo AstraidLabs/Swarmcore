@@ -277,3 +277,145 @@ public sealed record RuntimeDiagnosticsDto(
     AbuseDiagnosticsDto AbuseSummary,
     ConfigValidationDto ConfigValidation,
     TrackerOverviewDto TrackerOverview);
+
+public sealed record TrackerNodeDependencySummaryDto(
+    bool Enabled,
+    string Summary,
+    bool Healthy);
+
+public sealed record TrackerNodeOverviewDto(
+    string NodeKey,
+    long Version,
+    string NodeId,
+    string NodeName,
+    string Environment,
+    string Region,
+    string PublicBaseUrl,
+    string InternalBaseUrl,
+    bool HttpEnabled,
+    bool ScrapeEnabled,
+    bool UdpEnabled,
+    bool PublicTrackerEnabled,
+    bool PrivateTrackerEnabled,
+    bool IPv6Enabled,
+    int ShardCount,
+    bool CompactResponsesByDefault,
+    bool AllowNonCompactResponses,
+    bool RequiresRestart,
+    string ApplyMode,
+    DateTimeOffset UpdatedAtUtc,
+    string UpdatedBy);
+
+public sealed record TrackerNodeCapabilitiesDto(
+    bool SupportsHttp,
+    bool SupportsUdp,
+    bool SupportsPublicTracker,
+    bool SupportsPrivateTracker,
+    bool SupportsPasskeyRouting,
+    bool SupportsClientIpOverride,
+    bool SupportsNonCompactResponses,
+    bool SupportsIPv6Peers,
+    bool SupportsAuditPersistence,
+    bool SupportsTelemetryPersistence,
+    bool SupportsDiagnosticsEndpoints);
+
+public sealed record TrackerNodeProtocolViewDto(
+    string AnnounceRoute,
+    string PrivateAnnounceRoute,
+    string ScrapeRoute,
+    bool HttpAnnounceEnabled,
+    bool HttpScrapeEnabled,
+    bool UdpEnabled,
+    string UdpBindAddress,
+    int UdpPort,
+    bool UdpScrapeEnabled,
+    int DefaultAnnounceIntervalSeconds,
+    int MinAnnounceIntervalSeconds,
+    int DefaultNumWant,
+    int MaxNumWant,
+    bool CompactResponsesByDefault,
+    bool AllowNonCompactResponses,
+    bool AllowPasskeyInPath,
+    bool AllowPasskeyInQuery,
+    bool AllowClientIpOverride);
+
+public sealed record TrackerNodeRuntimeViewDto(
+    int ShardCount,
+    int PeerTtlSeconds,
+    int CleanupIntervalSeconds,
+    int MaxPeersPerResponse,
+    int? MaxPeersPerSwarm,
+    bool PreferLocalShardPeers,
+    bool EnableCompletedAccounting,
+    bool EnableIPv6Peers,
+    bool AnnounceDisabled,
+    bool ScrapeDisabled,
+    bool UdpDisabled,
+    bool GlobalMaintenanceMode,
+    bool ReadOnlyMode);
+
+public sealed record TrackerNodeCoordinationViewDto(
+    TrackerNodeDependencySummaryDto Redis,
+    TrackerNodeDependencySummaryDto Postgres,
+    string KeyPrefix,
+    string InvalidationChannel,
+    bool MigrateOnStart,
+    bool PersistTelemetry,
+    bool PersistAudit,
+    int TelemetryBatchSize,
+    int TelemetryFlushIntervalMilliseconds,
+    int HeartbeatTtlSeconds,
+    int OwnershipLeaseDurationSeconds,
+    int OwnershipRefreshIntervalSeconds,
+    int SwarmSummaryPublishIntervalSeconds,
+    int SwarmSummaryTtlSeconds);
+
+public sealed record TrackerNodePolicyViewDto(
+    bool EnablePublicTracker,
+    bool EnablePrivateTracker,
+    bool RequirePasskeyForPrivateTracker,
+    bool AllowPublicScrape,
+    bool AllowPrivateScrape,
+    string DefaultTorrentVisibility,
+    string StrictnessProfile,
+    string CompatibilityMode,
+    int HardMaxNumWant,
+    bool EmergencyAbuseMitigation,
+    bool PolicyFreezeMode,
+    bool IPv6Frozen);
+
+public sealed record TrackerNodeObservabilityViewDto(
+    bool EnableHealthEndpoints,
+    bool EnableMetrics,
+    bool EnableTracing,
+    bool EnableDiagnosticsEndpoints,
+    string LiveRoute,
+    string ReadyRoute,
+    string StartupRoute,
+    bool RequireRedisForReadiness,
+    bool RequirePostgresForReadiness);
+
+public sealed record TrackerNodeAbuseViewDto(
+    int MaxAnnounceQueryLength,
+    int MaxScrapeQueryLength,
+    int MaxQueryParameterCount,
+    int HardMaxNumWant,
+    bool EnableAnnouncePasskeyRateLimit,
+    int AnnouncePerPasskeyPerSecond,
+    bool EnableAnnounceIpRateLimit,
+    int AnnouncePerIpPerSecond,
+    bool EnableScrapeIpRateLimit,
+    int ScrapePerIpPerSecond,
+    bool RejectOversizedRequests,
+    int MaxScrapeInfoHashes);
+
+public sealed record TrackerNodeConfigViewDto(
+    TrackerNodeOverviewDto Overview,
+    TrackerNodeCapabilitiesDto Capabilities,
+    TrackerNodeProtocolViewDto Protocol,
+    TrackerNodeRuntimeViewDto Runtime,
+    TrackerNodeCoordinationViewDto Coordination,
+    TrackerNodePolicyViewDto Policy,
+    TrackerNodeObservabilityViewDto Observability,
+    TrackerNodeAbuseViewDto Abuse,
+    ConfigValidationDto Validation);

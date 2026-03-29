@@ -10,4 +10,5 @@ public sealed class TrackerAbuseProtectionOptions
     public int AnnouncePerIpPerSecond { get; init; } = 60;
     public bool EnableScrapeIpRateLimit { get; init; } = true;
     public int ScrapePerIpPerSecond { get; init; } = 10;
+    public bool RejectOversizedRequests { get; init; } = true;
 }

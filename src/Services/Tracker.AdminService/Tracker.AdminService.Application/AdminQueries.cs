@@ -76,6 +76,12 @@ public sealed record ListTrackerAccessRightsQuery(GridQuery Query, TrackerAccess
 public sealed record ListBansQuery(GridQuery Query, BanCatalogFilter Filter, string? Scope = null)
     : IRequest<PageResult<BanRuleAdminDto>>;
 
+public sealed record GetTrackerAccessRightQuery(Guid UserId) : IRequest<TrackerAccessAdminDto?>;
+
+public sealed record GetBanRuleQuery(string Scope, string Subject) : IRequest<BanRuleAdminDto?>;
+
+public sealed record GetTrackerNodeConfigViewQuery(string NodeKey) : IRequest<TrackerNodeConfigViewDto?>;
+
 public sealed record UpsertTorrentPolicyAdminCommand(string InfoHash, TorrentPolicyUpsertRequest Request, AdminMutationContext Context)
     : IRequest<TorrentPolicyDto>;
 
@@ -189,15 +195,23 @@ public interface IPasskeyAdminReader
 public interface ITrackerAccessRightsAdminReader
 {
     Task<PageResult<TrackerAccessAdminDto>> ListAsync(GridQuery query, TrackerAccessRightsFilter filter, bool? canUsePrivateTracker, CancellationToken cancellationToken);
+    Task<TrackerAccessAdminDto?> GetAsync(Guid userId, CancellationToken cancellationToken);
 }
 
 public interface IBanAdminReader
 {
     Task<PageResult<BanRuleAdminDto>> ListAsync(GridQuery query, BanCatalogFilter filter, string? scope, CancellationToken cancellationToken);
+    Task<BanRuleAdminDto?> GetAsync(string scope, string subject, CancellationToken cancellationToken);
+}
+
+public interface ITrackerNodeConfigAdminReader
+{
+    Task<TrackerNodeConfigViewDto?> GetAsync(string nodeKey, CancellationToken cancellationToken);
 }
 
 public interface IAdminMutationOrchestrator
 {
+    Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<TorrentPolicyDto> UpsertTorrentPolicyAsync(string infoHash, TorrentPolicyUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkActivateTorrentsAsync(IReadOnlyCollection<BulkTorrentActivationItem> items, AdminMutationContext context, CancellationToken cancellationToken);
     Task<BulkOperationResultDto> BulkDeactivateTorrentsAsync(IReadOnlyCollection<BulkTorrentActivationItem> items, AdminMutationContext context, CancellationToken cancellationToken);
@@ -262,6 +276,24 @@ internal sealed class ListBansQueryHandler(IBanAdminReader reader) : IRequestHan
 {
     public Task<PageResult<BanRuleAdminDto>> Handle(ListBansQuery request, CancellationToken cancellationToken)
         => reader.ListAsync(request.Query, request.Filter, request.Scope, cancellationToken);
+}
+
+internal sealed class GetTrackerAccessRightQueryHandler(ITrackerAccessRightsAdminReader reader) : IRequestHandler<GetTrackerAccessRightQuery, TrackerAccessAdminDto?>
+{
+    public Task<TrackerAccessAdminDto?> Handle(GetTrackerAccessRightQuery request, CancellationToken cancellationToken)
+        => reader.GetAsync(request.UserId, cancellationToken);
+}
+
+internal sealed class GetBanRuleQueryHandler(IBanAdminReader reader) : IRequestHandler<GetBanRuleQuery, BanRuleAdminDto?>
+{
+    public Task<BanRuleAdminDto?> Handle(GetBanRuleQuery request, CancellationToken cancellationToken)
+        => reader.GetAsync(request.Scope, request.Subject, cancellationToken);
+}
+
+internal sealed class GetTrackerNodeConfigViewQueryHandler(ITrackerNodeConfigAdminReader reader) : IRequestHandler<GetTrackerNodeConfigViewQuery, TrackerNodeConfigViewDto?>
+{
+    public Task<TrackerNodeConfigViewDto?> Handle(GetTrackerNodeConfigViewQuery request, CancellationToken cancellationToken)
+        => reader.GetAsync(request.NodeKey, cancellationToken);
 }
 
 internal sealed class UpsertTorrentPolicyAdminCommandHandler(IAdminMutationOrchestrator orchestrator) : IRequestHandler<UpsertTorrentPolicyAdminCommand, TorrentPolicyDto>

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.ComponentModel.DataAnnotations;
 using BeeTracker.Contracts.Configuration;
 using Tracker.ConfigurationService.Application;
 
@@ -315,6 +316,99 @@ internal sealed class EfConfigurationMutationService(
             cancellationToken);
 
         return new TrackerAccessRightsDto(userId, request.CanLeech, request.CanSeed, request.CanScrape, request.CanUsePrivateTracker, nextVersion);
+    }
+
+    public async Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.TrackerNodeConfigurations.SingleOrDefaultAsync(item => item.NodeKey == nodeKey, cancellationToken);
+        var effectiveConfiguration = request.Configuration;
+        if (entity is not null)
+        {
+            var currentConfiguration = TrackerNodeConfigurationSerialization.Deserialize(entity.ConfigJson);
+            effectiveConfiguration = effectiveConfiguration with
+            {
+                Redis = effectiveConfiguration.Redis with
+                {
+                    Configuration = string.IsNullOrWhiteSpace(effectiveConfiguration.Redis.Configuration)
+                        ? currentConfiguration.Redis.Configuration
+                        : effectiveConfiguration.Redis.Configuration
+                },
+                Postgres = effectiveConfiguration.Postgres with
+                {
+                    ConnectionString = string.IsNullOrWhiteSpace(effectiveConfiguration.Postgres.ConnectionString)
+                        ? currentConfiguration.Postgres.ConnectionString
+                        : effectiveConfiguration.Postgres.ConnectionString
+                }
+            };
+        }
+
+        var validation = TrackerNodeConfigurationValidator.Validate(effectiveConfiguration);
+        var errors = validation.Issues.Where(static issue => issue.Severity == TrackerConfigValidationSeverity.Error).ToArray();
+        if (errors.Length > 0)
+        {
+            throw new ValidationException($"Tracker node configuration is invalid: {string.Join("; ", errors.Select(static issue => issue.Message))}");
+        }
+
+        var nextVersion = 1L;
+
+        if (entity is null)
+        {
+            if (request.ExpectedVersion.HasValue)
+            {
+                throw new ConfigurationConcurrencyException("tracker_node_configuration", nodeKey, request.ExpectedVersion.Value, 0);
+            }
+
+            entity = new TrackerNodeConfigurationEntity
+            {
+                NodeKey = nodeKey
+            };
+            dbContext.TrackerNodeConfigurations.Add(entity);
+        }
+        else
+        {
+            if (request.ExpectedVersion.HasValue && request.ExpectedVersion.Value != entity.RowVersion)
+            {
+                throw new ConfigurationConcurrencyException("tracker_node_configuration", nodeKey, request.ExpectedVersion.Value, entity.RowVersion);
+            }
+
+            nextVersion = entity.RowVersion + 1;
+        }
+
+        entity.ConfigJson = TrackerNodeConfigurationSerialization.Serialize(effectiveConfiguration);
+        entity.RowVersion = nextVersion;
+        entity.UpdatedAtUtc = DateTime.UtcNow;
+        entity.UpdatedBy = context.ActorId;
+        entity.ApplyMode = request.ApplyMode.ToString();
+        entity.RequiresRestart = request.ApplyMode != TrackerNodeConfigurationApplyMode.Dynamic;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await EnqueueAuditAsync(
+            context,
+            "tracker_node_configuration.upsert",
+            "tracker_node_configuration",
+            nodeKey,
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                request.ApplyMode,
+                effectiveConfiguration.Identity.NodeId,
+                effectiveConfiguration.Identity.NodeName,
+                effectiveConfiguration.Identity.Region,
+                effectiveConfiguration.Http.EnableAnnounce,
+                effectiveConfiguration.Http.EnableScrape,
+                effectiveConfiguration.Udp.Enabled,
+                effectiveConfiguration.Policy.EnablePublicTracker,
+                effectiveConfiguration.Policy.EnablePrivateTracker
+            }, AuditJsonOptions),
+            cancellationToken);
+
+        return new TrackerNodeConfigurationDto(
+            nodeKey,
+            effectiveConfiguration,
+            nextVersion,
+            new DateTimeOffset(DateTime.SpecifyKind(entity.UpdatedAtUtc, DateTimeKind.Utc)),
+            entity.UpdatedBy,
+            request.ApplyMode,
+            entity.RequiresRestart);
     }
 
     public async Task<BanRuleDto> UpsertBanRuleAsync(string scope, string subject, BanRuleUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)

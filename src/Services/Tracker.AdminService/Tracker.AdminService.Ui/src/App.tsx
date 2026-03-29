@@ -24,7 +24,7 @@ import {
   permissionKeys
 } from "./rbac";
 import { buildGridQueryString, type CatalogQueryState, type PageResult } from "./catalog";
-import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, EyeIcon, Modal, ModalDismissButton, PaginationFooter, PencilIcon, PreviewDrawer, RowActionsMenu, SettingsIcon, SortHeaderButton, TableStateRow, TrashIcon, useCatalogViewState } from "./catalog.tsx";
+import { CatalogTableRow, CatalogToolbar, ConfirmActionModal, CopyValueButton, EyeIcon, PaginationFooter, PencilIcon, PowerIcon, PreviewDrawer, RowActionsMenu, SettingsIcon, SortHeaderButton, TableStateRow, TrashIcon, useCatalogViewState } from "./catalog.tsx";
 
 type AdminUiConfig = {
   authority: string;
@@ -108,6 +108,516 @@ type MaintenanceRunDto = {
   status: string;
   correlationId: string;
 };
+
+type TrackerNodeConfigViewDto = {
+  overview: {
+    nodeKey: string;
+    version: number;
+    nodeId: string;
+    nodeName: string;
+    environment: string;
+    region: string;
+    publicBaseUrl: string;
+    internalBaseUrl: string;
+    httpEnabled: boolean;
+    scrapeEnabled: boolean;
+    udpEnabled: boolean;
+    publicTrackerEnabled: boolean;
+    privateTrackerEnabled: boolean;
+    ipv6Enabled: boolean;
+    shardCount: number;
+    compactResponsesByDefault: boolean;
+    allowNonCompactResponses: boolean;
+    requiresRestart: boolean;
+    applyMode: string;
+    updatedAtUtc: string;
+    updatedBy: string;
+  };
+  protocol: {
+    announceRoute: string;
+    privateAnnounceRoute: string;
+    scrapeRoute: string;
+    httpAnnounceEnabled: boolean;
+    httpScrapeEnabled: boolean;
+    udpEnabled: boolean;
+    udpBindAddress: string;
+    udpPort: number;
+    udpScrapeEnabled: boolean;
+    defaultAnnounceIntervalSeconds: number;
+    minAnnounceIntervalSeconds: number;
+    defaultNumWant: number;
+    maxNumWant: number;
+    compactResponsesByDefault: boolean;
+    allowNonCompactResponses: boolean;
+    allowPasskeyInPath: boolean;
+    allowPasskeyInQuery: boolean;
+    allowClientIpOverride: boolean;
+  };
+  runtime: {
+    shardCount: number;
+    peerTtlSeconds: number;
+    cleanupIntervalSeconds: number;
+    maxPeersPerResponse: number;
+    maxPeersPerSwarm?: number | null;
+    preferLocalShardPeers: boolean;
+    enableCompletedAccounting: boolean;
+    enableIPv6Peers: boolean;
+  };
+  coordination: {
+    redis: { enabled: boolean; summary: string; healthy: boolean };
+    postgres: { enabled: boolean; summary: string; healthy: boolean };
+    keyPrefix: string;
+    invalidationChannel: string;
+    migrateOnStart: boolean;
+    persistTelemetry: boolean;
+    persistAudit: boolean;
+    telemetryBatchSize: number;
+    telemetryFlushIntervalMilliseconds: number;
+    heartbeatTtlSeconds: number;
+    ownershipLeaseDurationSeconds: number;
+    ownershipRefreshIntervalSeconds: number;
+    swarmSummaryPublishIntervalSeconds: number;
+    swarmSummaryTtlSeconds: number;
+  };
+  policy: {
+    enablePublicTracker: boolean;
+    enablePrivateTracker: boolean;
+    requirePasskeyForPrivateTracker: boolean;
+    allowPublicScrape: boolean;
+    allowPrivateScrape: boolean;
+    defaultTorrentVisibility: string;
+    strictnessProfile: string;
+    compatibilityMode: string;
+  };
+  observability: {
+    enableHealthEndpoints: boolean;
+    enableMetrics: boolean;
+    enableTracing: boolean;
+    enableDiagnosticsEndpoints: boolean;
+    liveRoute: string;
+    readyRoute: string;
+    startupRoute: string;
+  };
+  abuse: {
+    maxAnnounceQueryLength: number;
+    maxScrapeQueryLength: number;
+    maxQueryParameterCount: number;
+    hardMaxNumWant: number;
+    enableAnnouncePasskeyRateLimit: boolean;
+    announcePerPasskeyPerSecond: number;
+    enableAnnounceIpRateLimit: boolean;
+    announcePerIpPerSecond: number;
+    enableScrapeIpRateLimit: boolean;
+    scrapePerIpPerSecond: number;
+    rejectOversizedRequests: boolean;
+    maxScrapeInfoHashes: number;
+  };
+  validation: {
+    isValid: boolean;
+    errors: string[];
+    warnings: string[];
+  };
+};
+
+type TrackerNodeConfigValidationResultDto = {
+  isValid: boolean;
+  issues: Array<{ code: string; path: string; severity: "Warning" | "Error"; message: string }>;
+};
+
+type TrackerNodeConfigFormState = {
+  nodeId: string;
+  nodeName: string;
+  environment: string;
+  region: string;
+  publicBaseUrl: string;
+  internalBaseUrl: string;
+  supportsHttp: boolean;
+  supportsUdp: boolean;
+  supportsPrivateTracker: boolean;
+  supportsPublicTracker: boolean;
+  announceRoute: string;
+  privateAnnounceRoute: string;
+  scrapeRoute: string;
+  httpAnnounceEnabled: boolean;
+  httpScrapeEnabled: boolean;
+  defaultAnnounceIntervalSeconds: number;
+  minAnnounceIntervalSeconds: number;
+  defaultNumWant: number;
+  maxNumWant: number;
+  compactResponsesByDefault: boolean;
+  allowNonCompactResponses: boolean;
+  allowPasskeyInPath: boolean;
+  allowPasskeyInQuery: boolean;
+  allowClientIpOverride: boolean;
+  emitWarningMessages: boolean;
+  udpEnabled: boolean;
+  udpBindAddress: string;
+  udpPort: number;
+  udpConnectionTimeoutSeconds: number;
+  udpReceiveBufferSize: number;
+  udpMaxDatagramSize: number;
+  udpScrapeEnabled: boolean;
+  udpMaxScrapeInfoHashes: number;
+  shardCount: number;
+  peerTtlSeconds: number;
+  cleanupIntervalSeconds: number;
+  maxPeersPerResponse: number;
+  maxPeersPerSwarm: number;
+  preferLocalShardPeers: boolean;
+  enableCompletedAccounting: boolean;
+  enableIPv6Peers: boolean;
+  enablePublicTracker: boolean;
+  enablePrivateTracker: boolean;
+  requirePasskeyForPrivateTracker: boolean;
+  allowPublicScrape: boolean;
+  allowPrivateScrape: boolean;
+  defaultTorrentVisibility: string;
+  strictnessProfile: string;
+  compatibilityMode: string;
+  redisEnabled: boolean;
+  redisConnection: string;
+  redisKeyPrefix: string;
+  redisPolicyCacheTtlSeconds: number;
+  redisSnapshotCacheTtlSeconds: number;
+  redisInvalidationChannel: string;
+  redisHeartbeatTtlSeconds: number;
+  redisOwnershipLeaseDurationSeconds: number;
+  redisOwnershipRefreshIntervalSeconds: number;
+  redisSwarmSummaryPublishIntervalSeconds: number;
+  redisSwarmSummaryTtlSeconds: number;
+  postgresEnabled: boolean;
+  postgresConnectionString: string;
+  migrateOnStart: boolean;
+  persistTelemetry: boolean;
+  persistAudit: boolean;
+  telemetryBatchSize: number;
+  telemetryFlushIntervalMilliseconds: number;
+  maxAnnounceQueryLength: number;
+  maxScrapeQueryLength: number;
+  maxQueryParameterCount: number;
+  hardMaxNumWant: number;
+  enableAnnouncePasskeyRateLimit: boolean;
+  announcePerPasskeyPerSecond: number;
+  enableAnnounceIpRateLimit: boolean;
+  announcePerIpPerSecond: number;
+  enableScrapeIpRateLimit: boolean;
+  scrapePerIpPerSecond: number;
+  rejectOversizedRequests: boolean;
+  maxScrapeInfoHashes: number;
+  enableHealthEndpoints: boolean;
+  enableMetrics: boolean;
+  enableTracing: boolean;
+  enableDiagnosticsEndpoints: boolean;
+  liveRoute: string;
+  readyRoute: string;
+  startupRoute: string;
+  applyMode: "Dynamic" | "RestartRecommended" | "StartupOnly";
+};
+
+function normalizeTrackerNodeApplyMode(value: unknown): TrackerNodeConfigFormState["applyMode"] {
+  if (value === 0 || value === "Dynamic") {
+    return "Dynamic";
+  }
+
+  if (value === 2 || value === "StartupOnly") {
+    return "StartupOnly";
+  }
+
+  return "RestartRecommended";
+}
+
+function createDefaultTrackerNodeConfigFormState(): TrackerNodeConfigFormState {
+  return {
+    nodeId: "",
+    nodeName: "",
+    environment: "Development",
+    region: "local",
+    publicBaseUrl: "http://localhost:18081",
+    internalBaseUrl: "http://localhost:18081",
+    supportsHttp: true,
+    supportsUdp: true,
+    supportsPrivateTracker: true,
+    supportsPublicTracker: true,
+    announceRoute: "/announce",
+    privateAnnounceRoute: "/announce/private/{passkey}",
+    scrapeRoute: "/scrape",
+    httpAnnounceEnabled: true,
+    httpScrapeEnabled: true,
+    defaultAnnounceIntervalSeconds: 1800,
+    minAnnounceIntervalSeconds: 900,
+    defaultNumWant: 50,
+    maxNumWant: 100,
+    compactResponsesByDefault: true,
+    allowNonCompactResponses: false,
+    allowPasskeyInPath: true,
+    allowPasskeyInQuery: false,
+    allowClientIpOverride: false,
+    emitWarningMessages: false,
+    udpEnabled: true,
+    udpBindAddress: "0.0.0.0",
+    udpPort: 6969,
+    udpConnectionTimeoutSeconds: 60,
+    udpReceiveBufferSize: 65535,
+    udpMaxDatagramSize: 65535,
+    udpScrapeEnabled: true,
+    udpMaxScrapeInfoHashes: 70,
+    shardCount: 16,
+    peerTtlSeconds: 2700,
+    cleanupIntervalSeconds: 300,
+    maxPeersPerResponse: 100,
+    maxPeersPerSwarm: 5000,
+    preferLocalShardPeers: true,
+    enableCompletedAccounting: true,
+    enableIPv6Peers: true,
+    enablePublicTracker: true,
+    enablePrivateTracker: true,
+    requirePasskeyForPrivateTracker: true,
+    allowPublicScrape: false,
+    allowPrivateScrape: true,
+    defaultTorrentVisibility: "private",
+    strictnessProfile: "balanced",
+    compatibilityMode: "standard",
+    redisEnabled: true,
+    redisConnection: "",
+    redisKeyPrefix: "beetracker",
+    redisPolicyCacheTtlSeconds: 60,
+    redisSnapshotCacheTtlSeconds: 30,
+    redisInvalidationChannel: "tracker:cache-invalidation",
+    redisHeartbeatTtlSeconds: 30,
+    redisOwnershipLeaseDurationSeconds: 45,
+    redisOwnershipRefreshIntervalSeconds: 15,
+    redisSwarmSummaryPublishIntervalSeconds: 30,
+    redisSwarmSummaryTtlSeconds: 90,
+    postgresEnabled: true,
+    postgresConnectionString: "",
+    migrateOnStart: false,
+    persistTelemetry: true,
+    persistAudit: true,
+    telemetryBatchSize: 500,
+    telemetryFlushIntervalMilliseconds: 5000,
+    maxAnnounceQueryLength: 4096,
+    maxScrapeQueryLength: 8192,
+    maxQueryParameterCount: 32,
+    hardMaxNumWant: 100,
+    enableAnnouncePasskeyRateLimit: true,
+    announcePerPasskeyPerSecond: 8,
+    enableAnnounceIpRateLimit: true,
+    announcePerIpPerSecond: 24,
+    enableScrapeIpRateLimit: true,
+    scrapePerIpPerSecond: 8,
+    rejectOversizedRequests: true,
+    maxScrapeInfoHashes: 70,
+    enableHealthEndpoints: true,
+    enableMetrics: true,
+    enableTracing: true,
+    enableDiagnosticsEndpoints: true,
+    liveRoute: "/health/live",
+    readyRoute: "/health/ready",
+    startupRoute: "/health/startup",
+    applyMode: "RestartRecommended"
+  };
+}
+
+function toTrackerNodeConfigFormState(view: TrackerNodeConfigViewDto): TrackerNodeConfigFormState {
+  return {
+    nodeId: view.overview.nodeId,
+    nodeName: view.overview.nodeName,
+    environment: view.overview.environment,
+    region: view.overview.region,
+    publicBaseUrl: view.overview.publicBaseUrl,
+    internalBaseUrl: view.overview.internalBaseUrl,
+    supportsHttp: view.capabilities.supportsHttp,
+    supportsUdp: view.capabilities.supportsUdp,
+    supportsPrivateTracker: view.capabilities.supportsPrivateTracker,
+    supportsPublicTracker: view.capabilities.supportsPublicTracker,
+    announceRoute: view.protocol.announceRoute,
+    privateAnnounceRoute: view.protocol.privateAnnounceRoute,
+    scrapeRoute: view.protocol.scrapeRoute,
+    httpAnnounceEnabled: view.protocol.httpAnnounceEnabled,
+    httpScrapeEnabled: view.protocol.httpScrapeEnabled,
+    defaultAnnounceIntervalSeconds: view.protocol.defaultAnnounceIntervalSeconds,
+    minAnnounceIntervalSeconds: view.protocol.minAnnounceIntervalSeconds,
+    defaultNumWant: view.protocol.defaultNumWant,
+    maxNumWant: view.protocol.maxNumWant,
+    compactResponsesByDefault: view.protocol.compactResponsesByDefault,
+    allowNonCompactResponses: view.protocol.allowNonCompactResponses,
+    allowPasskeyInPath: view.protocol.allowPasskeyInPath,
+    allowPasskeyInQuery: view.protocol.allowPasskeyInQuery,
+    allowClientIpOverride: view.protocol.allowClientIpOverride,
+    emitWarningMessages: false,
+    udpEnabled: view.protocol.udpEnabled,
+    udpBindAddress: view.protocol.udpBindAddress,
+    udpPort: view.protocol.udpPort,
+    udpConnectionTimeoutSeconds: 60,
+    udpReceiveBufferSize: 65535,
+    udpMaxDatagramSize: 65535,
+    udpScrapeEnabled: view.protocol.udpScrapeEnabled,
+    udpMaxScrapeInfoHashes: view.abuse.maxScrapeInfoHashes,
+    shardCount: view.runtime.shardCount,
+    peerTtlSeconds: view.runtime.peerTtlSeconds,
+    cleanupIntervalSeconds: view.runtime.cleanupIntervalSeconds,
+    maxPeersPerResponse: view.runtime.maxPeersPerResponse,
+    maxPeersPerSwarm: view.runtime.maxPeersPerSwarm ?? 0,
+    preferLocalShardPeers: view.runtime.preferLocalShardPeers,
+    enableCompletedAccounting: view.runtime.enableCompletedAccounting,
+    enableIPv6Peers: view.runtime.enableIPv6Peers,
+    enablePublicTracker: view.policy.enablePublicTracker,
+    enablePrivateTracker: view.policy.enablePrivateTracker,
+    requirePasskeyForPrivateTracker: view.policy.requirePasskeyForPrivateTracker,
+    allowPublicScrape: view.policy.allowPublicScrape,
+    allowPrivateScrape: view.policy.allowPrivateScrape,
+    defaultTorrentVisibility: view.policy.defaultTorrentVisibility,
+    strictnessProfile: view.policy.strictnessProfile,
+    compatibilityMode: view.policy.compatibilityMode,
+    redisEnabled: view.coordination.redis.enabled,
+    redisConnection: "",
+    redisKeyPrefix: view.coordination.keyPrefix,
+    redisPolicyCacheTtlSeconds: 60,
+    redisSnapshotCacheTtlSeconds: 30,
+    redisInvalidationChannel: view.coordination.invalidationChannel,
+    redisHeartbeatTtlSeconds: view.coordination.heartbeatTtlSeconds,
+    redisOwnershipLeaseDurationSeconds: view.coordination.ownershipLeaseDurationSeconds,
+    redisOwnershipRefreshIntervalSeconds: view.coordination.ownershipRefreshIntervalSeconds,
+    redisSwarmSummaryPublishIntervalSeconds: view.coordination.swarmSummaryPublishIntervalSeconds,
+    redisSwarmSummaryTtlSeconds: view.coordination.swarmSummaryTtlSeconds,
+    postgresEnabled: view.coordination.postgres.enabled,
+    postgresConnectionString: "",
+    migrateOnStart: view.coordination.migrateOnStart,
+    persistTelemetry: view.coordination.persistTelemetry,
+    persistAudit: view.coordination.persistAudit,
+    telemetryBatchSize: view.coordination.telemetryBatchSize,
+    telemetryFlushIntervalMilliseconds: view.coordination.telemetryFlushIntervalMilliseconds,
+    maxAnnounceQueryLength: view.abuse.maxAnnounceQueryLength,
+    maxScrapeQueryLength: view.abuse.maxScrapeQueryLength,
+    maxQueryParameterCount: view.abuse.maxQueryParameterCount,
+    hardMaxNumWant: view.abuse.hardMaxNumWant,
+    enableAnnouncePasskeyRateLimit: view.abuse.enableAnnouncePasskeyRateLimit,
+    announcePerPasskeyPerSecond: view.abuse.announcePerPasskeyPerSecond,
+    enableAnnounceIpRateLimit: view.abuse.enableAnnounceIpRateLimit,
+    announcePerIpPerSecond: view.abuse.announcePerIpPerSecond,
+    enableScrapeIpRateLimit: view.abuse.enableScrapeIpRateLimit,
+    scrapePerIpPerSecond: view.abuse.scrapePerIpPerSecond,
+    rejectOversizedRequests: view.abuse.rejectOversizedRequests,
+    maxScrapeInfoHashes: view.abuse.maxScrapeInfoHashes,
+    enableHealthEndpoints: view.observability.enableHealthEndpoints,
+    enableMetrics: view.observability.enableMetrics,
+    enableTracing: view.observability.enableTracing,
+    enableDiagnosticsEndpoints: view.observability.enableDiagnosticsEndpoints,
+    liveRoute: view.observability.liveRoute,
+    readyRoute: view.observability.readyRoute,
+    startupRoute: view.observability.startupRoute,
+    applyMode: normalizeTrackerNodeApplyMode(view.overview.applyMode)
+  };
+}
+
+function toTrackerNodeConfigurationDocument(form: TrackerNodeConfigFormState) {
+  return {
+    identity: {
+      nodeId: form.nodeId.trim(),
+      nodeName: form.nodeName.trim(),
+      environment: form.environment.trim(),
+      region: form.region.trim(),
+      publicBaseUrl: form.publicBaseUrl.trim(),
+      internalBaseUrl: form.internalBaseUrl.trim(),
+      supportsHttp: form.supportsHttp,
+      supportsUdp: form.supportsUdp,
+      supportsPrivateTracker: form.supportsPrivateTracker,
+      supportsPublicTracker: form.supportsPublicTracker
+    },
+    http: {
+      enableAnnounce: form.httpAnnounceEnabled,
+      enableScrape: form.httpScrapeEnabled,
+      announceRoute: form.announceRoute.trim(),
+      privateAnnounceRoute: form.privateAnnounceRoute.trim(),
+      scrapeRoute: form.scrapeRoute.trim(),
+      defaultAnnounceIntervalSeconds: form.defaultAnnounceIntervalSeconds,
+      minAnnounceIntervalSeconds: form.minAnnounceIntervalSeconds,
+      defaultNumWant: form.defaultNumWant,
+      maxNumWant: form.maxNumWant,
+      compactResponsesByDefault: form.compactResponsesByDefault,
+      allowNonCompactResponses: form.allowNonCompactResponses,
+      allowPasskeyInPath: form.allowPasskeyInPath,
+      allowPasskeyInQuery: form.allowPasskeyInQuery,
+      allowClientIpOverride: form.allowClientIpOverride,
+      emitWarningMessages: form.emitWarningMessages
+    },
+    udp: {
+      enabled: form.udpEnabled,
+      bindAddress: form.udpBindAddress.trim(),
+      port: form.udpPort,
+      connectionTimeoutSeconds: form.udpConnectionTimeoutSeconds,
+      receiveBufferSize: form.udpReceiveBufferSize,
+      maxDatagramSize: form.udpMaxDatagramSize,
+      enableScrape: form.udpScrapeEnabled,
+      maxScrapeInfoHashes: form.udpMaxScrapeInfoHashes
+    },
+    runtime: {
+      shardCount: form.shardCount,
+      peerTtlSeconds: form.peerTtlSeconds,
+      cleanupIntervalSeconds: form.cleanupIntervalSeconds,
+      maxPeersPerResponse: form.maxPeersPerResponse,
+      maxPeersPerSwarm: form.maxPeersPerSwarm > 0 ? form.maxPeersPerSwarm : null,
+      preferLocalShardPeers: form.preferLocalShardPeers,
+      enableCompletedAccounting: form.enableCompletedAccounting,
+      enableIPv6Peers: form.enableIPv6Peers
+    },
+    policy: {
+      enablePublicTracker: form.enablePublicTracker,
+      enablePrivateTracker: form.enablePrivateTracker,
+      requirePasskeyForPrivateTracker: form.requirePasskeyForPrivateTracker,
+      allowPublicScrape: form.allowPublicScrape,
+      allowPrivateScrape: form.allowPrivateScrape,
+      defaultTorrentVisibility: form.defaultTorrentVisibility.trim(),
+      strictnessProfile: form.strictnessProfile.trim(),
+      compatibilityMode: form.compatibilityMode.trim()
+    },
+    redis: {
+      enabled: form.redisEnabled,
+      configuration: form.redisConnection.trim(),
+      keyPrefix: form.redisKeyPrefix.trim(),
+      policyCacheTtlSeconds: form.redisPolicyCacheTtlSeconds,
+      snapshotCacheTtlSeconds: form.redisSnapshotCacheTtlSeconds,
+      invalidationChannel: form.redisInvalidationChannel.trim(),
+      heartbeatTtlSeconds: form.redisHeartbeatTtlSeconds,
+      ownershipLeaseDurationSeconds: form.redisOwnershipLeaseDurationSeconds,
+      ownershipRefreshIntervalSeconds: form.redisOwnershipRefreshIntervalSeconds,
+      swarmSummaryPublishIntervalSeconds: form.redisSwarmSummaryPublishIntervalSeconds,
+      swarmSummaryTtlSeconds: form.redisSwarmSummaryTtlSeconds
+    },
+    postgres: {
+      enabled: form.postgresEnabled,
+      connectionString: form.postgresConnectionString.trim(),
+      migrateOnStart: form.migrateOnStart,
+      persistTelemetry: form.persistTelemetry,
+      persistAudit: form.persistAudit,
+      telemetryBatchSize: form.telemetryBatchSize,
+      telemetryFlushIntervalMilliseconds: form.telemetryFlushIntervalMilliseconds
+    },
+    abuseProtection: {
+      maxAnnounceQueryLength: form.maxAnnounceQueryLength,
+      maxScrapeQueryLength: form.maxScrapeQueryLength,
+      maxQueryParameterCount: form.maxQueryParameterCount,
+      hardMaxNumWant: form.hardMaxNumWant,
+      enableAnnouncePasskeyRateLimit: form.enableAnnouncePasskeyRateLimit,
+      announcePerPasskeyPerSecond: form.announcePerPasskeyPerSecond,
+      enableAnnounceIpRateLimit: form.enableAnnounceIpRateLimit,
+      announcePerIpPerSecond: form.announcePerIpPerSecond,
+      enableScrapeIpRateLimit: form.enableScrapeIpRateLimit,
+      scrapePerIpPerSecond: form.scrapePerIpPerSecond,
+      rejectOversizedRequests: form.rejectOversizedRequests,
+      maxScrapeInfoHashes: form.maxScrapeInfoHashes
+    },
+    observability: {
+      enableHealthEndpoints: form.enableHealthEndpoints,
+      enableMetrics: form.enableMetrics,
+      enableTracing: form.enableTracing,
+      enableDiagnosticsEndpoints: form.enableDiagnosticsEndpoints,
+      liveRoute: form.liveRoute.trim(),
+      readyRoute: form.readyRoute.trim(),
+      startupRoute: form.startupRoute.trim()
+    }
+  };
+}
 
 type CapabilityDto = {
   action: string;
@@ -236,7 +746,7 @@ type NavigationLink = {
   to: string;
   label: string;
   description: string;
-  icon: "overview" | "users" | "roles" | "groups" | "torrents" | "passkeys" | "trackerAccess" | "bans" | "audit" | "maintenance";
+  icon: "overview" | "users" | "roles" | "groups" | "torrents" | "passkeys" | "trackerAccess" | "bans" | "audit" | "maintenance" | "nodeConfig";
 };
 
 type NavigationSection = {
@@ -248,6 +758,7 @@ type NavigationSection = {
 };
 
 const bulkTorrentPolicySelectionStorageKey = "beetracker.admin.bulkPolicySelection";
+const bulkTrackerAccessSelectionStorageKey = "beetracker.admin.bulkTrackerAccessSelection";
 const adminSignedOutStorageKey = "beetracker.admin.signedout";
 
 function toTitleCase(value: string): string {
@@ -390,6 +901,8 @@ function NavigationItemIcon({ icon }: { icon: NavigationLink["icon"] }) {
           <path d="M13.5 19.5 16 22l4-4-2.5-2.5" />
         </svg>
       );
+    case "nodeConfig":
+      return <SettingsIcon className="h-4 w-4" />;
   }
 }
 
@@ -673,6 +1186,45 @@ function clearBulkTorrentPolicySelection() {
   window.sessionStorage.removeItem(bulkTorrentPolicySelectionStorageKey);
 }
 
+function readBulkTrackerAccessSelection(): TrackerAccessAdminDto[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.sessionStorage.getItem(bulkTrackerAccessSelectionStorageKey);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as TrackerAccessAdminDto[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistBulkTrackerAccessSelection(items: TrackerAccessAdminDto[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (items.length === 0) {
+    window.sessionStorage.removeItem(bulkTrackerAccessSelectionStorageKey);
+    return;
+  }
+
+  window.sessionStorage.setItem(bulkTrackerAccessSelectionStorageKey, JSON.stringify(items));
+}
+
+function clearBulkTrackerAccessSelection() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.removeItem(bulkTrackerAccessSelectionStorageKey);
+}
+
 function toBulkTorrentPolicySelectionItem(snapshot: TorrentAdminDto): BulkTorrentPolicySelectionItem {
   return {
     infoHash: snapshot.infoHash,
@@ -852,6 +1404,13 @@ function getRouteMeta(pathname: string, dictionary: I18nDictionary): { eyebrow: 
       description: routes.maintenanceDescription
     };
   }
+  if (pathname.startsWith("/tracker-node")) {
+    return {
+      eyebrow: "Tracker",
+      title: "Tracker node configuration",
+      description: "Review the canonical node profile, validation state and runtime-safe operational settings."
+    };
+  }
 
   return {
     eyebrow: routes.overviewEyebrow,
@@ -1009,6 +1568,495 @@ function DashboardPage({
         </div>
       </Card>
     </div>
+  );
+}
+
+function TrackerEditorLayout({
+  eyebrow,
+  title,
+  description,
+  error,
+  message,
+  children
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  error?: string | null;
+  message?: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="app-page-stack">
+      <div className="app-card">
+        <div className="app-card-header">
+          <div className="space-y-1">
+            <div className="app-kicker">{eyebrow}</div>
+            <h2 className="text-2xl font-bold text-ink">{title}</h2>
+            <p className="text-sm text-steel">{description}</p>
+          </div>
+        </div>
+        <div className="app-card-body space-y-4">
+          {message ? <div className="app-notice-success">{message}</div> : null}
+          {error ? <div className="app-notice-warn">{error}</div> : null}
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrackerConfigSection({
+  title,
+  description,
+  children
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="app-subtle-panel space-y-4">
+      <div>
+        <div className="app-kicker">{title}</div>
+        <div className="text-sm text-steel">{description}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function TrackerConfigField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  mono = false,
+  placeholder
+}: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  type?: "text" | "number";
+  mono?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <label className="space-y-2">
+      <span className="text-sm font-medium text-ink">{label}</span>
+      <input
+        className={`app-input ${mono ? "font-mono text-sm" : ""}`}
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function TrackerConfigSelect({
+  label,
+  value,
+  onChange,
+  options
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="space-y-2">
+      <span className="text-sm font-medium text-ink">{label}</span>
+      <select className="app-input" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function TrackerConfigToggle({
+  label,
+  checked,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
+function TrackerNodeConfigPage({
+  accessToken,
+  onReauthenticate,
+  permissions
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  permissions: string[];
+}) {
+  const canWrite = hasPermission(permissions, "admin.maintenance.execute");
+  const [form, setForm] = useState<TrackerNodeConfigFormState>(() => createDefaultTrackerNodeConfigFormState());
+  const [view, setView] = useState<TrackerNodeConfigViewDto | null>(null);
+  const [version, setVersion] = useState<number | null>(null);
+  const [issues, setIssues] = useState<TrackerNodeConfigValidationResultDto["issues"]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const hydrateFromView = (loaded: TrackerNodeConfigViewDto) => {
+    setView(loaded);
+    setForm(toTrackerNodeConfigFormState(loaded));
+    setVersion(loaded.overview.version);
+    setIssues([
+      ...loaded.validation.errors.map((item, index) => ({ code: `error-${index + 1}`, path: "configuration", severity: "Error" as const, message: item })),
+      ...loaded.validation.warnings.map((item, index) => ({ code: `warning-${index + 1}`, path: "configuration", severity: "Warning" as const, message: item }))
+    ]);
+  };
+
+  const loadConfiguration = async () => {
+    try {
+      setIsLoading(true);
+      const loaded = await apiRequest<TrackerNodeConfigViewDto>("/api/admin/nodes/current/config", accessToken, onReauthenticate);
+      hydrateFromView(loaded);
+      setError(null);
+    } catch (requestError) {
+      const failure = requestError instanceof Error ? requestError.message : "Unable to load tracker node configuration.";
+      if (failure.includes("(404)")) {
+        setView(null);
+        setVersion(null);
+        setForm(createDefaultTrackerNodeConfigFormState());
+        setIssues([]);
+        setError(null);
+        setMessage("No persisted tracker node profile exists yet. Saving this form will create the canonical configuration.");
+        return;
+      }
+
+      setError(failure);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadConfiguration();
+  }, [accessToken, onReauthenticate]);
+
+  const setText = <T extends keyof TrackerNodeConfigFormState>(field: T, value: string) =>
+    setForm((current) => ({ ...current, [field]: value }));
+
+  const setNumber = <T extends keyof TrackerNodeConfigFormState>(field: T, value: string) =>
+    setForm((current) => ({ ...current, [field]: Number.isFinite(Number(value)) ? Number(value) : 0 }));
+
+  const setBool = <T extends keyof TrackerNodeConfigFormState>(field: T, value: boolean) =>
+    setForm((current) => ({ ...current, [field]: value }));
+
+  const validateConfiguration = async () => {
+    try {
+      setIsValidating(true);
+      setError(null);
+      const validation = await apiMutation<TrackerNodeConfigValidationResultDto, ReturnType<typeof toTrackerNodeConfigurationDocument>>(
+        "/api/admin/nodes/validate",
+        "POST",
+        accessToken,
+        toTrackerNodeConfigurationDocument(form),
+        onReauthenticate
+      );
+      setIssues(validation.issues);
+      setMessage(validation.isValid ? "Configuration validation passed." : "Configuration validation returned issues.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to validate tracker node configuration.");
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const saveConfiguration = async () => {
+    try {
+      setIsSaving(true);
+      setError(null);
+      const response = await apiMutation<
+        { version: number; nodeKey: string; requiresRestart: boolean },
+        { configuration: ReturnType<typeof toTrackerNodeConfigurationDocument>; applyMode: number; expectedVersion?: number }
+      >(
+        "/api/admin/nodes/current/config",
+        "PUT",
+        accessToken,
+        {
+          configuration: toTrackerNodeConfigurationDocument(form),
+          applyMode: form.applyMode === "Dynamic" ? 0 : form.applyMode === "StartupOnly" ? 2 : 1,
+          expectedVersion: version ?? undefined
+        },
+        onReauthenticate
+      );
+      setVersion(response.version);
+      setMessage(response.requiresRestart ? "Node configuration saved. Restart is recommended for full application." : "Node configuration saved.");
+      await loadConfiguration();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to save tracker node configuration.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const summaryCards = [
+    {
+      title: "Node",
+      primary: form.nodeName || "Unnamed tracker node",
+      secondary: `${form.environment} / ${form.region}`,
+      meta: form.nodeId || "node id not configured"
+    },
+    {
+      title: "Effective mode",
+      primary: view?.overview.requiresRestart ? "Restart recommended" : "Dynamic-ready",
+      secondary: `Apply mode: ${normalizeTrackerNodeApplyMode(view?.overview.applyMode ?? form.applyMode)}`,
+      meta: `Version ${view?.overview.version ?? version ?? "new"}`
+    },
+    {
+      title: "Dependencies",
+      primary: view?.coordination.redis.summary ?? "Redis summary unavailable",
+      secondary: view?.coordination.postgres.summary ?? "PostgreSQL summary unavailable",
+      meta: `Updated by ${view?.overview.updatedBy ?? "n/a"}`
+    }
+  ];
+
+  return (
+    <TrackerEditorLayout
+      eyebrow="Tracker node"
+      title="Tracker node configuration"
+      description="Configure the canonical tracker node profile, validate startup safety and inspect the effective operational summary."
+      error={error}
+      message={message}
+    >
+      {isLoading ? (
+        <div className="app-subtle-panel text-sm text-steel">Loading tracker node configuration…</div>
+      ) : (
+        <div className="space-y-5">
+          <div className="app-detail-grid">
+            {summaryCards.map((card) => (
+              <div key={card.title} className="app-subtle-panel space-y-2">
+                <div className="app-kicker">{card.title}</div>
+                <div className="font-semibold text-ink">{card.primary}</div>
+                <div className="text-sm text-steel">{card.secondary}</div>
+                <div className="text-xs text-steel">{card.meta}</div>
+              </div>
+            ))}
+          </div>
+
+          {issues.length > 0 ? (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-4">
+              <div className="text-sm font-semibold text-ink">Validation issues</div>
+              <div className="mt-3 space-y-2 text-sm text-steel">
+                {issues.map((issue) => (
+                  <div key={`${issue.code}-${issue.path}`} className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-ink">{issue.message}</div>
+                      <div className="text-xs text-steel/80">{issue.path} · {issue.code}</div>
+                    </div>
+                    <span className={issue.severity === "Error" ? "app-chip-warn" : "app-chip-soft"}>{issue.severity}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <TrackerConfigSection title="Identity" description="Node identity, URLs and advertised capabilities.">
+            <div className="app-form-grid">
+              <TrackerConfigField label="Node id" value={form.nodeId} mono onChange={(value) => setText("nodeId", value)} />
+              <TrackerConfigField label="Node name" value={form.nodeName} onChange={(value) => setText("nodeName", value)} />
+              <TrackerConfigField label="Environment" value={form.environment} onChange={(value) => setText("environment", value)} />
+              <TrackerConfigField label="Region" value={form.region} onChange={(value) => setText("region", value)} />
+              <TrackerConfigField label="Public base URL" value={form.publicBaseUrl} onChange={(value) => setText("publicBaseUrl", value)} />
+              <TrackerConfigField label="Internal base URL" value={form.internalBaseUrl} onChange={(value) => setText("internalBaseUrl", value)} />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <TrackerConfigToggle label="Supports HTTP" checked={form.supportsHttp} onChange={(value) => setBool("supportsHttp", value)} />
+              <TrackerConfigToggle label="Supports UDP" checked={form.supportsUdp} onChange={(value) => setBool("supportsUdp", value)} />
+              <TrackerConfigToggle label="Supports public tracker" checked={form.supportsPublicTracker} onChange={(value) => setBool("supportsPublicTracker", value)} />
+              <TrackerConfigToggle label="Supports private tracker" checked={form.supportsPrivateTracker} onChange={(value) => setBool("supportsPrivateTracker", value)} />
+            </div>
+          </TrackerConfigSection>
+
+          <TrackerConfigSection title="Protocols" description="HTTP announce/scrape surface and UDP listener settings.">
+            <div className="app-form-grid">
+              <TrackerConfigField label="Announce route" value={form.announceRoute} mono onChange={(value) => setText("announceRoute", value)} />
+              <TrackerConfigField label="Private announce route" value={form.privateAnnounceRoute} mono onChange={(value) => setText("privateAnnounceRoute", value)} />
+              <TrackerConfigField label="Scrape route" value={form.scrapeRoute} mono onChange={(value) => setText("scrapeRoute", value)} />
+              <TrackerConfigField label="UDP bind address" value={form.udpBindAddress} mono onChange={(value) => setText("udpBindAddress", value)} />
+              <TrackerConfigField label="Default announce interval (s)" type="number" value={form.defaultAnnounceIntervalSeconds} onChange={(value) => setNumber("defaultAnnounceIntervalSeconds", value)} />
+              <TrackerConfigField label="Minimum announce interval (s)" type="number" value={form.minAnnounceIntervalSeconds} onChange={(value) => setNumber("minAnnounceIntervalSeconds", value)} />
+              <TrackerConfigField label="Default numwant" type="number" value={form.defaultNumWant} onChange={(value) => setNumber("defaultNumWant", value)} />
+              <TrackerConfigField label="Max numwant" type="number" value={form.maxNumWant} onChange={(value) => setNumber("maxNumWant", value)} />
+              <TrackerConfigField label="UDP port" type="number" value={form.udpPort} onChange={(value) => setNumber("udpPort", value)} />
+              <TrackerConfigField label="UDP timeout (s)" type="number" value={form.udpConnectionTimeoutSeconds} onChange={(value) => setNumber("udpConnectionTimeoutSeconds", value)} />
+              <TrackerConfigField label="UDP receive buffer" type="number" value={form.udpReceiveBufferSize} onChange={(value) => setNumber("udpReceiveBufferSize", value)} />
+              <TrackerConfigField label="UDP max datagram" type="number" value={form.udpMaxDatagramSize} onChange={(value) => setNumber("udpMaxDatagramSize", value)} />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <TrackerConfigToggle label="Enable HTTP announce" checked={form.httpAnnounceEnabled} onChange={(value) => setBool("httpAnnounceEnabled", value)} />
+              <TrackerConfigToggle label="Enable HTTP scrape" checked={form.httpScrapeEnabled} onChange={(value) => setBool("httpScrapeEnabled", value)} />
+              <TrackerConfigToggle label="Enable UDP" checked={form.udpEnabled} onChange={(value) => setBool("udpEnabled", value)} />
+              <TrackerConfigToggle label="Enable UDP scrape" checked={form.udpScrapeEnabled} onChange={(value) => setBool("udpScrapeEnabled", value)} />
+              <TrackerConfigToggle label="Compact by default" checked={form.compactResponsesByDefault} onChange={(value) => setBool("compactResponsesByDefault", value)} />
+              <TrackerConfigToggle label="Allow non-compact" checked={form.allowNonCompactResponses} onChange={(value) => setBool("allowNonCompactResponses", value)} />
+              <TrackerConfigToggle label="Passkey in path" checked={form.allowPasskeyInPath} onChange={(value) => setBool("allowPasskeyInPath", value)} />
+              <TrackerConfigToggle label="Passkey in query" checked={form.allowPasskeyInQuery} onChange={(value) => setBool("allowPasskeyInQuery", value)} />
+              <TrackerConfigToggle label="Allow client IP override" checked={form.allowClientIpOverride} onChange={(value) => setBool("allowClientIpOverride", value)} />
+              <TrackerConfigToggle label="Emit warning messages" checked={form.emitWarningMessages} onChange={(value) => setBool("emitWarningMessages", value)} />
+            </div>
+          </TrackerConfigSection>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <TrackerConfigSection title="Runtime" description="Node-local runtime store and peer selection behavior.">
+              <div className="app-form-grid">
+                <TrackerConfigField label="Shard count" type="number" value={form.shardCount} onChange={(value) => setNumber("shardCount", value)} />
+                <TrackerConfigField label="Peer TTL (s)" type="number" value={form.peerTtlSeconds} onChange={(value) => setNumber("peerTtlSeconds", value)} />
+                <TrackerConfigField label="Cleanup interval (s)" type="number" value={form.cleanupIntervalSeconds} onChange={(value) => setNumber("cleanupIntervalSeconds", value)} />
+                <TrackerConfigField label="Max peers per response" type="number" value={form.maxPeersPerResponse} onChange={(value) => setNumber("maxPeersPerResponse", value)} />
+                <TrackerConfigField label="Max peers per swarm" type="number" value={form.maxPeersPerSwarm} onChange={(value) => setNumber("maxPeersPerSwarm", value)} />
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <TrackerConfigToggle label="Prefer local peers" checked={form.preferLocalShardPeers} onChange={(value) => setBool("preferLocalShardPeers", value)} />
+                <TrackerConfigToggle label="Completed accounting" checked={form.enableCompletedAccounting} onChange={(value) => setBool("enableCompletedAccounting", value)} />
+                <TrackerConfigToggle label="Enable IPv6 peers" checked={form.enableIPv6Peers} onChange={(value) => setBool("enableIPv6Peers", value)} />
+              </div>
+            </TrackerConfigSection>
+
+            <TrackerConfigSection title="Policy" description="Public/private surface and compatibility defaults.">
+              <div className="app-form-grid">
+                <TrackerConfigSelect label="Default torrent visibility" value={form.defaultTorrentVisibility} onChange={(value) => setText("defaultTorrentVisibility", value)} options={[{ value: "private", label: "Private" }, { value: "public", label: "Public" }]} />
+                <TrackerConfigSelect label="Strictness profile" value={form.strictnessProfile} onChange={(value) => setText("strictnessProfile", value)} options={[{ value: "balanced", label: "Balanced" }, { value: "strict", label: "Strict" }, { value: "compatibility", label: "Compatibility" }]} />
+                <TrackerConfigSelect label="Compatibility mode" value={form.compatibilityMode} onChange={(value) => setText("compatibilityMode", value)} options={[{ value: "standard", label: "Standard" }, { value: "legacy", label: "Legacy" }, { value: "strict", label: "Strict" }]} />
+                <TrackerConfigSelect label="Apply mode" value={form.applyMode} onChange={(value) => setText("applyMode", normalizeTrackerNodeApplyMode(value))} options={[{ value: "Dynamic", label: "Dynamic" }, { value: "RestartRecommended", label: "Restart recommended" }, { value: "StartupOnly", label: "Startup only" }]} />
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TrackerConfigToggle label="Enable public tracker" checked={form.enablePublicTracker} onChange={(value) => setBool("enablePublicTracker", value)} />
+                <TrackerConfigToggle label="Enable private tracker" checked={form.enablePrivateTracker} onChange={(value) => setBool("enablePrivateTracker", value)} />
+                <TrackerConfigToggle label="Require passkey for private" checked={form.requirePasskeyForPrivateTracker} onChange={(value) => setBool("requirePasskeyForPrivateTracker", value)} />
+                <TrackerConfigToggle label="Allow public scrape" checked={form.allowPublicScrape} onChange={(value) => setBool("allowPublicScrape", value)} />
+                <TrackerConfigToggle label="Allow private scrape" checked={form.allowPrivateScrape} onChange={(value) => setBool("allowPrivateScrape", value)} />
+              </div>
+            </TrackerConfigSection>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <TrackerConfigSection title="Redis coordination" description="L2 cache and lightweight coordination. Leave connection blank to preserve the stored secret.">
+              <div className="app-form-grid">
+                <TrackerConfigField label="Redis connection" value={form.redisConnection} mono placeholder="Leave blank to keep the stored secret" onChange={(value) => setText("redisConnection", value)} />
+                <TrackerConfigField label="Key prefix" value={form.redisKeyPrefix} onChange={(value) => setText("redisKeyPrefix", value)} />
+                <TrackerConfigField label="Invalidation channel" value={form.redisInvalidationChannel} onChange={(value) => setText("redisInvalidationChannel", value)} />
+                <TrackerConfigField label="Policy cache TTL" type="number" value={form.redisPolicyCacheTtlSeconds} onChange={(value) => setNumber("redisPolicyCacheTtlSeconds", value)} />
+                <TrackerConfigField label="Snapshot cache TTL" type="number" value={form.redisSnapshotCacheTtlSeconds} onChange={(value) => setNumber("redisSnapshotCacheTtlSeconds", value)} />
+                <TrackerConfigField label="Heartbeat TTL" type="number" value={form.redisHeartbeatTtlSeconds} onChange={(value) => setNumber("redisHeartbeatTtlSeconds", value)} />
+                <TrackerConfigField label="Ownership lease" type="number" value={form.redisOwnershipLeaseDurationSeconds} onChange={(value) => setNumber("redisOwnershipLeaseDurationSeconds", value)} />
+                <TrackerConfigField label="Ownership refresh" type="number" value={form.redisOwnershipRefreshIntervalSeconds} onChange={(value) => setNumber("redisOwnershipRefreshIntervalSeconds", value)} />
+                <TrackerConfigField label="Swarm publish interval" type="number" value={form.redisSwarmSummaryPublishIntervalSeconds} onChange={(value) => setNumber("redisSwarmSummaryPublishIntervalSeconds", value)} />
+                <TrackerConfigField label="Swarm summary TTL" type="number" value={form.redisSwarmSummaryTtlSeconds} onChange={(value) => setNumber("redisSwarmSummaryTtlSeconds", value)} />
+              </div>
+              <TrackerConfigToggle label="Enable Redis coordination" checked={form.redisEnabled} onChange={(value) => setBool("redisEnabled", value)} />
+            </TrackerConfigSection>
+
+            <TrackerConfigSection title="PostgreSQL persistence" description="Persistence and batching controls. Leave connection blank to preserve the stored secret.">
+              <div className="app-form-grid">
+                <TrackerConfigField label="PostgreSQL connection" value={form.postgresConnectionString} mono placeholder="Leave blank to keep the stored secret" onChange={(value) => setText("postgresConnectionString", value)} />
+                <TrackerConfigField label="Telemetry batch size" type="number" value={form.telemetryBatchSize} onChange={(value) => setNumber("telemetryBatchSize", value)} />
+                <TrackerConfigField label="Telemetry flush (ms)" type="number" value={form.telemetryFlushIntervalMilliseconds} onChange={(value) => setNumber("telemetryFlushIntervalMilliseconds", value)} />
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TrackerConfigToggle label="Enable PostgreSQL persistence" checked={form.postgresEnabled} onChange={(value) => setBool("postgresEnabled", value)} />
+                <TrackerConfigToggle label="Migrate on start" checked={form.migrateOnStart} onChange={(value) => setBool("migrateOnStart", value)} />
+                <TrackerConfigToggle label="Persist telemetry" checked={form.persistTelemetry} onChange={(value) => setBool("persistTelemetry", value)} />
+                <TrackerConfigToggle label="Persist audit" checked={form.persistAudit} onChange={(value) => setBool("persistAudit", value)} />
+              </div>
+            </TrackerConfigSection>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <TrackerConfigSection title="Abuse protection" description="Request size limits, numwant caps and rate limiting.">
+              <div className="app-form-grid">
+                <TrackerConfigField label="Max announce query length" type="number" value={form.maxAnnounceQueryLength} onChange={(value) => setNumber("maxAnnounceQueryLength", value)} />
+                <TrackerConfigField label="Max scrape query length" type="number" value={form.maxScrapeQueryLength} onChange={(value) => setNumber("maxScrapeQueryLength", value)} />
+                <TrackerConfigField label="Max query parameter count" type="number" value={form.maxQueryParameterCount} onChange={(value) => setNumber("maxQueryParameterCount", value)} />
+                <TrackerConfigField label="Hard max numwant" type="number" value={form.hardMaxNumWant} onChange={(value) => setNumber("hardMaxNumWant", value)} />
+                <TrackerConfigField label="Announce per passkey/sec" type="number" value={form.announcePerPasskeyPerSecond} onChange={(value) => setNumber("announcePerPasskeyPerSecond", value)} />
+                <TrackerConfigField label="Announce per IP/sec" type="number" value={form.announcePerIpPerSecond} onChange={(value) => setNumber("announcePerIpPerSecond", value)} />
+                <TrackerConfigField label="Scrape per IP/sec" type="number" value={form.scrapePerIpPerSecond} onChange={(value) => setNumber("scrapePerIpPerSecond", value)} />
+                <TrackerConfigField label="Max scrape info hashes" type="number" value={form.maxScrapeInfoHashes} onChange={(value) => setNumber("maxScrapeInfoHashes", value)} />
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TrackerConfigToggle label="Passkey announce rate limit" checked={form.enableAnnouncePasskeyRateLimit} onChange={(value) => setBool("enableAnnouncePasskeyRateLimit", value)} />
+                <TrackerConfigToggle label="IP announce rate limit" checked={form.enableAnnounceIpRateLimit} onChange={(value) => setBool("enableAnnounceIpRateLimit", value)} />
+                <TrackerConfigToggle label="IP scrape rate limit" checked={form.enableScrapeIpRateLimit} onChange={(value) => setBool("enableScrapeIpRateLimit", value)} />
+                <TrackerConfigToggle label="Reject oversized requests" checked={form.rejectOversizedRequests} onChange={(value) => setBool("rejectOversizedRequests", value)} />
+              </div>
+            </TrackerConfigSection>
+
+            <TrackerConfigSection title="Observability" description="Health, diagnostics and startup exposure.">
+              <div className="app-form-grid">
+                <TrackerConfigField label="Live route" value={form.liveRoute} mono onChange={(value) => setText("liveRoute", value)} />
+                <TrackerConfigField label="Ready route" value={form.readyRoute} mono onChange={(value) => setText("readyRoute", value)} />
+                <TrackerConfigField label="Startup route" value={form.startupRoute} mono onChange={(value) => setText("startupRoute", value)} />
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TrackerConfigToggle label="Enable health endpoints" checked={form.enableHealthEndpoints} onChange={(value) => setBool("enableHealthEndpoints", value)} />
+                <TrackerConfigToggle label="Enable metrics" checked={form.enableMetrics} onChange={(value) => setBool("enableMetrics", value)} />
+                <TrackerConfigToggle label="Enable tracing" checked={form.enableTracing} onChange={(value) => setBool("enableTracing", value)} />
+                <TrackerConfigToggle label="Enable diagnostics" checked={form.enableDiagnosticsEndpoints} onChange={(value) => setBool("enableDiagnosticsEndpoints", value)} />
+              </div>
+            </TrackerConfigSection>
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-3">
+            <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={isValidating} onClick={() => void validateConfiguration()}>
+              <SettingsIcon className="app-button-icon" />
+              Validate configuration
+            </button>
+            <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canWrite || isSaving} onClick={() => void saveConfiguration()}>
+              <PencilIcon className="app-button-icon" />
+              Save node configuration
+            </button>
+          </div>
+        </div>
+      )}
+    </TrackerEditorLayout>
+  );
+}
+
+async function findTrackerAccessRecord(
+  accessToken: string,
+  onReauthenticate: (fresh?: boolean) => Promise<void>,
+  userId: string
+) {
+  return await apiRequest<TrackerAccessAdminDto | null>(
+    `/api/admin/tracker-access/${encodeURIComponent(userId)}`,
+    accessToken,
+    onReauthenticate
+  );
+}
+
+async function findBanRuleRecord(
+  accessToken: string,
+  onReauthenticate: (fresh?: boolean) => Promise<void>,
+  scope: string,
+  subject: string
+) {
+  return await apiRequest<BanRuleAdminDto | null>(
+    `/api/admin/bans/${encodeURIComponent(scope)}/${encodeURIComponent(subject)}`,
+    accessToken,
+    onReauthenticate
   );
 }
 
@@ -1210,9 +2258,9 @@ function TorrentsPage({
           </div>
           <div className="flex flex-wrap gap-3">
             <button type="button" className="app-button-secondary py-2.5" onClick={() => { setSelectedInfoHashes([]); clearBulkTorrentPolicySelection(); }}>Clear selection</button>
-            <button type="button" className="app-button-secondary py-2.5" disabled={!canActivate || isSubmitting || selectedInfoHashes.length === 0} onClick={() => void runLifecycle("activate")}>{labels.activateSelection}</button>
-            <button type="button" className="app-button-danger py-2.5" disabled={!canDeactivate || isSubmitting || selectedInfoHashes.length === 0} onClick={() => void runLifecycle("deactivate")}>{labels.deactivateSelection}</button>
-            <button type="button" className="app-button-primary py-2.5" disabled={!canBulkEditPolicy || isSubmitting || selectedInfoHashes.length === 0} onClick={openBulkPolicyEditor}>{labels.openBulkPolicy}</button>
+            <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" disabled={!canActivate || isSubmitting || selectedInfoHashes.length === 0} onClick={() => void runLifecycle("activate")}><PowerIcon className="app-button-icon" />{labels.activateSelection}</button>
+            <button type="button" className="app-button-danger py-2.5 inline-flex items-center gap-2" disabled={!canDeactivate || isSubmitting || selectedInfoHashes.length === 0} onClick={() => void runLifecycle("deactivate")}><PowerIcon className="app-button-icon" />{labels.deactivateSelection}</button>
+            <button type="button" className="app-button-primary py-2.5 inline-flex items-center gap-2" disabled={!canBulkEditPolicy || isSubmitting || selectedInfoHashes.length === 0} onClick={openBulkPolicyEditor}><SettingsIcon className="app-button-icon" />{labels.openBulkPolicy}</button>
           </div>
         </div>
       ) : null}
@@ -1848,6 +2896,8 @@ function PasskeysPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.passkeys;
+  const navigate = useNavigate();
+  const location = useLocation();
   const [view, setView] = useCatalogViewState({
     search: "",
     filter: "all",
@@ -1855,21 +2905,26 @@ function PasskeysPage({
     page: 1,
     pageSize: 25
   });
-  const { query, preview, modal } = view;
+  const { query, preview } = view;
   const [items, setItems] = useState<PasskeyAdminDto[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [passkeyInput, setPasskeyInput] = useState("");
-  const [rotateExpiryInput, setRotateExpiryInput] = useState("");
   const [result, setResult] = useState<BulkOperationResultDto | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const canRevoke = hasGrantedCapability(capabilities, "admin.revoke.passkey");
-  const canRotate = hasGrantedCapability(capabilities, "admin.rotate.passkey");
   const previewItem = items.find((item) => item.passkeyMask === preview) ?? null;
   const [activeSortField, activeSortDirection = "asc"] = query.sort.split(":");
   const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
+
+  useEffect(() => {
+    const banner = location.state as NavigationBannerState | null;
+    if (!banner?.message) {
+      return;
+    }
+
+    setStatus(banner.message);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
   const reload = async () => {
     const page = await apiRequest<PageResult<PasskeyAdminDto>>(
@@ -1915,49 +2970,11 @@ function PasskeysPage({
     }
   }, [items, preview, setView]);
 
-  const inputPasskeys = parseLineSeparatedValues(passkeyInput);
-
-  const runBulkPasskeyAction = async (path: string, mode: "revoke" | "rotate") => {
-    try {
-      setIsSubmitting(true);
-      setError(null);
-      setStatus(null);
-      const payload =
-        mode === "rotate"
-          ? {
-              items: inputPasskeys.map((passkey) => ({
-                passkey,
-                expiresAtUtc: fromLocalDateTimeInput(rotateExpiryInput)
-              }))
-            }
-          : {
-              items: inputPasskeys.map((passkey) => ({ passkey }))
-            };
-
-      const operationResult = await apiMutation<BulkOperationResultDto, typeof payload>(
-        path,
-        "POST",
-        accessToken,
-        payload,
-        onReauthenticate
-      );
-
-      setResult(operationResult);
-      setStatus(formatText(labels.status, { mode: toTitleCase(mode), succeeded: operationResult.succeededCount, total: operationResult.totalCount }));
-      setView((current) => ({ ...current, modal: null, id: null }));
-      await reload();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : labels.operationError);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const openActionModal = () => {
     setError(null);
     setStatus(null);
     setResult(null);
-    setView((current) => ({ ...current, modal: "create", id: null }));
+    navigate(`/passkeys/actions?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
   };
 
   return (
@@ -1988,7 +3005,7 @@ function PasskeysPage({
         ]}
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
-        createLabel="Batch action"
+        createLabel="Run batch"
         onCreate={openActionModal}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
@@ -2040,7 +3057,7 @@ function PasskeysPage({
                   <td className="px-5 py-4 text-steel">{item.expiresAtUtc ? new Date(item.expiresAtUtc).toLocaleString() : dictionary.common.never}</td>
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
-                    <RowActionsMenu items={[{ label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.passkeyMask })) }]} />
+                    <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => setView((current) => ({ ...current, preview: item.passkeyMask }))}><EyeIcon className="app-button-icon" />Preview</button>
                   </td>
                 </CatalogTableRow>
               ))}
@@ -2049,23 +3066,6 @@ function PasskeysPage({
         </div>
       </div>
       <PaginationFooter page={query.page} pageCount={pageCount} totalCount={totalCount} pageSize={query.pageSize} onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))} />
-      <Modal open={modal === "create"} onClose={() => setView((current) => ({ ...current, modal: null, id: null }))} title={labels.actionTitle} description="Provide raw passkeys one per line and run revoke or rotate without leaving the catalog." width="wide">
-        <div className="space-y-4">
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.rawPasskeys}</span>
-            <textarea className="app-input min-h-48 font-mono text-sm" value={passkeyInput} onChange={(event) => setPasskeyInput(event.target.value)} placeholder={labels.placeholder} />
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">{labels.expiryOverride}</span>
-            <input className="app-input" type="datetime-local" value={rotateExpiryInput} onChange={(event) => setRotateExpiryInput(event.target.value)} />
-          </label>
-          <div className="flex flex-wrap justify-end gap-3">
-            <ModalDismissButton onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</ModalDismissButton>
-            <button type="button" className="app-button-secondary" disabled={!canRevoke || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/revoke", "revoke")}>{labels.revoke}</button>
-            <button type="button" className="app-button-primary" disabled={!canRotate || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/rotate", "rotate")}>{labels.rotate}</button>
-          </div>
-        </div>
-      </Modal>
       <PreviewDrawer open={previewItem != null} title={previewItem?.passkeyMask ?? ""} subtitle={previewItem ? `User ${previewItem.userId}` : undefined} onClose={() => setView((current) => ({ ...current, preview: null }))}>
         {previewItem ? (
           <div className="space-y-4">
@@ -2108,6 +3108,8 @@ function BansPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.bans;
+  const navigate = useNavigate();
+  const location = useLocation();
   const [view, setView] = useCatalogViewState({
     search: "",
     filter: "all",
@@ -2115,26 +3117,29 @@ function BansPage({
     page: 1,
     pageSize: 25
   });
-  const { query, modal, id } = view;
+  const { query, preview } = view;
   const [items, setItems] = useState<BanRuleAdminDto[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const emptyForm: BanFormState = {
-    scope: "user",
-    subject: "",
-    reason: "",
-    expiresAtLocal: "",
-    expectedVersion: undefined
-  };
-  const [form, setForm] = useState<BanFormState>(emptyForm);
+  const [deleteTarget, setDeleteTarget] = useState<BanRuleAdminDto | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const canWrite = hasGrantedCapability(capabilities, "admin.write.ban");
-  const canExpire = hasGrantedCapability(capabilities, "admin.expire.ban");
   const canDelete = hasGrantedCapability(capabilities, "admin.delete.ban");
+  const previewItem = items.find((item) => toBanRecordId(item.scope, item.subject) === preview) ?? null;
+
+  useEffect(() => {
+    const banner = location.state as NavigationBannerState | null;
+    if (!banner?.message) {
+      return;
+    }
+
+    setStatus(banner.message);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
   const reload = async () => {
       const page = await apiRequest<PageResult<BanRuleAdminDto>>(`/api/admin/bans?${buildGridQueryString(query)}`, accessToken, onReauthenticate);
@@ -2170,117 +3175,17 @@ function BansPage({
     };
   }, [accessToken, onReauthenticate, query]);
 
-  useEffect(() => {
-    if (modal !== "edit") {
-      return;
-    }
-
-    const record = tryParseBanRecordId(id);
-    if (!record) {
-      setView((current) => ({ ...current, modal: null, id: null }));
-      return;
-    }
-
-    const item = items.find((candidate) => candidate.scope === record.scope && candidate.subject === record.subject);
-    if (!item) {
-      setView((current) => ({ ...current, modal: null, id: null }));
-      return;
-    }
-
-    setForm({
-      scope: item.scope,
-      subject: item.subject,
-      reason: item.reason,
-      expiresAtLocal: toLocalDateTimeInput(item.expiresAtUtc),
-      expectedVersion: item.version
-    });
-  }, [id, items, modal, setView]);
-
-  const fillForm = (item: BanRuleAdminDto) => {
-    setForm({
-      scope: item.scope,
-      subject: item.subject,
-      reason: item.reason,
-      expiresAtLocal: toLocalDateTimeInput(item.expiresAtUtc),
-      expectedVersion: item.version
-    });
-    setView((current) => ({ ...current, modal: "edit", id: toBanRecordId(item.scope, item.subject) }));
-    setStatus(formatText(labels.loadedToEditor, { scope: item.scope, subject: item.subject }));
-    setError(null);
-  };
-
   const openCreate = () => {
-    setForm(emptyForm);
-    setView((current) => ({ ...current, modal: "create", id: null }));
+    navigate(`/bans/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
     setError(null);
     setStatus(null);
   };
 
-  const saveBan = async () => {
-    try {
-      setIsSubmitting(true);
-      setStatus(null);
-      setError(null);
-      await apiMutation<BanRuleAdminDto, { reason: string; expiresAtUtc: string | null; expectedVersion?: number }>(
-        `/api/admin/bans/${encodeURIComponent(form.scope)}/${encodeURIComponent(form.subject)}`,
-        "PUT",
-        accessToken,
-        {
-          reason: form.reason,
-          expiresAtUtc: fromLocalDateTimeInput(form.expiresAtLocal),
-          expectedVersion: form.expectedVersion
-        },
-        onReauthenticate
-      );
-
-      setStatus(labels.saveStatus);
-      setView((current) => ({ ...current, modal: null, id: null }));
-      await reload();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : labels.saveError);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const expireBan = async () => {
-    try {
-      setIsSubmitting(true);
-      setStatus(null);
-      setError(null);
-      const expiresAtUtc = fromLocalDateTimeInput(form.expiresAtLocal);
-      if (!expiresAtUtc) {
-        throw new Error(labels.expiryRequired);
-      }
-
-      await apiMutation<BulkOperationResultDto, { items: Array<{ scope: string; subject: string; expiresAtUtc: string; expectedVersion?: number }> }>(
-        "/api/admin/bans/bulk/expire",
-        "POST",
-        accessToken,
-        {
-          items: [
-            {
-              scope: form.scope,
-              subject: form.subject,
-              expiresAtUtc,
-              expectedVersion: form.expectedVersion
-            }
-          ]
-        },
-        onReauthenticate
-      );
-
-      setStatus(labels.expireStatus);
-      setView((current) => ({ ...current, modal: null, id: null }));
-      await reload();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : labels.expireError);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const deleteBan = async () => {
+    if (!deleteTarget) {
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setStatus(null);
@@ -2292,9 +3197,9 @@ function BansPage({
         {
           items: [
             {
-              scope: form.scope,
-              subject: form.subject,
-              expectedVersion: form.expectedVersion
+              scope: deleteTarget.scope,
+              subject: deleteTarget.subject,
+              expectedVersion: deleteTarget.version
             }
           ]
         },
@@ -2302,8 +3207,7 @@ function BansPage({
       );
 
       setStatus(labels.deleteStatus);
-      setForm(emptyForm);
-      setView((current) => ({ ...current, modal: null, id: null }));
+      setDeleteTarget(null);
       await reload();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : labels.deleteError);
@@ -2341,7 +3245,7 @@ function BansPage({
         ]}
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
-        createLabel="Create rule"
+        createLabel="Create ban rule"
         onCreate={openCreate}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
@@ -2368,7 +3272,7 @@ function BansPage({
               ) : items.length === 0 ? (
                 <TableStateRow colSpan={6} title="No ban rules match this view" message="Try a broader search or switch the current filter." />
               ) : items.map((item) => (
-                <CatalogTableRow key={`${item.scope}:${item.subject}`} onOpen={() => fillForm(item)}>
+                <CatalogTableRow key={`${item.scope}:${item.subject}`} onOpen={() => setView((current) => ({ ...current, preview: toBanRecordId(item.scope, item.subject) }))}>
                   <td className="px-5 py-4"><div className="app-grid-primary">{item.scope}</div></td>
                   <td className="px-5 py-4">
                     <div className="app-grid-primary font-mono">{item.subject}</div>
@@ -2381,16 +3285,21 @@ function BansPage({
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex justify-end items-center gap-2">
-                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => fillForm(item)}><PencilIcon className="app-button-icon" />Edit</button>
+                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => navigate(`/bans/${toBanRecordId(item.scope, item.subject)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit</button>
                       <RowActionsMenu
                         items={[
+                          {
+                            label: "Preview",
+                            icon: <EyeIcon />,
+                            onClick: () => setView((current) => ({ ...current, preview: toBanRecordId(item.scope, item.subject) }))
+                          },
                           {
                             label: "Delete",
                             icon: <TrashIcon />,
                             tone: "danger",
                             disabled: !canDelete,
                             onClick: () => {
-                              fillForm(item);
+                              setDeleteTarget(item);
                               setConfirmDeleteOpen(true);
                             }
                           }
@@ -2412,39 +3321,10 @@ function BansPage({
         pageSize={query.pageSize}
         onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))}
       />
-
-      <Modal
-        open={modal === "create" || modal === "edit"}
-        onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}
-        title={form.expectedVersion ? "Edit ban rule" : "Create ban rule"}
-        description="Create, expire or update enforcement rules without leaving the catalog."
-        width="wide"
-      >
-        <div className="space-y-4">
-          <div className="app-form-grid">
-            <input className="app-input" placeholder={labels.scope} value={form.scope} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value }))} />
-            <input className="app-input" placeholder={labels.subject} value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
-          </div>
-          <textarea className="app-input min-h-32" placeholder={labels.reason} value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
-          <input className="app-input" type="datetime-local" value={form.expiresAtLocal} onChange={(event) => setForm((current) => ({ ...current, expiresAtLocal: event.target.value }))} />
-          <div className="flex flex-wrap justify-end gap-3">
-            {form.expectedVersion ? (
-              <button type="button" className="app-button-secondary" disabled={!canExpire || isSubmitting || !form.scope.trim() || !form.subject.trim()} onClick={() => void expireBan()}>
-                {labels.expireBan}
-              </button>
-            ) : null}
-            <ModalDismissButton onClose={() => setView((current) => ({ ...current, modal: null, id: null }))}>Cancel</ModalDismissButton>
-            <button type="button" className="app-button-primary" disabled={!canWrite || isSubmitting || !form.scope.trim() || !form.subject.trim() || !form.reason.trim()} onClick={() => void saveBan()}>
-              {form.expectedVersion ? labels.saveBan : "Create rule"}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
       <ConfirmActionModal
         open={confirmDeleteOpen}
         title="Delete ban rule"
-        description={`Delete rule ${form.scope}:${form.subject}? This cannot be undone.`}
+        description={deleteTarget ? `Delete rule ${deleteTarget.scope}:${deleteTarget.subject}? This cannot be undone.` : "Delete this rule?"}
         confirmLabel="Delete rule"
         onClose={() => setConfirmDeleteOpen(false)}
         onConfirm={() => {
@@ -2452,6 +3332,21 @@ function BansPage({
           void deleteBan();
         }}
       />
+      <PreviewDrawer open={previewItem != null} title={previewItem ? `${previewItem.scope}:${previewItem.subject}` : ""} subtitle={previewItem?.reason} onClose={() => setView((current) => ({ ...current, preview: null }))}>
+        {previewItem ? (
+          <div className="space-y-4">
+            <div className="app-detail-grid">
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Scope</div><div className="font-semibold text-ink">{previewItem.scope}</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Subject</div><div className="font-mono text-xs text-ink">{previewItem.subject}</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Expires</div><div className="font-semibold text-ink">{previewItem.expiresAtUtc ? new Date(previewItem.expiresAtUtc).toLocaleString() : dictionary.common.never}</div></div>
+              <div className="app-subtle-panel space-y-2"><div className="app-kicker">Version</div><div className="font-semibold text-ink">{previewItem.version}</div></div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" className="app-button-primary inline-flex items-center gap-2" onClick={() => navigate(`/bans/${toBanRecordId(previewItem.scope, previewItem.subject)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit rule</button>
+            </div>
+          </div>
+        ) : null}
+      </PreviewDrawer>
     </div>
   );
 }
@@ -2467,6 +3362,8 @@ function TrackerAccessPage({
 }) {
   const { dictionary } = useI18n();
   const labels = dictionary.permissionsPage;
+  const navigate = useNavigate();
+  const location = useLocation();
   const [view, setView] = useCatalogViewState({
     search: "",
     filter: "all",
@@ -2474,30 +3371,29 @@ function TrackerAccessPage({
     page: 1,
     pageSize: 25
   });
-  const { query, preview, modal, id } = view;
+  const { query, preview } = view;
   const [items, setItems] = useState<TrackerAccessAdminDto[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<BulkOperationResultDto | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-  const [form, setForm] = useState<TrackerAccessFormState>({
-    userId: "",
-    canLeech: true,
-    canSeed: true,
-    canScrape: true,
-    canUsePrivateTracker: true,
-    expectedVersion: undefined
-  });
-  const [editorMode, setEditorMode] = useState<"single" | "bulk">("single");
-  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const canWrite = hasGrantedCapability(capabilities, "admin.write.permissions");
   const trackerAccessItems = result?.trackerAccessItems ?? result?.permissionItems ?? [];
   const previewItem = items.find((item) => item.userId === preview) ?? null;
   const [activeSortField, activeSortDirection = "asc"] = query.sort.split(":");
   const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
+
+  useEffect(() => {
+    const banner = location.state as NavigationBannerState | null;
+    if (!banner?.message) {
+      return;
+    }
+
+    setStatus(banner.message);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
   const reload = async () => {
     const page = await apiRequest<PageResult<TrackerAccessAdminDto>>(
@@ -2544,58 +3440,15 @@ function TrackerAccessPage({
     }
   }, [items, preview, setView]);
 
-  useEffect(() => {
-    if (modal !== "edit") {
-      return;
-    }
-
-    if (!id) {
-      setView((current) => ({ ...current, modal: null, id: null }));
-      return;
-    }
-
-    const item = items.find((candidate) => candidate.userId === id);
-    if (!item) {
-      setView((current) => ({ ...current, modal: null, id: null }));
-      return;
-    }
-
-    setForm(toTrackerAccessForm(item));
-    setEditorMode("single");
-  }, [id, items, modal, setView]);
-
-  const loadUser = (item: TrackerAccessAdminDto) => {
-    setForm(toTrackerAccessForm(item));
-    setEditorMode("single");
-    setView((current) => ({ ...current, modal: "edit", id: item.userId }));
-    setStatus(formatText(labels.loadedStatus, { userId: item.userId }));
-    setError(null);
-  };
-
   const openCreate = () => {
-    setForm({
-      userId: "",
-      canLeech: true,
-      canSeed: true,
-      canScrape: true,
-      canUsePrivateTracker: true,
-      expectedVersion: undefined
-    });
-    setEditorMode("single");
-    setView((current) => ({ ...current, modal: "create", id: null }));
+    navigate(`/permissions/new?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
     setError(null);
     setStatus(null);
   };
 
   const openBulkEditor = () => {
-    setForm((current) => ({
-      ...current,
-      userId: "",
-      expectedVersion: undefined
-    }));
-    setEditorMode("bulk");
-    setIsBulkModalOpen(true);
-    setView((current) => ({ ...current, modal: null, id: null }));
+    persistBulkTrackerAccessSelection(items.filter((item) => selectedUserIds.includes(item.userId)));
+    navigate(`/permissions/bulk-edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`);
     setError(null);
   };
 
@@ -2603,86 +3456,6 @@ function TrackerAccessPage({
     setSelectedUserIds((current) =>
       current.includes(userId) ? current.filter((value) => value !== userId) : [...current, userId]
     );
-  };
-
-  const savePermissions = async () => {
-    try {
-      setIsSubmitting(true);
-      setStatus(null);
-      setError(null);
-      setResult(null);
-      await apiMutation<TrackerAccessAdminDto, Omit<TrackerAccessFormState, "userId">>(
-        `/api/admin/users/${encodeURIComponent(form.userId)}/tracker-access`,
-        "PUT",
-        accessToken,
-        {
-          canLeech: form.canLeech,
-          canSeed: form.canSeed,
-          canScrape: form.canScrape,
-          canUsePrivateTracker: form.canUsePrivateTracker,
-          expectedVersion: form.expectedVersion
-        },
-        onReauthenticate
-      );
-
-      setStatus(labels.saveStatus);
-      setView((current) => ({ ...current, modal: null, id: null }));
-      await reload();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : labels.saveError);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const bulkApplyPermissions = async () => {
-    try {
-      setIsSubmitting(true);
-      setStatus(null);
-      setError(null);
-      setResult(null);
-      const selectedItems = items
-        .filter((item) => selectedUserIds.includes(item.userId))
-        .map((item) => ({
-          userId: item.userId,
-          canLeech: form.canLeech,
-          canSeed: form.canSeed,
-          canScrape: form.canScrape,
-          canUsePrivateTracker: form.canUsePrivateTracker,
-          expectedVersion: item.version
-        }));
-
-      const operationResult = await apiMutation<
-        BulkOperationResultDto,
-        {
-          items: Array<{
-            userId: string;
-            canLeech: boolean;
-            canSeed: boolean;
-            canScrape: boolean;
-            canUsePrivateTracker: boolean;
-            expectedVersion: number;
-          }>;
-        }
-      >(
-        "/api/admin/users/bulk/tracker-access",
-        "PUT",
-        accessToken,
-        { items: selectedItems },
-        onReauthenticate
-      );
-
-      setResult(operationResult);
-      setStatus(formatText(labels.bulkStatus, { succeeded: operationResult.succeededCount, total: operationResult.totalCount }));
-      setIsBulkModalOpen(false);
-      setView((current) => ({ ...current, modal: null, id: null }));
-      await reload();
-      setSelectedUserIds([]);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : labels.bulkError);
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   return (
@@ -2716,7 +3489,7 @@ function TrackerAccessPage({
         ]}
         pageSize={query.pageSize}
         onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
-        createLabel="New tracker access"
+        createLabel="Create access"
         onCreate={openCreate}
       />
       {status ? <div className="app-notice-success">{status}</div> : null}
@@ -2734,11 +3507,11 @@ function TrackerAccessPage({
         <div className="app-selection-summary">
           <div className="space-y-1">
             <div className="text-sm font-semibold text-ink">{selectedUserIds.length} user(s) selected</div>
-            <div className="text-sm text-steel">Apply the current access envelope to the selected users in one modal workflow.</div>
+            <div className="text-sm text-steel">Open the dedicated bulk editor for the current tracker access selection.</div>
           </div>
           <div className="flex flex-wrap gap-3">
             <button type="button" className="app-button-secondary py-2.5" onClick={() => setSelectedUserIds([])}>Clear selection</button>
-            <button type="button" className="app-button-primary py-2.5" disabled={!canWrite} onClick={openBulkEditor}>{labels.applySelected} ({selectedUserIds.length})</button>
+            <button type="button" className="app-button-primary py-2.5 inline-flex items-center gap-2" disabled={!canWrite} onClick={openBulkEditor}><PencilIcon className="app-button-icon" />{labels.applySelected} ({selectedUserIds.length})</button>
           </div>
         </div>
       ) : null}
@@ -2780,7 +3553,7 @@ function TrackerAccessPage({
                   <td className="px-5 py-4 text-steel">{item.version}</td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex justify-end items-center gap-2">
-                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => loadUser(item)}><PencilIcon className="app-button-icon" />{labels.edit}</button>
+                      <button type="button" className="app-button-secondary py-2.5 inline-flex items-center gap-2" onClick={() => navigate(`/permissions/${encodeURIComponent(item.userId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />{labels.edit}</button>
                       <RowActionsMenu items={[{ label: "Preview", icon: <EyeIcon />, onClick: () => setView((current) => ({ ...current, preview: item.userId })) }]} />
                     </div>
                   </td>
@@ -2791,27 +3564,6 @@ function TrackerAccessPage({
         </div>
       </div>
       <PaginationFooter page={query.page} pageCount={pageCount} totalCount={totalCount} pageSize={query.pageSize} onPageChange={(page) => setView((current) => ({ ...current, query: { ...current.query, page } }))} />
-      <Modal open={editorMode === "bulk" ? isBulkModalOpen : modal === "create" || modal === "edit"} onClose={() => { setIsBulkModalOpen(false); setView((current) => ({ ...current, modal: null, id: null })); }} title={editorMode === "bulk" ? "Apply tracker access to selected users" : form.expectedVersion ? labels.editorTitle : "Create tracker access"} description={editorMode === "bulk" ? "Use one access envelope for the current selection." : "Edit tracker access rights without leaving the catalog."} width="wide">
-        <div className="space-y-4">
-          {editorMode === "bulk" ? (
-            <div className="app-subtle-panel space-y-2"><div className="app-kicker">Selection</div><div className="font-semibold text-ink">{selectedUserIds.length} user(s)</div></div>
-          ) : (
-            <label className="space-y-2"><span className="text-sm font-medium text-ink">{labels.userId}</span><input className="app-input font-mono text-sm" value={form.userId} onChange={(event) => setForm((current) => ({ ...current, userId: event.target.value }))} /></label>
-          )}
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canLeech} onChange={(event) => setForm((current) => ({ ...current, canLeech: event.target.checked }))} />{labels.canLeech}</label>
-            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canSeed} onChange={(event) => setForm((current) => ({ ...current, canSeed: event.target.checked }))} />{labels.canSeed}</label>
-            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canScrape} onChange={(event) => setForm((current) => ({ ...current, canScrape: event.target.checked }))} />{labels.canScrape}</label>
-            <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />{labels.canUsePrivateTracker}</label>
-          </div>
-          <div className="flex flex-wrap justify-end gap-3">
-            <ModalDismissButton onClose={() => { setIsBulkModalOpen(false); setView((current) => ({ ...current, modal: null, id: null })); }}>Cancel</ModalDismissButton>
-            <button type="button" disabled={!canWrite || isSubmitting || (editorMode === "single" ? !form.userId.trim() : selectedUserIds.length === 0)} className="app-button-primary" onClick={() => void (editorMode === "bulk" ? bulkApplyPermissions() : savePermissions())}>
-              {editorMode === "bulk" ? `${labels.applySelected} (${selectedUserIds.length})` : labels.savePermissions}
-            </button>
-          </div>
-        </div>
-      </Modal>
       <PreviewDrawer open={previewItem != null} title={previewItem?.userId ?? ""} subtitle="Current tracker access rights" onClose={() => setView((current) => ({ ...current, preview: null }))}>
         {previewItem ? (
           <div className="space-y-4">
@@ -2833,10 +3585,586 @@ function TrackerAccessPage({
                 ))}
               </div>
             ) : null}
+            <div className="flex flex-wrap gap-3">
+              <button type="button" className="app-button-primary inline-flex items-center gap-2" onClick={() => navigate(`/permissions/${encodeURIComponent(previewItem.userId)}/edit?returnTo=${encodeURIComponent(buildReturnTo(location.pathname, location.search))}`)}><PencilIcon className="app-button-icon" />Edit access</button>
+            </div>
           </div>
         ) : null}
       </PreviewDrawer>
     </div>
+  );
+}
+
+function PasskeyBatchActionPage({
+  accessToken,
+  onReauthenticate,
+  capabilities
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  capabilities: CapabilityDto[];
+}) {
+  const { dictionary } = useI18n();
+  const labels = dictionary.passkeys;
+  const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/passkeys");
+  const [passkeyInput, setPasskeyInput] = useState("");
+  const [rotateExpiryInput, setRotateExpiryInput] = useState("");
+  const [result, setResult] = useState<BulkOperationResultDto | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const canRevoke = hasGrantedCapability(capabilities, "admin.revoke.passkey");
+  const canRotate = hasGrantedCapability(capabilities, "admin.rotate.passkey");
+  const inputPasskeys = parseLineSeparatedValues(passkeyInput);
+
+  const runBulkPasskeyAction = async (path: string, mode: "revoke" | "rotate") => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      setStatus(null);
+      const payload =
+        mode === "rotate"
+          ? {
+              items: inputPasskeys.map((passkey) => ({
+                passkey,
+                expiresAtUtc: fromLocalDateTimeInput(rotateExpiryInput)
+              }))
+            }
+          : {
+              items: inputPasskeys.map((passkey) => ({ passkey }))
+            };
+
+      const operationResult = await apiMutation<BulkOperationResultDto, typeof payload>(
+        path,
+        "POST",
+        accessToken,
+        payload,
+        onReauthenticate
+      );
+
+      setResult(operationResult);
+      const message = formatText(labels.status, { mode: toTitleCase(mode), succeeded: operationResult.succeededCount, total: operationResult.totalCount });
+      setStatus(message);
+      navigate(returnTo, { state: { message, tone: "good" } satisfies NavigationBannerState });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : labels.operationError);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <TrackerEditorLayout
+      eyebrow="Tracker"
+      title={labels.actionTitle}
+      description="Provide raw passkeys one per line and run revoke or rotate in a dedicated workflow."
+      error={error}
+      message={status}
+    >
+      <div className="space-y-4">
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-ink">{labels.rawPasskeys}</span>
+          <textarea className="app-input min-h-48 font-mono text-sm" value={passkeyInput} onChange={(event) => setPasskeyInput(event.target.value)} placeholder={labels.placeholder} />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-ink">{labels.expiryOverride}</span>
+          <input className="app-input" type="datetime-local" value={rotateExpiryInput} onChange={(event) => setRotateExpiryInput(event.target.value)} />
+        </label>
+        {result && result.passkeyItems.length > 0 ? (
+          <div className="space-y-3">
+            {result.passkeyItems.map((item) => (
+              <div key={`${item.passkeyMask}-${item.newPasskeyMask ?? "same"}`} className="app-subtle-panel space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-mono text-xs text-ink">{item.passkeyMask}</div>
+                  <StatusPill tone={item.succeeded ? "good" : "warn"}>{item.succeeded ? labels.completed : labels.failed}</StatusPill>
+                </div>
+                {item.errorMessage ? <div className="text-sm text-ember">{item.errorMessage}</div> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap justify-end gap-3">
+          <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+            Cancel
+          </button>
+          <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={!canRevoke || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/revoke", "revoke")}>
+            <TrashIcon className="app-button-icon" />
+            {labels.revoke}
+          </button>
+          <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canRotate || isSubmitting || inputPasskeys.length === 0} onClick={() => void runBulkPasskeyAction("/api/admin/passkeys/bulk/rotate", "rotate")}>
+            <PencilIcon className="app-button-icon" />
+            {labels.rotate}
+          </button>
+        </div>
+      </div>
+    </TrackerEditorLayout>
+  );
+}
+
+function BanEditorPage({
+  accessToken,
+  onReauthenticate,
+  capabilities
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  capabilities: CapabilityDto[];
+}) {
+  const { dictionary } = useI18n();
+  const labels = dictionary.bans;
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  const recordId = params.id ?? null;
+  const record = tryParseBanRecordId(recordId);
+  const isCreate = record === null;
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/bans");
+  const canWrite = hasGrantedCapability(capabilities, "admin.write.ban");
+  const canExpire = hasGrantedCapability(capabilities, "admin.expire.ban");
+  const canDelete = hasGrantedCapability(capabilities, "admin.delete.ban");
+  const [form, setForm] = useState<BanFormState>({
+    scope: record?.scope ?? "user",
+    subject: record?.subject ?? "",
+    reason: "",
+    expiresAtLocal: "",
+    expectedVersion: undefined
+  });
+  const [isLoading, setIsLoading] = useState(!isCreate);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  useEffect(() => {
+    if (isCreate || !record) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    void findBanRuleRecord(accessToken, onReauthenticate, record.scope, record.subject)
+      .then((item) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (!item) {
+          setError("Unable to load the requested ban rule.");
+          return;
+        }
+
+        setForm({
+          scope: item.scope,
+          subject: item.subject,
+          reason: item.reason,
+          expiresAtLocal: toLocalDateTimeInput(item.expiresAtUtc),
+          expectedVersion: item.version
+        });
+      })
+      .catch((requestError) => {
+        if (!cancelled) {
+          setError(requestError instanceof Error ? requestError.message : labels.loadError);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isCreate, labels.loadError, onReauthenticate, record]);
+
+  const saveBan = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      setMessage(null);
+      await apiMutation<BanRuleAdminDto, { reason: string; expiresAtUtc: string | null; expectedVersion?: number }>(
+        `/api/admin/bans/${encodeURIComponent(form.scope)}/${encodeURIComponent(form.subject)}`,
+        "PUT",
+        accessToken,
+        {
+          reason: form.reason,
+          expiresAtUtc: fromLocalDateTimeInput(form.expiresAtLocal),
+          expectedVersion: form.expectedVersion
+        },
+        onReauthenticate
+      );
+
+      navigate(returnTo, { state: { message: isCreate ? "Ban rule created." : labels.saveStatus, tone: "good" } satisfies NavigationBannerState });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : labels.saveError);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const expireBan = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      setMessage(null);
+      const expiresAtUtc = fromLocalDateTimeInput(form.expiresAtLocal);
+      if (!expiresAtUtc) {
+        throw new Error(labels.expiryRequired);
+      }
+
+      await apiMutation<BulkOperationResultDto, { items: Array<{ scope: string; subject: string; expiresAtUtc: string; expectedVersion?: number }> }>(
+        "/api/admin/bans/bulk/expire",
+        "POST",
+        accessToken,
+        {
+          items: [
+            {
+              scope: form.scope,
+              subject: form.subject,
+              expiresAtUtc,
+              expectedVersion: form.expectedVersion
+            }
+          ]
+        },
+        onReauthenticate
+      );
+
+      navigate(returnTo, { state: { message: labels.expireStatus, tone: "good" } satisfies NavigationBannerState });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : labels.expireError);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const deleteBan = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      setMessage(null);
+      await apiMutation<BulkOperationResultDto, { items: Array<{ scope: string; subject: string; expectedVersion?: number }> }>(
+        "/api/admin/bans/bulk/delete",
+        "POST",
+        accessToken,
+        {
+          items: [
+            {
+              scope: form.scope,
+              subject: form.subject,
+              expectedVersion: form.expectedVersion
+            }
+          ]
+        },
+        onReauthenticate
+      );
+
+      navigate(returnTo, { state: { message: labels.deleteStatus, tone: "good" } satisfies NavigationBannerState });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : labels.deleteError);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <TrackerEditorLayout
+      eyebrow="Tracker"
+      title={isCreate ? "Create ban rule" : "Edit ban rule"}
+      description={isCreate ? "Create an enforcement rule in a dedicated workflow." : "Update, expire or remove a tracker enforcement rule without using an inline modal."}
+      error={error}
+      message={message}
+    >
+      <div className="space-y-4">
+        <div className="app-form-grid">
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink">{labels.scope}</span>
+            <input className="app-input" value={form.scope} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value }))} />
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink">{labels.subject}</span>
+            <input className="app-input font-mono text-sm" value={form.subject} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
+          </label>
+        </div>
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-ink">{labels.reason}</span>
+          <textarea className="app-input min-h-32" value={form.reason} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-ink">{labels.expiresLabel}</span>
+          <input className="app-input" type="datetime-local" value={form.expiresAtLocal} disabled={isLoading} onChange={(event) => setForm((current) => ({ ...current, expiresAtLocal: event.target.value }))} />
+        </label>
+        <div className="flex flex-wrap justify-end gap-3">
+          {!isCreate ? (
+            <button type="button" className="app-button-secondary inline-flex items-center gap-2" disabled={!canExpire || isSubmitting || !form.scope.trim() || !form.subject.trim()} onClick={() => void expireBan()}>
+              <PowerIcon className="app-button-icon" />
+              {labels.expireBan}
+            </button>
+          ) : null}
+          {!isCreate ? (
+            <button type="button" className="app-button-danger inline-flex items-center gap-2" disabled={!canDelete || isSubmitting} onClick={() => setConfirmDeleteOpen(true)}>
+              <TrashIcon className="app-button-icon" />
+              Delete rule
+            </button>
+          ) : null}
+          <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+            Cancel
+          </button>
+          <button type="button" className="app-button-primary inline-flex items-center gap-2" disabled={!canWrite || isLoading || isSubmitting || !form.scope.trim() || !form.subject.trim() || !form.reason.trim()} onClick={() => void saveBan()}>
+            <PencilIcon className="app-button-icon" />
+            {isCreate ? "Create rule" : labels.saveBan}
+          </button>
+        </div>
+      </div>
+      <ConfirmActionModal
+        open={confirmDeleteOpen}
+        title="Delete ban rule"
+        description={`Delete rule ${form.scope}:${form.subject}? This cannot be undone.`}
+        confirmLabel="Delete rule"
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          void deleteBan();
+        }}
+      />
+    </TrackerEditorLayout>
+  );
+}
+
+function TrackerAccessEditorPage({
+  accessToken,
+  onReauthenticate,
+  capabilities
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  capabilities: CapabilityDto[];
+}) {
+  const { dictionary } = useI18n();
+  const labels = dictionary.permissionsPage;
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  const userId = params.id ?? null;
+  const isCreate = userId === null;
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/permissions");
+  const canWrite = hasGrantedCapability(capabilities, "admin.write.permissions");
+  const [form, setForm] = useState<TrackerAccessFormState>({
+    userId: userId ?? "",
+    canLeech: true,
+    canSeed: true,
+    canScrape: true,
+    canUsePrivateTracker: true,
+    expectedVersion: undefined
+  });
+  const [isLoading, setIsLoading] = useState(!isCreate);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isCreate || !userId) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    void findTrackerAccessRecord(accessToken, onReauthenticate, userId)
+      .then((item) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (!item) {
+          setError("Unable to load the requested tracker access record.");
+          return;
+        }
+
+        setForm(toTrackerAccessForm(item));
+      })
+      .catch((requestError) => {
+        if (!cancelled) {
+          setError(requestError instanceof Error ? requestError.message : labels.loadError);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isCreate, labels.loadError, onReauthenticate, userId]);
+
+  const savePermissions = async () => {
+    try {
+      setIsSaving(true);
+      setError(null);
+      setMessage(null);
+      await apiMutation<TrackerAccessAdminDto, Omit<TrackerAccessFormState, "userId">>(
+        `/api/admin/users/${encodeURIComponent(form.userId)}/tracker-access`,
+        "PUT",
+        accessToken,
+        {
+          canLeech: form.canLeech,
+          canSeed: form.canSeed,
+          canScrape: form.canScrape,
+          canUsePrivateTracker: form.canUsePrivateTracker,
+          expectedVersion: form.expectedVersion
+        },
+        onReauthenticate
+      );
+
+      navigate(returnTo, { state: { message: labels.saveStatus, tone: "good" } satisfies NavigationBannerState });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : labels.saveError);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <TrackerEditorLayout
+      eyebrow="Tracker"
+      title={isCreate ? "Create tracker access" : labels.editorTitle}
+      description={isCreate ? "Create a tracker access envelope in a dedicated editor." : "Update tracker access rights outside the list grid."}
+      error={error}
+      message={message}
+    >
+      <div className="space-y-4">
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-ink">{labels.userId}</span>
+          <input className="app-input font-mono text-sm" value={form.userId} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, userId: event.target.value }))} />
+        </label>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canLeech} onChange={(event) => setForm((current) => ({ ...current, canLeech: event.target.checked }))} />{labels.canLeech}</label>
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canSeed} onChange={(event) => setForm((current) => ({ ...current, canSeed: event.target.checked }))} />{labels.canSeed}</label>
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canScrape} onChange={(event) => setForm((current) => ({ ...current, canScrape: event.target.checked }))} />{labels.canScrape}</label>
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />{labels.canUsePrivateTracker}</label>
+        </div>
+        <div className="flex flex-wrap justify-end gap-3">
+          <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+            Cancel
+          </button>
+          <button type="button" disabled={!canWrite || isSaving || isLoading || !form.userId.trim()} className="app-button-primary inline-flex items-center gap-2" onClick={() => void savePermissions()}>
+            <PencilIcon className="app-button-icon" />
+            {labels.savePermissions}
+          </button>
+        </div>
+      </div>
+    </TrackerEditorLayout>
+  );
+}
+
+function BulkTrackerAccessEditorPage({
+  accessToken,
+  onReauthenticate,
+  capabilities
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  capabilities: CapabilityDto[];
+}) {
+  const { dictionary } = useI18n();
+  const labels = dictionary.permissionsPage;
+  const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get("returnTo"), "/permissions");
+  const canWrite = hasGrantedCapability(capabilities, "admin.write.permissions");
+  const [selectedItems] = useState<TrackerAccessAdminDto[]>(() => readBulkTrackerAccessSelection());
+  const [form, setForm] = useState<TrackerAccessFormState>({
+    userId: "",
+    canLeech: true,
+    canSeed: true,
+    canScrape: true,
+    canUsePrivateTracker: true,
+    expectedVersion: undefined
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const saveBulk = async () => {
+    try {
+      setIsSaving(true);
+      setError(null);
+      setMessage(null);
+      const operationResult = await apiMutation<
+        BulkOperationResultDto,
+        {
+          items: Array<{
+            userId: string;
+            canLeech: boolean;
+            canSeed: boolean;
+            canScrape: boolean;
+            canUsePrivateTracker: boolean;
+            expectedVersion: number;
+          }>;
+        }
+      >(
+        "/api/admin/users/bulk/tracker-access",
+        "PUT",
+        accessToken,
+        {
+          items: selectedItems.map((item) => ({
+            userId: item.userId,
+            canLeech: form.canLeech,
+            canSeed: form.canSeed,
+            canScrape: form.canScrape,
+            canUsePrivateTracker: form.canUsePrivateTracker,
+            expectedVersion: item.version
+          }))
+        },
+        onReauthenticate
+      );
+
+      clearBulkTrackerAccessSelection();
+      navigate(returnTo, {
+        state: {
+          message: formatText(labels.bulkStatus, { succeeded: operationResult.succeededCount, total: operationResult.totalCount }),
+          tone: "good"
+        } satisfies NavigationBannerState
+      });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : labels.bulkError);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <TrackerEditorLayout
+      eyebrow="Tracker"
+      title="Apply tracker access to selected users"
+      description="Use one access envelope for the current selection in a dedicated bulk editor."
+      error={error}
+      message={message}
+    >
+      <div className="space-y-4">
+        <div className="app-subtle-panel space-y-2">
+          <div className="app-kicker">Selection</div>
+          <div className="font-semibold text-ink">{selectedItems.length} user(s)</div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canLeech} onChange={(event) => setForm((current) => ({ ...current, canLeech: event.target.checked }))} />{labels.canLeech}</label>
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canSeed} onChange={(event) => setForm((current) => ({ ...current, canSeed: event.target.checked }))} />{labels.canSeed}</label>
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canScrape} onChange={(event) => setForm((current) => ({ ...current, canScrape: event.target.checked }))} />{labels.canScrape}</label>
+          <label className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-slate-50 px-4 py-3 text-sm text-ink"><input type="checkbox" checked={form.canUsePrivateTracker} onChange={(event) => setForm((current) => ({ ...current, canUsePrivateTracker: event.target.checked }))} />{labels.canUsePrivateTracker}</label>
+        </div>
+        <div className="flex flex-wrap justify-end gap-3">
+          <button type="button" className="app-button-secondary" onClick={() => navigate(returnTo)}>
+            Cancel
+          </button>
+          <button type="button" disabled={!canWrite || isSaving || selectedItems.length === 0} className="app-button-primary inline-flex items-center gap-2" onClick={() => void saveBulk()}>
+            <PencilIcon className="app-button-icon" />
+            {labels.applySelected} ({selectedItems.length})
+          </button>
+        </div>
+      </div>
+    </TrackerEditorLayout>
   );
 }
 
@@ -3381,6 +4709,9 @@ function Shell({
             : null,
           hasPermission(session.permissions, "admin.bans.view")
             ? { to: "/bans", label: "Ban rules", description: "Create and expire enforcement rules.", icon: "bans" }
+            : null,
+          hasPermission(session.permissions, "admin.system_settings.view")
+            ? { to: "/tracker-node", label: "Node config", description: "Configure tracker node protocols, runtime and coordination.", icon: "nodeConfig" }
             : null
         ].filter((link): link is NavigationLink => link !== null)
       },
@@ -4041,10 +5372,42 @@ function AuthenticatedAdminApp({
           }
         />
         <Route
+          path="/passkeys/actions"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.revoke.passkey">
+              <PasskeyBatchActionPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
           path="/permissions"
           element={
             <CapabilityGate capabilities={capabilities} action="admin.read.permissions">
-                    <TrackerAccessPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+              <TrackerAccessPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
+          path="/permissions/new"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.permissions">
+              <TrackerAccessEditorPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
+          path="/permissions/:id/edit"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.permissions">
+              <TrackerAccessEditorPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
+          path="/permissions/bulk-edit"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.permissions">
+              <BulkTrackerAccessEditorPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
             </CapabilityGate>
           }
         />
@@ -4053,6 +5416,22 @@ function AuthenticatedAdminApp({
           element={
             <CapabilityGate capabilities={capabilities} action="admin.read.bans">
               <BansPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
+          path="/bans/new"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.ban">
+              <BanEditorPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
+          }
+        />
+        <Route
+          path="/bans/:id/edit"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.write.ban">
+              <BanEditorPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
             </CapabilityGate>
           }
         />
@@ -4078,6 +5457,14 @@ function AuthenticatedAdminApp({
             <CapabilityGate capabilities={capabilities} action="admin.read.maintenance">
               <MaintenancePage accessToken={accessToken} onReauthenticate={onSignin} />
             </CapabilityGate>
+          }
+        />
+        <Route
+          path="/tracker-node"
+          element={
+            <PermissionGate permissions={session.permissions} permission="admin.system_settings.view">
+              <TrackerNodeConfigPage accessToken={accessToken} onReauthenticate={onSignin} permissions={session.permissions} />
+            </PermissionGate>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

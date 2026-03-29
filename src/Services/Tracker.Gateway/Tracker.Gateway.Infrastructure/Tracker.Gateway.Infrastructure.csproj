@@ -3,8 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Infrastructure\BeeTracker.BuildingBlocks.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\Contracts\BeeTracker.Contracts.Configuration\BeeTracker.Contracts.Configuration.csproj" />
+    <ProjectReference Include="..\..\Tracker.ConfigurationService\Tracker.ConfigurationService.Application\Tracker.ConfigurationService.Application.csproj" />
+    <ProjectReference Include="..\..\Tracker.ConfigurationService\Tracker.ConfigurationService.Infrastructure\Tracker.ConfigurationService.Infrastructure.csproj" />
     <ProjectReference Include="..\Tracker.Gateway.Application\Tracker.Gateway.Application.csproj" />
     <ProjectReference Include="..\Tracker.Gateway.Runtime\Tracker.Gateway.Runtime.csproj" />
+    <ProjectReference Include="..\..\Tracker.UdpTracker\Tracker.UdpTracker.Service\Tracker.UdpTracker.Service.csproj" />
     <ProjectReference Include="..\..\..\Shared\BeeTracker.Caching.Redis\BeeTracker.Caching.Redis.csproj" />
     <ProjectReference Include="..\..\..\Shared\BeeTracker.Serialization.BEncoding\BeeTracker.Serialization.BEncoding.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BeeTracker.BuildingBlocks.Observability\BeeTracker.BuildingBlocks.Observability.csproj" />

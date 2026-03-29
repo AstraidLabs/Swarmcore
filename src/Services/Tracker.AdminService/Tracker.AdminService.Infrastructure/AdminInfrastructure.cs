@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using StackExchange.Redis;
 using BeeTracker.Caching.Redis;
 using BeeTracker.BuildingBlocks.Application.Queries;
@@ -611,6 +612,23 @@ public sealed class EfTrackerAccessRightsAdminReader(TrackerConfigurationDbConte
             .AsReadOnly(), totalCount, query.Page, query.PageSize);
     }
 
+    public async Task<TrackerAccessAdminDto?> GetAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var permission = await dbContext.Permissions
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+
+        return permission is null
+            ? null
+            : new TrackerAccessAdminDto(
+                permission.UserId,
+                permission.CanLeech,
+                permission.CanSeed,
+                permission.CanScrape,
+                permission.CanUsePrivateTracker,
+                permission.RowVersion);
+    }
+
     private static IOrderedQueryable<UserPermissionEntity> ApplyTrackerAccessSort(
         IQueryable<UserPermissionEntity> source,
         GridSortTerm term)
@@ -688,6 +706,24 @@ public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : 
             .AsReadOnly(), totalCount, query.Page, query.PageSize);
     }
 
+    public async Task<BanRuleAdminDto?> GetAsync(string scope, string subject, CancellationToken cancellationToken)
+    {
+        var ban = await dbContext.Bans
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Scope == scope && item.Subject == subject, cancellationToken);
+
+        return ban is null
+            ? null
+            : new BanRuleAdminDto(
+                ban.Scope,
+                ban.Subject,
+                ban.Reason,
+                ban.ExpiresAtUtc.HasValue
+                    ? new DateTimeOffset(DateTime.SpecifyKind(ban.ExpiresAtUtc.Value, DateTimeKind.Utc))
+                    : null,
+                ban.RowVersion);
+    }
+
     private static IOrderedQueryable<BanRuleEntity> ApplyBanSort(
         IQueryable<BanRuleEntity> source,
         GridSortTerm term)
@@ -702,12 +738,194 @@ public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : 
         };
 }
 
+public sealed class TrackerNodeConfigAdminReader(
+    ITrackerNodeConfigurationReader trackerNodeConfigurationReader) : ITrackerNodeConfigAdminReader
+{
+    public async Task<TrackerNodeConfigViewDto?> GetAsync(string nodeKey, CancellationToken cancellationToken)
+    {
+        var snapshot = await trackerNodeConfigurationReader.GetEffectiveTrackerNodeConfigurationAsync(nodeKey, cancellationToken);
+        if (snapshot is null)
+        {
+            return null;
+        }
+
+        var validation = await trackerNodeConfigurationReader.ValidateTrackerNodeConfigurationAsync(snapshot.Configuration, cancellationToken);
+        var config = snapshot.Configuration;
+
+        return new TrackerNodeConfigViewDto(
+            new TrackerNodeOverviewDto(
+                snapshot.NodeKey,
+                snapshot.Version,
+                config.Identity.NodeId,
+                config.Identity.NodeName,
+                config.Identity.Environment,
+                config.Identity.Region,
+                config.Identity.PublicBaseUrl,
+                config.Identity.InternalBaseUrl,
+                config.Http.EnableAnnounce,
+                config.Http.EnableScrape,
+                config.Udp.Enabled,
+                config.Policy.EnablePublicTracker,
+                config.Policy.EnablePrivateTracker,
+                config.Runtime.EnableIPv6Peers,
+                config.Runtime.ShardCount,
+                config.Http.CompactResponsesByDefault,
+                config.Http.AllowNonCompactResponses,
+                snapshot.RequiresRestart,
+                snapshot.ApplyMode.ToString(),
+                snapshot.UpdatedAtUtc,
+                snapshot.UpdatedBy),
+            new TrackerNodeCapabilitiesDto(
+                config.Identity.SupportsHttp,
+                config.Identity.SupportsUdp,
+                config.Identity.SupportsPublicTracker,
+                config.Identity.SupportsPrivateTracker,
+                config.Http.AllowPasskeyInPath || config.Http.AllowPasskeyInQuery,
+                config.Http.AllowClientIpOverride,
+                config.Http.AllowNonCompactResponses,
+                config.Runtime.EnableIPv6Peers,
+                config.Postgres.PersistAudit,
+                config.Postgres.PersistTelemetry,
+                config.Observability.EnableDiagnosticsEndpoints),
+            new TrackerNodeProtocolViewDto(
+                config.Http.AnnounceRoute,
+                config.Http.PrivateAnnounceRoute,
+                config.Http.ScrapeRoute,
+                config.Http.EnableAnnounce,
+                config.Http.EnableScrape,
+                config.Udp.Enabled,
+                config.Udp.BindAddress,
+                config.Udp.Port,
+                config.Udp.EnableScrape,
+                config.Http.DefaultAnnounceIntervalSeconds,
+                config.Http.MinAnnounceIntervalSeconds,
+                config.Http.DefaultNumWant,
+                config.Http.MaxNumWant,
+                config.Http.CompactResponsesByDefault,
+                config.Http.AllowNonCompactResponses,
+                config.Http.AllowPasskeyInPath,
+                config.Http.AllowPasskeyInQuery,
+                config.Http.AllowClientIpOverride),
+            new TrackerNodeRuntimeViewDto(
+                config.Runtime.ShardCount,
+                config.Runtime.PeerTtlSeconds,
+                config.Runtime.CleanupIntervalSeconds,
+                config.Runtime.MaxPeersPerResponse,
+                config.Runtime.MaxPeersPerSwarm,
+                config.Runtime.PreferLocalShardPeers,
+                config.Runtime.EnableCompletedAccounting,
+                config.Runtime.EnableIPv6Peers,
+                AnnounceDisabled: !config.Http.EnableAnnounce,
+                ScrapeDisabled: !config.Http.EnableScrape,
+                UdpDisabled: !config.Udp.Enabled,
+                GlobalMaintenanceMode: false,
+                ReadOnlyMode: false),
+            new TrackerNodeCoordinationViewDto(
+                BuildRedisSummary(config.Redis),
+                BuildPostgresSummary(config.Postgres),
+                config.Redis.KeyPrefix,
+                config.Redis.InvalidationChannel,
+                config.Postgres.MigrateOnStart,
+                config.Postgres.PersistTelemetry,
+                config.Postgres.PersistAudit,
+                config.Postgres.TelemetryBatchSize,
+                config.Postgres.TelemetryFlushIntervalMilliseconds,
+                config.Redis.HeartbeatTtlSeconds,
+                config.Redis.OwnershipLeaseDurationSeconds,
+                config.Redis.OwnershipRefreshIntervalSeconds,
+                config.Redis.SwarmSummaryPublishIntervalSeconds,
+                config.Redis.SwarmSummaryTtlSeconds),
+            new TrackerNodePolicyViewDto(
+                config.Policy.EnablePublicTracker,
+                config.Policy.EnablePrivateTracker,
+                config.Policy.RequirePasskeyForPrivateTracker,
+                config.Policy.AllowPublicScrape,
+                config.Policy.AllowPrivateScrape,
+                config.Policy.DefaultTorrentVisibility,
+                config.Policy.StrictnessProfile,
+                config.Policy.CompatibilityMode,
+                config.AbuseProtection.HardMaxNumWant,
+                EmergencyAbuseMitigation: false,
+                PolicyFreezeMode: false,
+                IPv6Frozen: false),
+            new TrackerNodeObservabilityViewDto(
+                config.Observability.EnableHealthEndpoints,
+                config.Observability.EnableMetrics,
+                config.Observability.EnableTracing,
+                config.Observability.EnableDiagnosticsEndpoints,
+                config.Observability.LiveRoute,
+                config.Observability.ReadyRoute,
+                config.Observability.StartupRoute,
+                RequireRedisForReadiness: true,
+                RequirePostgresForReadiness: true),
+            new TrackerNodeAbuseViewDto(
+                config.AbuseProtection.MaxAnnounceQueryLength,
+                config.AbuseProtection.MaxScrapeQueryLength,
+                config.AbuseProtection.MaxQueryParameterCount,
+                config.AbuseProtection.HardMaxNumWant,
+                config.AbuseProtection.EnableAnnouncePasskeyRateLimit,
+                config.AbuseProtection.AnnouncePerPasskeyPerSecond,
+                config.AbuseProtection.EnableAnnounceIpRateLimit,
+                config.AbuseProtection.AnnouncePerIpPerSecond,
+                config.AbuseProtection.EnableScrapeIpRateLimit,
+                config.AbuseProtection.ScrapePerIpPerSecond,
+                config.AbuseProtection.RejectOversizedRequests,
+                config.AbuseProtection.MaxScrapeInfoHashes),
+            new ConfigValidationDto(
+                validation.IsValid,
+                validation.Issues.Where(static issue => issue.Severity == TrackerConfigValidationSeverity.Error).Select(static issue => issue.Message).ToArray(),
+                validation.Issues.Where(static issue => issue.Severity == TrackerConfigValidationSeverity.Warning).Select(static issue => issue.Message).ToArray()));
+    }
+
+    private static TrackerNodeDependencySummaryDto BuildRedisSummary(RedisCoordinationConfig config)
+    {
+        if (!config.Enabled)
+        {
+            return new TrackerNodeDependencySummaryDto(false, "Disabled", Healthy: false);
+        }
+
+        try
+        {
+            var options = ConfigurationOptions.Parse(config.Configuration);
+            return new TrackerNodeDependencySummaryDto(
+                true,
+                $"Configured ({options.EndPoints.Count} endpoint{(options.EndPoints.Count == 1 ? string.Empty : "s")}, prefix {config.KeyPrefix})",
+                Healthy: true);
+        }
+        catch
+        {
+            return new TrackerNodeDependencySummaryDto(true, $"Configured (prefix {config.KeyPrefix})", Healthy: true);
+        }
+    }
+
+    private static TrackerNodeDependencySummaryDto BuildPostgresSummary(PostgresPersistenceConfig config)
+    {
+        if (!config.Enabled)
+        {
+            return new TrackerNodeDependencySummaryDto(false, "Disabled", Healthy: false);
+        }
+
+        try
+        {
+            var builder = new NpgsqlConnectionStringBuilder(config.ConnectionString);
+            return new TrackerNodeDependencySummaryDto(true, $"Configured ({builder.Host}/{builder.Database})", Healthy: true);
+        }
+        catch
+        {
+            return new TrackerNodeDependencySummaryDto(true, "Configured", Healthy: true);
+        }
+    }
+}
+
 #pragma warning disable CS0618
 public sealed class ConfigurationMutationOrchestrator(
     IConfigurationMutationService configurationMutationService,
     IConfigurationMutationPreviewService configurationMutationPreviewService,
     IConfigurationMaintenanceService configurationMaintenanceService) : IAdminMutationOrchestrator
 {
+    public Task<TrackerNodeConfigurationDto> UpsertTrackerNodeConfigurationAsync(string nodeKey, TrackerNodeConfigurationUpsertRequest request, AdminMutationContext context, CancellationToken cancellationToken)
+        => configurationMutationService.UpsertTrackerNodeConfigurationAsync(nodeKey, request, context, cancellationToken);
+
     private static string MaskPasskey(string passkey)
         => passkey.Length <= 6 ? $"pk:{passkey[0]}...{passkey[^1]}" : $"pk:{passkey[..4]}...{passkey[^2..]}";
 
@@ -1219,6 +1437,7 @@ public static class AdminInfrastructureServiceCollectionExtensions
         services.AddScoped<IPasskeyAdminReader, EfPasskeyAdminReader>();
         services.AddScoped<ITrackerAccessRightsAdminReader, EfTrackerAccessRightsAdminReader>();
         services.AddScoped<IBanAdminReader, EfBanAdminReader>();
+        services.AddScoped<ITrackerNodeConfigAdminReader, TrackerNodeConfigAdminReader>();
         services.AddScoped<IAdminMutationOrchestrator, ConfigurationMutationOrchestrator>();
         return services;
     }

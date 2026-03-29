@@ -180,3 +180,155 @@ public sealed record AdminMutationContext(
     string? RequestId,
     string? IpAddress,
     string? UserAgent);
+
+public enum TrackerNodeConfigurationApplyMode
+{
+    Dynamic,
+    RestartRecommended,
+    StartupOnly
+}
+
+public enum TrackerConfigValidationSeverity
+{
+    Warning,
+    Error
+}
+
+public sealed record TrackerConfigValidationIssueDto(
+    string Code,
+    string Path,
+    TrackerConfigValidationSeverity Severity,
+    string Message);
+
+public sealed record TrackerNodeIdentityConfig(
+    string NodeId,
+    string NodeName,
+    string Environment,
+    string Region,
+    string PublicBaseUrl,
+    string InternalBaseUrl,
+    bool SupportsHttp,
+    bool SupportsUdp,
+    bool SupportsPrivateTracker,
+    bool SupportsPublicTracker);
+
+public sealed record HttpTrackerConfig(
+    bool EnableAnnounce,
+    bool EnableScrape,
+    string AnnounceRoute,
+    string PrivateAnnounceRoute,
+    string ScrapeRoute,
+    int DefaultAnnounceIntervalSeconds,
+    int MinAnnounceIntervalSeconds,
+    int DefaultNumWant,
+    int MaxNumWant,
+    bool CompactResponsesByDefault,
+    bool AllowNonCompactResponses,
+    bool AllowPasskeyInPath,
+    bool AllowPasskeyInQuery,
+    bool AllowClientIpOverride,
+    bool EmitWarningMessages);
+
+public sealed record UdpTrackerConfig(
+    bool Enabled,
+    string BindAddress,
+    int Port,
+    int ConnectionTimeoutSeconds,
+    int ReceiveBufferSize,
+    int MaxDatagramSize,
+    bool EnableScrape,
+    int MaxScrapeInfoHashes);
+
+public sealed record RuntimeStoreConfig(
+    int ShardCount,
+    int PeerTtlSeconds,
+    int CleanupIntervalSeconds,
+    int MaxPeersPerResponse,
+    int? MaxPeersPerSwarm,
+    bool PreferLocalShardPeers,
+    bool EnableCompletedAccounting,
+    bool EnableIPv6Peers);
+
+public sealed record TrackerPolicyConfig(
+    bool EnablePublicTracker,
+    bool EnablePrivateTracker,
+    bool RequirePasskeyForPrivateTracker,
+    bool AllowPublicScrape,
+    bool AllowPrivateScrape,
+    string DefaultTorrentVisibility,
+    string StrictnessProfile,
+    string CompatibilityMode);
+
+public sealed record RedisCoordinationConfig(
+    bool Enabled,
+    string Configuration,
+    string KeyPrefix,
+    int PolicyCacheTtlSeconds,
+    int SnapshotCacheTtlSeconds,
+    string InvalidationChannel,
+    int HeartbeatTtlSeconds,
+    int OwnershipLeaseDurationSeconds,
+    int OwnershipRefreshIntervalSeconds,
+    int SwarmSummaryPublishIntervalSeconds,
+    int SwarmSummaryTtlSeconds);
+
+public sealed record PostgresPersistenceConfig(
+    bool Enabled,
+    string ConnectionString,
+    bool MigrateOnStart,
+    bool PersistTelemetry,
+    bool PersistAudit,
+    int TelemetryBatchSize,
+    int TelemetryFlushIntervalMilliseconds);
+
+public sealed record AbuseProtectionConfig(
+    int MaxAnnounceQueryLength,
+    int MaxScrapeQueryLength,
+    int MaxQueryParameterCount,
+    int HardMaxNumWant,
+    bool EnableAnnouncePasskeyRateLimit,
+    int AnnouncePerPasskeyPerSecond,
+    bool EnableAnnounceIpRateLimit,
+    int AnnouncePerIpPerSecond,
+    bool EnableScrapeIpRateLimit,
+    int ScrapePerIpPerSecond,
+    bool RejectOversizedRequests,
+    int MaxScrapeInfoHashes);
+
+public sealed record ObservabilityConfig(
+    bool EnableHealthEndpoints,
+    bool EnableMetrics,
+    bool EnableTracing,
+    bool EnableDiagnosticsEndpoints,
+    string LiveRoute,
+    string ReadyRoute,
+    string StartupRoute);
+
+public sealed record TrackerNodeConfigurationDocument(
+    TrackerNodeIdentityConfig Identity,
+    HttpTrackerConfig Http,
+    UdpTrackerConfig Udp,
+    RuntimeStoreConfig Runtime,
+    TrackerPolicyConfig Policy,
+    RedisCoordinationConfig Redis,
+    PostgresPersistenceConfig Postgres,
+    AbuseProtectionConfig AbuseProtection,
+    ObservabilityConfig Observability);
+
+public sealed record TrackerNodeConfigurationDto(
+    string NodeKey,
+    TrackerNodeConfigurationDocument Configuration,
+    long Version,
+    DateTimeOffset UpdatedAtUtc,
+    string UpdatedBy,
+    TrackerNodeConfigurationApplyMode ApplyMode,
+    bool RequiresRestart);
+
+public sealed record TrackerNodeConfigurationUpsertRequest(
+    TrackerNodeConfigurationDocument Configuration,
+    TrackerNodeConfigurationApplyMode ApplyMode = TrackerNodeConfigurationApplyMode.RestartRecommended,
+    long? ExpectedVersion = null);
+
+public sealed record TrackerNodeConfigurationValidationResultDto(
+    bool IsValid,
+    IReadOnlyCollection<TrackerConfigValidationIssueDto> Issues);

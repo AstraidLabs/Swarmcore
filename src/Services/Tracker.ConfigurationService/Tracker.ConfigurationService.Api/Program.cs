@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
 using BeeTracker.BuildingBlocks.Abstractions.Hosting;
 using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using BeeTracker.Contracts.Configuration;
@@ -23,6 +24,35 @@ app.MapGet("/api/configuration/torrents", async (ITorrentConfigurationReader rea
     var result = await reader.GetTorrentPoliciesAsync(cancellationToken);
     return Results.Ok(result);
 });
+
+app.MapGet("/api/configuration/nodes/{nodeKey}",
+    async (string nodeKey, [FromServices] ITrackerNodeConfigurationReader reader, CancellationToken cancellationToken) =>
+    {
+        var result = await reader.GetTrackerNodeConfigurationAsync(nodeKey, cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    });
+
+app.MapGet("/api/configuration/nodes/{nodeKey}/effective",
+    async (string nodeKey, [FromServices] ITrackerNodeConfigurationReader reader, CancellationToken cancellationToken) =>
+    {
+        var result = await reader.GetEffectiveTrackerNodeConfigurationAsync(nodeKey, cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    });
+
+app.MapPost("/api/configuration/nodes/validate",
+    async (TrackerNodeConfigurationDocument request, [FromServices] ITrackerNodeConfigurationReader reader, CancellationToken cancellationToken) =>
+    {
+        var result = await reader.ValidateTrackerNodeConfigurationAsync(request, cancellationToken);
+        return Results.Ok(result);
+    });
+
+app.MapPut("/api/configuration/nodes/{nodeKey}",
+    async (HttpContext httpContext, string nodeKey, TrackerNodeConfigurationUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
+    {
+        return await MutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await mutationService.UpsertTrackerNodeConfigurationAsync(nodeKey, request, MutationContextFactory.Create(httpContext), cancellationToken)),
+            httpContext);
+    });
 
 app.MapPut("/api/configuration/torrents/{infoHash}/policy",
     async (HttpContext httpContext, string infoHash, TorrentPolicyUpsertRequest request, [FromServices] IConfigurationMutationService mutationService, CancellationToken cancellationToken) =>
@@ -186,6 +216,15 @@ static class MutationEndpointExecutor
                 entityKey = exception.EntityKey,
                 expectedVersion = exception.ExpectedVersion,
                 actualVersion = exception.ActualVersion,
+                correlationId = MutationContextFactory.Create(httpContext).CorrelationId
+            });
+        }
+        catch (ValidationException exception)
+        {
+            return Results.BadRequest(new
+            {
+                code = "validation_failed",
+                message = exception.Message,
                 correlationId = MutationContextFactory.Create(httpContext).CorrelationId
             });
         }

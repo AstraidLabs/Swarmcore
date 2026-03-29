@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using System.ComponentModel.DataAnnotations;
 using System.Net;
 using BeeTracker.Contracts.Admin;
+using BeeTracker.Contracts.Configuration;
 using BeeTracker.Contracts.Runtime;
 using BeeTracker.BuildingBlocks.Abstractions.Hosting;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
@@ -14,6 +15,7 @@ using Tracker.Gateway.Application.Announce;
 using Tracker.Gateway.Application.Cluster;
 using Tracker.Gateway.Infrastructure;
 using Tracker.Gateway.Runtime;
+using Tracker.ConfigurationService.Infrastructure;
 using Tracker.UdpTracker.Service;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -72,6 +74,7 @@ builder.Services.AddOptions<TrackerGovernanceOptions>()
     .Bind(builder.Configuration.GetSection(TrackerGovernanceOptions.SectionName));
 
 builder.Services.AddBeeTrackerInfrastructure(builder.Configuration, usePostgres: true, useRedis: true);
+builder.Services.AddConfigurationInfrastructure(builder.Configuration);
 builder.Services.AddGatewayRuntime(builder.Configuration);
 builder.Services.AddGatewayInfrastructure();
 builder.Services.AddGatewayClusterInfrastructure();
@@ -102,6 +105,66 @@ builder.Services.AddUdpTracker(builder.Configuration);
 }
 
 var app = builder.Build();
+
+using (var startupScope = app.Services.CreateScope())
+{
+    await startupScope.ServiceProvider
+        .GetRequiredService<TrackerNodeConfigurationBootstrapper>()
+        .InitializeAsync(CancellationToken.None);
+}
+
+var nodeConfigAccessor = app.Services.GetRequiredService<ITrackerNodeConfigurationSnapshotAccessor>();
+var nodeConfig = nodeConfigAccessor.Current.Configuration;
+
+static string RoutePrefix(string routeTemplate)
+{
+    var trimmed = routeTemplate.Trim();
+    var parameterIndex = trimmed.IndexOf("/{", StringComparison.Ordinal);
+    if (parameterIndex >= 0)
+    {
+        return trimmed[..parameterIndex];
+    }
+
+    return trimmed.Replace("{passkey?}", string.Empty, StringComparison.Ordinal)
+        .Replace("{passkey}", string.Empty, StringComparison.Ordinal)
+        .TrimEnd('/');
+}
+
+app.Use(async (context, next) =>
+{
+    var requestPath = context.Request.Path.Value ?? string.Empty;
+
+    static bool TryRewrite(ref string requestPathValue, string configuredTemplate, string targetPrefix)
+    {
+        var configuredPrefix = RoutePrefix(configuredTemplate);
+        if (string.IsNullOrWhiteSpace(configuredPrefix) ||
+            string.Equals(configuredPrefix, targetPrefix, StringComparison.OrdinalIgnoreCase) ||
+            !requestPathValue.StartsWith(configuredPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var suffix = requestPathValue[configuredPrefix.Length..];
+        requestPathValue = $"{targetPrefix}{suffix}";
+        return true;
+    }
+
+    var rewrittenPath = requestPath;
+    if (requestPath.Length > 0)
+    {
+        if (TryRewrite(ref rewrittenPath, nodeConfig.Http.AnnounceRoute, "/announce") ||
+            TryRewrite(ref rewrittenPath, nodeConfig.Http.PrivateAnnounceRoute, "/announce") ||
+            TryRewrite(ref rewrittenPath, nodeConfig.Http.ScrapeRoute, "/scrape") ||
+            TryRewrite(ref rewrittenPath, nodeConfig.Observability.LiveRoute, "/health/live") ||
+            TryRewrite(ref rewrittenPath, nodeConfig.Observability.ReadyRoute, "/health/ready") ||
+            TryRewrite(ref rewrittenPath, nodeConfig.Observability.StartupRoute, "/health/startup"))
+        {
+            context.Request.Path = new PathString(rewrittenPath);
+        }
+    }
+
+    await next();
+});
 
 // ForwardedHeaders MUST be the first middleware so that all subsequent middleware
 // (HSTS, routing, auth) sees the correct scheme/host/IP from the proxy.
@@ -542,12 +605,7 @@ app.MapGet("/admin/diagnostics", (
     AdvancedAbuseGuard abuseGuard,
     IAnnounceTelemetryWriter telemetryWriter,
     IRuntimeSwarmStore runtimeSwarmStore,
-    IOptions<TrackerNodeOptions> nodeOptions,
-    IOptions<TrackerSecurityOptions> securityOptions,
-    IOptions<TrackerCompatibilityOptions> compatibilityOptions,
-    IOptions<TrackerGovernanceOptions> governanceOptions,
-    IOptions<TrackerAbuseProtectionOptions> abuseProtectionOptions,
-    IOptions<GatewayRuntimeOptions> gatewayRuntimeOptions) =>
+    IOptions<TrackerNodeOptions> nodeOptions) =>
 {
     var govSnapshot = governanceState.GetSnapshot();
     var govDto = new GovernanceStateDto(
@@ -563,10 +621,11 @@ app.MapGet("/admin/diagnostics", (
         abuseSummary.WarnedCount, abuseSummary.SoftRestrictedCount, abuseSummary.HardBlockedCount,
         Array.Empty<AbuseDiagnosticsEntryDto>());
 
-    var configValidation = StartupConfigurationValidator.Validate(
-        securityOptions.Value, compatibilityOptions.Value,
-        governanceOptions.Value, abuseProtectionOptions.Value, gatewayRuntimeOptions.Value);
-    var configDto = new ConfigValidationDto(configValidation.IsValid, configValidation.Errors, configValidation.Warnings);
+    var configIssues = nodeConfigAccessor.Validation.Issues;
+    var configDto = new ConfigValidationDto(
+        nodeConfigAccessor.Validation.IsValid,
+        configIssues.Where(static issue => issue.Severity == TrackerConfigValidationSeverity.Error).Select(static issue => issue.Message).ToArray(),
+        configIssues.Where(static issue => issue.Severity == TrackerConfigValidationSeverity.Warning).Select(static issue => issue.Message).ToArray());
 
     var store = (PartitionedRuntimeSwarmStore)runtimeSwarmStore;
     var overview = new TrackerOverviewDto(
@@ -582,18 +641,17 @@ app.MapGet("/admin/diagnostics", (
 // ─── Config Validation Endpoint ──────────────────────────────────────────────
 
 app.MapGet("/admin/config/validate", (
-    IOptions<TrackerSecurityOptions> securityOptions,
-    IOptions<TrackerCompatibilityOptions> compatibilityOptions,
-    IOptions<TrackerGovernanceOptions> governanceOptions,
-    IOptions<TrackerAbuseProtectionOptions> abuseProtectionOptions,
-    IOptions<GatewayRuntimeOptions> gatewayRuntimeOptions) =>
+    ITrackerNodeConfigurationSnapshotAccessor accessor) =>
 {
-    var validation = StartupConfigurationValidator.Validate(
-        securityOptions.Value, compatibilityOptions.Value,
-        governanceOptions.Value, abuseProtectionOptions.Value, gatewayRuntimeOptions.Value);
-
-    return Results.Ok(new ConfigValidationDto(validation.IsValid, validation.Errors, validation.Warnings));
+    var issues = accessor.Validation.Issues;
+    return Results.Ok(new ConfigValidationDto(
+        accessor.Validation.IsValid,
+        issues.Where(static issue => issue.Severity == TrackerConfigValidationSeverity.Error).Select(static issue => issue.Message).ToArray(),
+        issues.Where(static issue => issue.Severity == TrackerConfigValidationSeverity.Warning).Select(static issue => issue.Message).ToArray()));
 });
+
+app.MapGet("/admin/node/config", (ITrackerNodeConfigurationSnapshotAccessor accessor)
+    => Results.Ok(accessor.Current));
 
 if (app.Environment.IsDevelopment())
 {

@@ -78,3 +78,14 @@ internal sealed class MaintenanceRunEntity
     public string Status { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;
 }
+
+internal sealed class TrackerNodeConfigurationEntity
+{
+    public string NodeKey { get; set; } = string.Empty;
+    public string ConfigJson { get; set; } = "{}";
+    public long RowVersion { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+    public string ApplyMode { get; set; } = string.Empty;
+    public bool RequiresRestart { get; set; }
+}

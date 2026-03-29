@@ -35,27 +35,44 @@ public sealed class UdpTrackerListener : BackgroundService
             return;
         }
 
-        using var udpClient = new UdpClient(new IPEndPoint(IPAddress.Any, _options.Port));
+        var bindAddress = IPAddress.TryParse(_options.BindAddress, out var parsedAddress)
+            ? parsedAddress
+            : IPAddress.Any;
+
+        using var udpClient = new UdpClient(new IPEndPoint(bindAddress, _options.Port));
         udpClient.Client.ReceiveBufferSize = _options.ReceiveBufferSize;
 
-        _logger.LogInformation("UDP tracker listening on port {Port}.", _options.Port);
+        _logger.LogInformation("UDP tracker listening on {BindAddress}:{Port}.", bindAddress, _options.Port);
 
-        _ = Task.Run(() => SweepConnectionIdsAsync(stoppingToken), stoppingToken);
+        var sweepTask = SweepConnectionIdsAsync(stoppingToken);
 
-        while (!stoppingToken.IsCancellationRequested)
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    var result = await udpClient.ReceiveAsync(stoppingToken);
+                    _ = ProcessDatagramAsync(udpClient, result.Buffer, result.RemoteEndPoint, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (SocketException ex)
+                {
+                    _logger.LogWarning(ex, "UDP socket error.");
+                }
+            }
+        }
+        finally
         {
             try
             {
-                var result = await udpClient.ReceiveAsync(stoppingToken);
-                _ = ProcessDatagramAsync(udpClient, result.Buffer, result.RemoteEndPoint, stoppingToken);
+                await sweepTask;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                break;
-            }
-            catch (SocketException ex)
-            {
-                _logger.LogWarning(ex, "UDP socket error.");
             }
         }
     }

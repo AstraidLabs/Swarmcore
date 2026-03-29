@@ -102,6 +102,7 @@ public sealed class TrackerConfigurationDbContext(DbContextOptions<TrackerConfig
     internal DbSet<BanRuleEntity> Bans => Set<BanRuleEntity>();
     internal DbSet<AuditRecordEntity> AuditRecords => Set<AuditRecordEntity>();
     internal DbSet<MaintenanceRunEntity> MaintenanceRuns => Set<MaintenanceRunEntity>();
+    internal DbSet<TrackerNodeConfigurationEntity> TrackerNodeConfigurations => Set<TrackerNodeConfigurationEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -204,6 +205,19 @@ public sealed class TrackerConfigurationDbContext(DbContextOptions<TrackerConfig
             entity.Property(static maintenance => maintenance.CorrelationId).HasColumnName("correlation_id").HasMaxLength(128);
             entity.HasIndex(static maintenance => maintenance.RequestedAtUtc);
         });
+
+        modelBuilder.Entity<TrackerNodeConfigurationEntity>(entity =>
+        {
+            entity.ToTable("tracker_node_configurations");
+            entity.HasKey(static item => item.NodeKey);
+            entity.Property(static item => item.NodeKey).HasColumnName("node_key").HasMaxLength(128);
+            entity.Property(static item => item.ConfigJson).HasColumnName("config_json").HasColumnType("jsonb");
+            entity.Property(static item => item.RowVersion).HasColumnName("row_version");
+            entity.Property(static item => item.UpdatedAtUtc).HasColumnName("updated_at_utc");
+            entity.Property(static item => item.UpdatedBy).HasColumnName("updated_by").HasMaxLength(256);
+            entity.Property(static item => item.ApplyMode).HasColumnName("apply_mode").HasMaxLength(64);
+            entity.Property(static item => item.RequiresRestart).HasColumnName("requires_restart");
+        });
     }
 }
 
@@ -225,6 +239,48 @@ public sealed class TorrentConfigurationReader(TrackerConfigurationDbContext dbC
                 1))
             .ToListAsync(cancellationToken);
     }
+}
+
+public sealed class TrackerNodeConfigurationReader(
+    TrackerConfigurationDbContext dbContext) : ITrackerNodeConfigurationReader
+{
+    public async Task<TrackerNodeConfigurationDto?> GetTrackerNodeConfigurationAsync(string nodeKey, CancellationToken cancellationToken)
+    {
+        var query = dbContext.TrackerNodeConfigurations.AsNoTracking();
+        TrackerNodeConfigurationEntity? entity;
+        if (string.Equals(nodeKey, "current", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(nodeKey, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            entity = await query
+                .OrderByDescending(item => item.UpdatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        else
+        {
+            entity = await query
+                .SingleOrDefaultAsync(item => item.NodeKey == nodeKey, cancellationToken);
+        }
+
+        return entity is null ? null : ToDto(entity);
+    }
+
+    public async Task<TrackerNodeConfigurationDto?> GetEffectiveTrackerNodeConfigurationAsync(string nodeKey, CancellationToken cancellationToken)
+        => await GetTrackerNodeConfigurationAsync(nodeKey, cancellationToken);
+
+    public Task<TrackerNodeConfigurationValidationResultDto> ValidateTrackerNodeConfigurationAsync(TrackerNodeConfigurationDocument configuration, CancellationToken cancellationToken)
+        => Task.FromResult(TrackerNodeConfigurationValidator.Validate(configuration));
+
+    private TrackerNodeConfigurationDto ToDto(TrackerNodeConfigurationEntity entity)
+        => new(
+            entity.NodeKey,
+            TrackerNodeConfigurationSerialization.Deserialize(entity.ConfigJson),
+            entity.RowVersion,
+            new DateTimeOffset(DateTime.SpecifyKind(entity.UpdatedAtUtc, DateTimeKind.Utc)),
+            entity.UpdatedBy,
+            Enum.TryParse<TrackerNodeConfigurationApplyMode>(entity.ApplyMode, true, out var applyMode)
+                ? applyMode
+                : TrackerNodeConfigurationApplyMode.RestartRecommended,
+            entity.RequiresRestart);
 }
 
 public sealed class RedisConfigurationCacheInvalidationPublisher(IRedisCacheClient redisCacheClient) : IConfigurationCacheInvalidationPublisher
@@ -259,6 +315,7 @@ public static class ConfigurationInfrastructureServiceCollectionExtensions
 
         services.AddSingleton<IAuditBuffer, ChannelAuditBuffer>();
         services.AddScoped<ITorrentConfigurationReader, TorrentConfigurationReader>();
+        services.AddScoped<ITrackerNodeConfigurationReader, TrackerNodeConfigurationReader>();
         services.AddScoped<EfConfigurationMutationService>();
         services.AddScoped<IConfigurationMutationService>(static serviceProvider => serviceProvider.GetRequiredService<EfConfigurationMutationService>());
         services.AddScoped<IConfigurationMutationPreviewService>(static serviceProvider => serviceProvider.GetRequiredService<EfConfigurationMutationService>());

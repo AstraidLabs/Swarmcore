@@ -26,6 +26,14 @@ public static class HostingServiceCollectionExtensions
         services.AddOptions<TrackerNodeOptions>()
             .Bind(configuration.GetSection(TrackerNodeOptions.SectionName))
             .Validate(static options => !string.IsNullOrWhiteSpace(options.NodeId), "NodeId is required.")
+            .Validate(static options => !string.IsNullOrWhiteSpace(options.NodeName), "NodeName is required.")
+            .Validate(static options => !string.IsNullOrWhiteSpace(options.Environment), "Environment is required.")
+            .Validate(static options => Uri.TryCreate(options.PublicBaseUrl, UriKind.Absolute, out _), "PublicBaseUrl must be an absolute URL.")
+            .Validate(static options => Uri.TryCreate(options.InternalBaseUrl, UriKind.Absolute, out _), "InternalBaseUrl must be an absolute URL.")
+            .Validate(static options => options.DefaultAnnounceIntervalSeconds > 0, "DefaultAnnounceIntervalSeconds must be positive.")
+            .Validate(static options => options.MinAnnounceIntervalSeconds > 0, "MinAnnounceIntervalSeconds must be positive.")
+            .Validate(static options => options.DefaultAnnounceIntervalSeconds >= options.MinAnnounceIntervalSeconds, "DefaultAnnounceIntervalSeconds must be greater than or equal to MinAnnounceIntervalSeconds.")
+            .Validate(static options => options.DefaultNumWant > 0, "DefaultNumWant must be positive.")
             .ValidateOnStart();
 
         services.AddOptions<TelemetryBatchingOptions>()
@@ -44,6 +52,7 @@ public static class HostingServiceCollectionExtensions
             .Bind(configuration.GetSection(TrackerSecurityOptions.SectionName))
             .Validate(static options => options.AnnounceMaxQueryLength > 0, "Announce max query length must be positive.")
             .Validate(static options => options.ScrapeMaxQueryLength > 0, "Scrape max query length must be positive.")
+            .Validate(static options => options.MaxQueryParameterCount > 0, "Max query parameter count must be positive.")
             .Validate(static options => options.HardMaxNumWant > 0, "Hard max numwant must be positive.")
             .Validate(static options => options.MaxScrapeInfoHashes > 0, "Max scrape info hashes must be positive.")
             .ValidateOnStart();

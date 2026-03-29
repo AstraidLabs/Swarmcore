@@ -11,7 +11,9 @@ namespace Tracker.Gateway.Infrastructure;
 /// Per-surface URLs (AnnounceBaseUrl, ScrapeBaseUrl, etc.) override <see cref="TrackerPublicEndpointOptions.BaseUrl"/>
 /// when configured, enabling separate subdomains for each surface.
 /// </summary>
-public sealed class TrackerUrlBuilder(IOptions<TrackerPublicEndpointOptions> options) : ITrackerUrlBuilder
+public sealed class TrackerUrlBuilder(
+    IOptions<TrackerPublicEndpointOptions> options,
+    ITrackerNodeConfigurationSnapshotAccessor snapshotAccessor) : ITrackerUrlBuilder
 {
     // Computed once; URLs are validated as absolute URIs at startup.
     private readonly string _announceBase = ResolveBase(options.Value.AnnounceBaseUrl, options.Value.BaseUrl);
@@ -19,7 +21,7 @@ public sealed class TrackerUrlBuilder(IOptions<TrackerPublicEndpointOptions> opt
     private readonly string _adminBase = ResolveBase(options.Value.AdminBaseUrl, options.Value.BaseUrl);
     private readonly string _apiBase = ResolveBase(options.Value.ApiBaseUrl, options.Value.BaseUrl);
 
-    public string GetAnnounceUrl() => $"{_announceBase}/announce";
+    public string GetAnnounceUrl() => $"{_announceBase}{TrackerNodeConfigurationFormatting.TrimRouteTemplate(snapshotAccessor.Current.Configuration.Http.AnnounceRoute)}";
 
     public string GetAnnounceUrl(string passkey)
     {
@@ -28,10 +30,13 @@ public sealed class TrackerUrlBuilder(IOptions<TrackerPublicEndpointOptions> opt
             return GetAnnounceUrl();
         }
 
-        return $"{_announceBase}/announce/{passkey.TrimStart('/')}";
+        var route = snapshotAccessor.Current.Configuration.Http.AllowPasskeyInPath
+            ? snapshotAccessor.Current.Configuration.Http.PrivateAnnounceRoute
+            : snapshotAccessor.Current.Configuration.Http.AnnounceRoute;
+        return $"{_announceBase}{TrackerNodeConfigurationFormatting.TrimRouteTemplate(route)}/{passkey.TrimStart('/')}";
     }
 
-    public string GetScrapeUrl() => $"{_scrapeBase}/scrape";
+    public string GetScrapeUrl() => $"{_scrapeBase}{TrackerNodeConfigurationFormatting.TrimRouteTemplate(snapshotAccessor.Current.Configuration.Http.ScrapeRoute)}";
 
     public string GetAdminBaseUrl() => _adminBase;
 

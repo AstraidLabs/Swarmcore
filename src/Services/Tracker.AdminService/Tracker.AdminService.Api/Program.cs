@@ -1,6 +1,7 @@
 using MediatR;
 using System.Security.Claims;
 using System.Net;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -277,6 +278,28 @@ adminApi.MapGet("/cluster/nodes", async (
     return Results.Ok(result);
 }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.NodesView));
 
+adminApi.MapGet("/nodes/{nodeKey}/config",
+    async (string nodeKey, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(new GetTrackerNodeConfigViewQuery(nodeKey), cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.SystemSettingsView));
+
+adminApi.MapPost("/nodes/validate",
+    async (TrackerNodeConfigurationDocument request, [FromServices] ITrackerNodeConfigurationReader reader, CancellationToken cancellationToken) =>
+    {
+        var result = await reader.ValidateTrackerNodeConfigurationAsync(request, cancellationToken);
+        return Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
+adminApi.MapPut("/nodes/{nodeKey}/config",
+    async (HttpContext httpContext, string nodeKey, TrackerNodeConfigurationUpsertRequest request, [FromServices] IAdminMutationOrchestrator orchestrator, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await orchestrator.UpsertTrackerNodeConfigurationAsync(nodeKey, request, AdminAuthorization.CreateMutationContext(httpContext), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
 adminApi.MapGet("/audit",
     async (string? search, string? filter, string? sort, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
@@ -334,6 +357,13 @@ adminApi.MapGet("/tracker-access",
         return Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerAccessView));
 
+adminApi.MapGet("/tracker-access/{userId:guid}",
+    async (Guid userId, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(new GetTrackerAccessRightQuery(userId), cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.TrackerAccessView));
+
 adminApi.MapGet("/permissions",
     async (HttpContext httpContext, string? search, string? filter, string? sort, bool? canUsePrivateTracker, int page, int pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {
@@ -355,6 +385,13 @@ adminApi.MapGet("/bans",
             GridQueryHttp.ParseFilter<BanCatalogFilter>(filter),
             scope), cancellationToken);
         return Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansView));
+
+adminApi.MapGet("/bans/{scope}/{subject}",
+    async (string scope, string subject, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(new GetBanRuleQuery(scope, subject), cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansView));
 
 adminApi.MapPut("/torrents/{infoHash}/policy",
@@ -728,6 +765,15 @@ static class AdminMutationEndpointExecutor
                 message = exception.Message,
                 entityType = exception.EntityType,
                 entityKey = exception.EntityKey,
+                correlationId = AdminAuthorization.CreateMutationContext(httpContext).CorrelationId
+            });
+        }
+        catch (ValidationException exception)
+        {
+            return Results.BadRequest(new
+            {
+                code = "validation_failed",
+                message = exception.Message,
                 correlationId = AdminAuthorization.CreateMutationContext(httpContext).CorrelationId
             });
         }
