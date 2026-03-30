@@ -482,3 +482,31 @@ public sealed record NotificationOutboxStatsDto(
     int FailedCount,
     int CancelledCount,
     int TotalCount);
+
+// ─── Swarm Administration ──────────────────────────────────────────────────
+
+public sealed record SwarmSummaryDto(
+    string InfoHash,
+    int Seeders,
+    int Leechers,
+    int Downloaded);
+
+public sealed record SwarmDetailDto(
+    string InfoHash,
+    int Seeders,
+    int Leechers,
+    int Downloaded,
+    IReadOnlyCollection<SwarmPeerDto> Peers);
+
+public sealed record SwarmPeerDto(
+    string PeerId,
+    string Ip,
+    int Port,
+    long Uploaded,
+    long Downloaded,
+    long Left,
+    bool IsSeeder);
+
+public sealed record SwarmListResultDto(
+    int TotalCount,
+    IReadOnlyCollection<SwarmSummaryDto> Items);

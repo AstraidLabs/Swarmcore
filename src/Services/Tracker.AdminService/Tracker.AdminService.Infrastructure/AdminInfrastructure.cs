@@ -273,6 +273,12 @@ public sealed class EfAuditRecordReader(TrackerConfigurationDbContext dbContext)
             AuditRecordFilter.Success => recordsQuery.Where(record => record.Result == "success"),
             AuditRecordFilter.Failure => recordsQuery.Where(record => record.Result == "failure"),
             AuditRecordFilter.Warn => recordsQuery.Where(record => record.Severity == "warn"),
+            AuditRecordFilter.Identity => recordsQuery.Where(record => EF.Functions.ILike(record.EntityType, "%user%") || EF.Functions.ILike(record.EntityType, "%identity%") || EF.Functions.ILike(record.EntityType, "%role%") || EF.Functions.ILike(record.EntityType, "%permission%")),
+            AuditRecordFilter.Policy => recordsQuery.Where(record => EF.Functions.ILike(record.EntityType, "%policy%") || EF.Functions.ILike(record.EntityType, "%governance%")),
+            AuditRecordFilter.Node => recordsQuery.Where(record => EF.Functions.ILike(record.EntityType, "%node%") || EF.Functions.ILike(record.EntityType, "%cluster%") || EF.Functions.ILike(record.EntityType, "%shard%")),
+            AuditRecordFilter.Mail => recordsQuery.Where(record => EF.Functions.ILike(record.EntityType, "%mail%") || EF.Functions.ILike(record.EntityType, "%notification%") || EF.Functions.ILike(record.EntityType, "%email%")),
+            AuditRecordFilter.Access => recordsQuery.Where(record => EF.Functions.ILike(record.EntityType, "%passkey%") || EF.Functions.ILike(record.EntityType, "%access%") || EF.Functions.ILike(record.EntityType, "%ban%")),
+            AuditRecordFilter.Torrent => recordsQuery.Where(record => EF.Functions.ILike(record.EntityType, "%torrent%")),
             _ => recordsQuery
         };
 

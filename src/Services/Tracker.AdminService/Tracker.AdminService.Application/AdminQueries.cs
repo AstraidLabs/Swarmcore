@@ -12,7 +12,13 @@ public enum AuditRecordFilter
     All,
     Success,
     Failure,
-    Warn
+    Warn,
+    Identity,
+    Policy,
+    Node,
+    Mail,
+    Access,
+    Torrent
 }
 
 public enum MaintenanceRunFilter

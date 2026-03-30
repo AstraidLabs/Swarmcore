@@ -5,7 +5,7 @@ namespace Tracker.AdminService.Application;
 public static class AdminCatalogProfiles
 {
     public static readonly GridCatalogProfile Audit = new(
-        ["success", "failure", "warn"],
+        ["success", "failure", "warn", "identity", "policy", "node", "mail", "access", "torrent"],
         ["occurred", "action", "severity", "actor"],
         [new("occurred", GridSortDirection.Desc)]);
 

@@ -295,6 +295,49 @@ type NotificationOutboxStatsDto = {
   totalCount: number;
 };
 
+type AbuseDiagnosticsDto = {
+  trackedIps: number;
+  trackedPasskeys: number;
+  warnedCount: number;
+  softRestrictedCount: number;
+  hardBlockedCount: number;
+  topOffenders: AbuseDiagnosticsEntryDto[];
+};
+
+type AbuseDiagnosticsEntryDto = {
+  key: string;
+  keyType: string;
+  malformedRequestCount: number;
+  deniedPolicyCount: number;
+  peerIdAnomalyCount: number;
+  suspiciousPatternCount: number;
+  scrapeAmplificationCount: number;
+  totalScore: number;
+  restrictionLevel: string;
+};
+
+type ClusterShardDiagnosticsDto = {
+  observedAtUtc: string;
+  totalShards: number;
+  ownedShards: number;
+  unownedShards: number;
+  shards: Array<{
+    shardId: number;
+    ownerNodeId: string | null;
+    locallyOwned: boolean;
+    leaseExpiresAtUtc: string | null;
+  }>;
+};
+
+type ClusterNodeStateDto = {
+  nodeId: string;
+  region: string;
+  operationalState: string;
+  ownedShardCount: number;
+  heartbeatObservedAtUtc: string;
+  heartbeatFresh: boolean;
+};
+
 type TrackerNodeCatalogItemDto = {
   nodeKey: string;
   nodeName: string;
@@ -1582,6 +1625,20 @@ function getRouteMeta(pathname: string, dictionary: I18nDictionary): { eyebrow: 
       description: routes.maintenanceDescription
     };
   }
+  if (pathname.startsWith("/abuse")) {
+    return {
+      eyebrow: "Security",
+      title: "Abuse intelligence",
+      description: "Monitor abuse scoring, restriction levels, and top offenders per gateway node."
+    };
+  }
+  if (pathname.startsWith("/cluster")) {
+    return {
+      eyebrow: "Operations",
+      title: "Cluster state",
+      description: "Visualize node states, shard ownership distribution, and cluster health."
+    };
+  }
   if (pathname.startsWith("/notifications")) {
     return {
       eyebrow: "Operations",
@@ -2124,6 +2181,307 @@ function GovernanceToggle({
       >
         <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${value ? "translate-x-[22px]" : "translate-x-[3px]"}`} />
       </button>
+    </div>
+  );
+}
+
+// ─── Abuse Intelligence Page ────────────────────────────────────────────────
+
+function AbusePage({
+  accessToken,
+  onReauthenticate
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+}) {
+  const [nodes, setNodes] = useState<TrackerNodeCatalogItemDto[]>([]);
+  const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
+  const [abuse, setAbuse] = useState<AbuseDiagnosticsDto | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    apiRequest<PageResult<TrackerNodeCatalogItemDto>>(
+      "/api/admin/nodes?pageSize=100",
+      accessToken,
+      onReauthenticate
+    ).then((page) => {
+      if (isMounted) {
+        setNodes(page.items);
+        if (page.items.length > 0 && !selectedNodeKey) {
+          setSelectedNodeKey(page.items[0].nodeKey);
+        }
+      }
+    }).catch((err) => {
+      if (isMounted) setError(err instanceof Error ? err.message : "Failed to load nodes.");
+    });
+    return () => { isMounted = false; };
+  }, [accessToken, onReauthenticate]);
+
+  useEffect(() => {
+    if (!selectedNodeKey) return;
+    let isMounted = true;
+    setIsLoading(true);
+    setAbuse(null);
+    setError(null);
+
+    apiRequest<AbuseDiagnosticsDto>(
+      `/api/admin/gateway/${encodeURIComponent(selectedNodeKey)}/abuse/diagnostics`,
+      accessToken,
+      onReauthenticate
+    ).then((data) => {
+      if (isMounted) { setAbuse(data); setIsLoading(false); }
+    }).catch((err) => {
+      if (isMounted) {
+        setError(err instanceof Error ? err.message : "Unable to reach gateway node.");
+        setIsLoading(false);
+      }
+    });
+
+    return () => { isMounted = false; };
+  }, [selectedNodeKey, accessToken, onReauthenticate]);
+
+  const restrictionTone = (level: string): "good" | "warn" | "neutral" =>
+    level === "None" ? "good" : level === "Warned" ? "neutral" : "warn";
+
+  return (
+    <div className="app-page-stack">
+      {error && <div className="app-notice-warn"><p>{error}</p></div>}
+
+      <Card title="Target node" eyebrow="Gateway">
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Node</span>
+          <select
+            className="app-input w-64"
+            value={selectedNodeKey ?? ""}
+            onChange={(e) => setSelectedNodeKey(e.target.value || null)}
+          >
+            {nodes.length === 0 && <option value="">No nodes configured</option>}
+            {nodes.map((node) => (
+              <option key={node.nodeKey} value={node.nodeKey}>
+                {node.nodeName} ({node.nodeKey}) &mdash; {node.region}
+              </option>
+            ))}
+          </select>
+        </label>
+      </Card>
+
+      {isLoading && selectedNodeKey && (
+        <Card title="Loading"><p className="text-sm text-ink/60">Fetching abuse diagnostics from gateway...</p></Card>
+      )}
+
+      {abuse && (
+        <>
+          <section className="grid gap-4 md:grid-cols-5">
+            {([
+              ["Tracked IPs", abuse.trackedIps],
+              ["Tracked Passkeys", abuse.trackedPasskeys],
+              ["Warned", abuse.warnedCount],
+              ["Soft restricted", abuse.softRestrictedCount],
+              ["Hard blocked", abuse.hardBlockedCount]
+            ] as const).map(([label, count]) => (
+              <div key={label} className="app-stat-card">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{label}</p>
+                <p className="mt-2 text-2xl font-bold text-ink">{count.toLocaleString()}</p>
+              </div>
+            ))}
+          </section>
+
+          <Card title="Top offenders" eyebrow="Abuse Intelligence">
+            {abuse.topOffenders.length === 0 ? (
+              <p className="text-sm text-steel">No abuse activity detected on this node.</p>
+            ) : (
+              <div className="app-data-table">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="app-table-head">
+                      <tr>
+                        <th className="px-5 py-4">Key</th>
+                        <th className="px-5 py-4">Type</th>
+                        <th className="px-5 py-4">Score</th>
+                        <th className="px-5 py-4">Malformed</th>
+                        <th className="px-5 py-4">Policy denied</th>
+                        <th className="px-5 py-4">PeerID anomaly</th>
+                        <th className="px-5 py-4">Suspicious</th>
+                        <th className="px-5 py-4">Scrape amp.</th>
+                        <th className="px-5 py-4">Restriction</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {abuse.topOffenders.map((offender) => (
+                        <tr key={offender.key} className="border-t border-slate-100 hover:bg-slate-50/60">
+                          <td className="px-5 py-4 font-mono text-xs font-medium text-ink">{offender.key}</td>
+                          <td className="px-5 py-4 text-steel">{offender.keyType}</td>
+                          <td className="px-5 py-4 font-semibold text-ink">{offender.totalScore}</td>
+                          <td className="px-5 py-4 text-steel">{offender.malformedRequestCount}</td>
+                          <td className="px-5 py-4 text-steel">{offender.deniedPolicyCount}</td>
+                          <td className="px-5 py-4 text-steel">{offender.peerIdAnomalyCount}</td>
+                          <td className="px-5 py-4 text-steel">{offender.suspiciousPatternCount}</td>
+                          <td className="px-5 py-4 text-steel">{offender.scrapeAmplificationCount}</td>
+                          <td className="px-5 py-4">
+                            <StatusPill tone={restrictionTone(offender.restrictionLevel)}>{offender.restrictionLevel}</StatusPill>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Cluster Visualization Page ─────────────────────────────────────────────
+
+function ClusterPage({
+  accessToken,
+  onReauthenticate
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+}) {
+  const [overview, setOverview] = useState<ClusterOverviewDto | null>(null);
+  const [nodes, setNodes] = useState<ClusterNodeStateDto[]>([]);
+  const [shards, setShards] = useState<ClusterShardDiagnosticsDto | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+
+    Promise.all([
+      apiRequest<ClusterOverviewDto>("/api/admin/cluster-overview", accessToken, onReauthenticate).catch(() => null),
+      apiRequest<ClusterNodeStateDto[]>("/api/admin/cluster/nodes", accessToken, onReauthenticate).catch(() => []),
+      apiRequest<ClusterShardDiagnosticsDto>("/api/admin/cluster/shards", accessToken, onReauthenticate).catch(() => null)
+    ]).then(([ov, ns, sh]) => {
+      if (isMounted) {
+        if (ov) setOverview(ov);
+        setNodes(ns ?? []);
+        if (sh) setShards(sh);
+        if (!ov && !sh) setError("Unable to load cluster data.");
+        setIsLoading(false);
+      }
+    });
+
+    return () => { isMounted = false; };
+  }, [accessToken, onReauthenticate]);
+
+  if (isLoading) {
+    return <Card title="Cluster"><p className="text-sm text-ink/60">Loading cluster state...</p></Card>;
+  }
+
+  const shardOwnershipPercent = shards
+    ? Math.round((shards.ownedShards / Math.max(shards.totalShards, 1)) * 100)
+    : 0;
+
+  return (
+    <div className="app-page-stack">
+      {error && <div className="app-notice-warn"><p>{error}</p></div>}
+
+      {overview && (
+        <section className="grid gap-4 md:grid-cols-3">
+          <div className="app-stat-card">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">Active nodes</p>
+            <div className="mt-4 flex items-end justify-between">
+              <p className="app-stat-value">{overview.activeNodeCount}</p>
+              <StatusPill tone={overview.nodes.every((n) => n.ready) ? "good" : "warn"}>
+                {overview.nodes.every((n) => n.ready) ? "Healthy" : "Degraded"}
+              </StatusPill>
+            </div>
+            <p className="mt-3 text-sm text-steel">
+              {overview.nodes.filter((n) => n.ready).length} ready, {overview.nodes.filter((n) => !n.ready).length} degraded
+            </p>
+          </div>
+          {shards && (
+            <>
+              <div className="app-stat-card">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">Shard ownership</p>
+                <div className="mt-4 flex items-end justify-between">
+                  <p className="app-stat-value">{shardOwnershipPercent}%</p>
+                  <span className="text-sm text-steel">{shards.ownedShards}/{shards.totalShards}</span>
+                </div>
+                <div className="mt-3 app-stat-bar">
+                  <div className="app-stat-bar-fill bg-brand" style={{ width: `${shardOwnershipPercent}%` }} />
+                </div>
+              </div>
+              <div className="app-stat-card">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">Unowned shards</p>
+                <div className="mt-4 flex items-end justify-between">
+                  <p className="app-stat-value">{shards.unownedShards}</p>
+                  <StatusPill tone={shards.unownedShards === 0 ? "good" : "warn"}>
+                    {shards.unownedShards === 0 ? "Complete" : "Gaps"}
+                  </StatusPill>
+                </div>
+                <p className="mt-3 text-sm text-steel">
+                  Observed at {new Date(shards.observedAtUtc).toLocaleTimeString()}
+                </p>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {nodes.length > 0 && (
+        <Card title="Node states" eyebrow="Cluster">
+          <div className="app-data-table">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="app-table-head">
+                  <tr>
+                    <th className="px-5 py-4">Node ID</th>
+                    <th className="px-5 py-4">Region</th>
+                    <th className="px-5 py-4">State</th>
+                    <th className="px-5 py-4">Owned shards</th>
+                    <th className="px-5 py-4">Last heartbeat</th>
+                    <th className="px-5 py-4">Fresh</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nodes.map((node) => (
+                    <tr key={node.nodeId} className="border-t border-slate-100 hover:bg-slate-50/60">
+                      <td className="px-5 py-4 font-medium text-ink">{node.nodeId}</td>
+                      <td className="px-5 py-4 text-steel">{node.region}</td>
+                      <td className="px-5 py-4">
+                        <StatusPill tone={node.operationalState === "Active" ? "good" : "warn"}>{node.operationalState}</StatusPill>
+                      </td>
+                      <td className="px-5 py-4 text-steel">{node.ownedShardCount}</td>
+                      <td className="px-5 py-4 text-steel">{new Date(node.heartbeatObservedAtUtc).toLocaleTimeString()}</td>
+                      <td className="px-5 py-4">
+                        <StatusPill tone={node.heartbeatFresh ? "good" : "warn"}>{node.heartbeatFresh ? "Yes" : "Stale"}</StatusPill>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {shards && shards.shards.length > 0 && (
+        <Card title="Shard ownership map" eyebrow="Distribution">
+          <div className="flex flex-wrap gap-1">
+            {shards.shards.map((shard) => (
+              <div
+                key={shard.shardId}
+                title={`Shard ${shard.shardId}: ${shard.ownerNodeId ?? "unowned"}`}
+                className={`h-3 w-3 rounded-sm ${shard.ownerNodeId ? (shard.locallyOwned ? "bg-brand" : "bg-moss/60") : "bg-slate-300"}`}
+              />
+            ))}
+          </div>
+          <div className="mt-4 flex gap-6 text-xs text-steel">
+            <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-brand" /> Local</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-moss/60" /> Remote</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-slate-300" /> Unowned</span>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -5867,7 +6225,12 @@ function AuditPage({
           { value: "success", label: "Successful" },
           { value: "failure", label: "Failed" },
           { value: "warn", label: "Warnings" },
-          { value: "error", label: "Errors" }
+          { value: "identity", label: "Identity & RBAC" },
+          { value: "policy", label: "Policy & Governance" },
+          { value: "node", label: "Nodes & Cluster" },
+          { value: "mail", label: "Notifications" },
+          { value: "access", label: "Access & Bans" },
+          { value: "torrent", label: "Torrents" }
         ]}
         sortValue={query.sort}
         onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
@@ -6539,6 +6902,276 @@ function CallbackPage({
   );
 }
 
+// ─── Self-Service Pages (unauthenticated) ───────────────────────────────────
+
+function SelfServiceLayout({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+      <div className="w-full max-w-md">
+        <div className="mb-8 text-center">
+          <span className="text-2xl font-bold tracking-tight text-ink">BeeTracker</span>
+          <p className="mt-1 text-sm text-steel">Admin self-service</p>
+        </div>
+        <Card title={title} eyebrow="Self-Service">
+          {children}
+        </Card>
+        <div className="mt-6 text-center text-sm text-steel">
+          <Link to="/" className="text-brand hover:underline">Back to sign in</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SelfServiceRegisterPage() {
+  const [form, setForm] = useState({ userName: "", email: "", password: "", confirmPassword: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/self-service/admin/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Registration failed." }));
+        setError(err.message ?? "Registration failed.");
+      } else {
+        setSuccess(true);
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <SelfServiceLayout title="Registration submitted">
+        <p className="text-sm text-steel">Your account has been created. Check your email for an activation link.</p>
+        <div className="mt-4">
+          <Link to="/self-service/activate" className="text-brand text-sm hover:underline">Have an activation token?</Link>
+        </div>
+      </SelfServiceLayout>
+    );
+  }
+
+  return (
+    <SelfServiceLayout title="Register admin account">
+      {error && <div className="app-notice-warn mb-4"><p>{error}</p></div>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Username</span>
+          <input className="app-input" required value={form.userName} onChange={(e) => setForm({ ...form, userName: e.target.value })} />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Email</span>
+          <input className="app-input" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Password</span>
+          <input className="app-input" type="password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Confirm password</span>
+          <input className="app-input" type="password" required value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} />
+        </label>
+        <button type="submit" className="app-button-primary w-full" disabled={submitting}>
+          {submitting ? "Registering..." : "Register"}
+        </button>
+      </form>
+      <div className="mt-4 flex justify-between text-sm">
+        <Link to="/self-service/forgot-password" className="text-brand hover:underline">Forgot password?</Link>
+        <Link to="/self-service/activate" className="text-brand hover:underline">Activate account</Link>
+      </div>
+    </SelfServiceLayout>
+  );
+}
+
+function SelfServiceActivatePage() {
+  const [token, setToken] = useState(() => new URLSearchParams(window.location.search).get("token") ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/self-service/admin/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Activation failed." }));
+        setError(err.message ?? "Activation failed.");
+      } else {
+        setSuccess(true);
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <SelfServiceLayout title="Account activated">
+        <p className="text-sm text-steel">Your account is now active. You can sign in.</p>
+      </SelfServiceLayout>
+    );
+  }
+
+  return (
+    <SelfServiceLayout title="Activate account">
+      {error && <div className="app-notice-warn mb-4"><p>{error}</p></div>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Activation token</span>
+          <input className="app-input" required value={token} onChange={(e) => setToken(e.target.value)} placeholder="Paste the token from your email" />
+        </label>
+        <button type="submit" className="app-button-primary w-full" disabled={submitting}>
+          {submitting ? "Activating..." : "Activate"}
+        </button>
+      </form>
+    </SelfServiceLayout>
+  );
+}
+
+function SelfServiceForgotPasswordPage() {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/self-service/admin/password/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed." }));
+        setError(err.message ?? "Request failed.");
+      } else {
+        setSuccess(true);
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <SelfServiceLayout title="Email sent">
+        <p className="text-sm text-steel">If an account exists with that email, a password reset link has been sent.</p>
+        <div className="mt-4">
+          <Link to="/self-service/reset-password" className="text-brand text-sm hover:underline">Have a reset token?</Link>
+        </div>
+      </SelfServiceLayout>
+    );
+  }
+
+  return (
+    <SelfServiceLayout title="Forgot password">
+      {error && <div className="app-notice-warn mb-4"><p>{error}</p></div>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Email address</span>
+          <input className="app-input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        </label>
+        <button type="submit" className="app-button-primary w-full" disabled={submitting}>
+          {submitting ? "Sending..." : "Send reset link"}
+        </button>
+      </form>
+      <div className="mt-4 text-sm">
+        <Link to="/self-service/register" className="text-brand hover:underline">Create an account</Link>
+      </div>
+    </SelfServiceLayout>
+  );
+}
+
+function SelfServiceResetPasswordPage() {
+  const [form, setForm] = useState({
+    token: new URLSearchParams(window.location.search).get("token") ?? "",
+    newPassword: "",
+    confirmNewPassword: ""
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/self-service/admin/password/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Password reset failed." }));
+        setError(err.message ?? "Password reset failed.");
+      } else {
+        setSuccess(true);
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <SelfServiceLayout title="Password reset">
+        <p className="text-sm text-steel">Your password has been reset. You can now sign in with your new password.</p>
+      </SelfServiceLayout>
+    );
+  }
+
+  return (
+    <SelfServiceLayout title="Reset password">
+      {error && <div className="app-notice-warn mb-4"><p>{error}</p></div>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Reset token</span>
+          <input className="app-input" required value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} placeholder="Paste the token from your email" />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">New password</span>
+          <input className="app-input" type="password" required value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-steel">Confirm new password</span>
+          <input className="app-input" type="password" required value={form.confirmNewPassword} onChange={(e) => setForm({ ...form, confirmNewPassword: e.target.value })} />
+        </label>
+        <button type="submit" className="app-button-primary w-full" disabled={submitting}>
+          {submitting ? "Resetting..." : "Reset password"}
+        </button>
+      </form>
+    </SelfServiceLayout>
+  );
+}
+
 function Shell({
   user,
   session,
@@ -6610,6 +7243,9 @@ function Shell({
             : null,
           hasPermission(session.permissions, "admin.system_settings.view")
             ? { to: "/tracker-nodes", label: "Node config", description: "Select and configure tracker node protocols, runtime and coordination.", icon: "nodeConfig" }
+            : null,
+          hasPermission(session.permissions, "admin.bans.view")
+            ? { to: "/abuse", label: "Abuse intelligence", description: "Monitor abuse scoring and top offenders per node.", icon: "bans" }
             : null
         ].filter((link): link is NavigationLink => link !== null)
       },
@@ -6621,6 +7257,9 @@ function Shell({
         links: [
           hasPermission(session.permissions, "admin.system_settings.view")
             ? { to: "/governance", label: "Governance", description: "Runtime governance flags and node lifecycle controls.", icon: "maintenance" }
+            : null,
+          hasPermission(session.permissions, "admin.dashboard.view")
+            ? { to: "/cluster", label: "Cluster", description: "Node states, shard ownership and cluster health.", icon: "overview" }
             : null,
           hasPermission(session.permissions, permissionKeys.auditView)
             ? { to: "/notifications", label: "Notifications", description: "Email outbox delivery status and retry controls.", icon: "audit" }
@@ -7419,6 +8058,22 @@ function AuthenticatedAdminApp({
           }
         />
         <Route
+          path="/abuse"
+          element={
+            <PermissionGate permissions={session.permissions} permission="admin.bans.view">
+              <AbusePage accessToken={accessToken} onReauthenticate={onSignin} />
+            </PermissionGate>
+          }
+        />
+        <Route
+          path="/cluster"
+          element={
+            <PermissionGate permissions={session.permissions} permission="admin.dashboard.view">
+              <ClusterPage accessToken={accessToken} onReauthenticate={onSignin} />
+            </PermissionGate>
+          }
+        />
+        <Route
           path="/notifications"
           element={
             <PermissionGate permissions={session.permissions} permission={permissionKeys.auditView}>
@@ -7500,6 +8155,18 @@ export default function App() {
 
   if (location.pathname === "/oidc/callback") {
     return <CallbackPage manager={manager} onSignedIn={setUser} />;
+  }
+
+  if (location.pathname.startsWith("/self-service")) {
+    return (
+      <Routes>
+        <Route path="/self-service/register" element={<SelfServiceRegisterPage />} />
+        <Route path="/self-service/activate" element={<SelfServiceActivatePage />} />
+        <Route path="/self-service/forgot-password" element={<SelfServiceForgotPasswordPage />} />
+        <Route path="/self-service/reset-password" element={<SelfServiceResetPasswordPage />} />
+        <Route path="*" element={<Navigate to="/self-service/register" replace />} />
+      </Routes>
+    );
   }
 
   if (!user) {
