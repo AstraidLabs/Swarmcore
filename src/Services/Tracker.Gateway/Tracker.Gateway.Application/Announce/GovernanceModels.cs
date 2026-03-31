@@ -21,7 +21,7 @@ public interface IRuntimeGovernanceState
     ProtocolStrictnessProfile EffectiveStrictnessProfile { get; }
 
     RuntimeGovernanceSnapshot GetSnapshot();
-    void Apply(RuntimeGovernanceUpdate update);
+    RuntimeGovernanceSnapshot Apply(RuntimeGovernanceUpdate update);
 }
 
 public sealed record RuntimeGovernanceSnapshot(
