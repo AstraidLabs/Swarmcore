@@ -11,6 +11,7 @@ using BeeTracker.BuildingBlocks.Abstractions.Options;
 using System.Diagnostics;
 using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using BeeTracker.Hosting;
+using Audit.Infrastructure;
 using Tracker.Gateway.Application.Announce;
 using Tracker.Gateway.Application.Cluster;
 using Tracker.Gateway.Infrastructure;
@@ -79,6 +80,7 @@ builder.Services.AddGatewayRuntime(builder.Configuration);
 builder.Services.AddGatewayInfrastructure();
 builder.Services.AddGatewayClusterInfrastructure();
 builder.Services.AddGatewayObservabilityServices();
+builder.Services.AddAuditInfrastructure(builder.Configuration);
 builder.Services.AddUdpTracker(builder.Configuration);
 
 var app = builder.Build();
@@ -88,6 +90,10 @@ using (var startupScope = app.Services.CreateScope())
     await startupScope.ServiceProvider
         .GetRequiredService<TrackerNodeConfigurationBootstrapper>()
         .InitializeAsync(CancellationToken.None);
+
+    await startupScope.ServiceProvider
+        .GetRequiredService<GovernanceStartupRecoveryService>()
+        .RecoverAsync(CancellationToken.None);
 }
 
 var nodeConfigAccessor = app.Services.GetRequiredService<ITrackerNodeConfigurationSnapshotAccessor>();
@@ -524,9 +530,12 @@ app.MapGet("/admin/governance", (IRuntimeGovernanceState governanceState) =>
         snapshot.CompatibilityMode.ToString(), snapshot.StrictnessProfile.ToString()));
 });
 
-app.MapPost("/admin/governance", (
+app.MapPost("/admin/governance", async Task<IResult> (
+    HttpContext httpContext,
     GovernanceUpdateRequest request,
-    IRuntimeGovernanceState governanceState) =>
+    IRuntimeGovernanceState governanceState,
+    GovernancePersistenceService persistenceService,
+    GovernanceAuditService auditService) =>
 {
     ClientCompatibilityMode? compatMode = null;
     if (request.CompatibilityMode is not null &&
@@ -542,7 +551,9 @@ app.MapPost("/admin/governance", (
         strictnessProfile = parsedProfile;
     }
 
-    governanceState.Apply(new RuntimeGovernanceUpdate(
+    var before = governanceState.GetSnapshot();
+
+    var after = governanceState.Apply(new RuntimeGovernanceUpdate(
         request.AnnounceDisabled, request.ScrapeDisabled,
         request.GlobalMaintenanceMode, request.ReadOnlyMode,
         request.EmergencyAbuseMitigation, request.UdpDisabled,
@@ -551,13 +562,20 @@ app.MapPost("/admin/governance", (
 
     TrackerDiagnostics.GovernanceStateChanges.Add(1);
 
-    var snapshot = governanceState.GetSnapshot();
+    // Persist to Redis and notify other nodes (best-effort, non-blocking for caller on failure)
+    await persistenceService.PersistAndPublishAsync(after);
+
+    // Audit the governance change
+    var ip = httpContext.Connection.RemoteIpAddress?.ToString();
+    var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+    auditService.AuditGovernanceChange(before, after, actorId: null, ip, userAgent, correlationId: null);
+
     return Results.Ok(new GovernanceStateDto(
-        snapshot.AnnounceDisabled, snapshot.ScrapeDisabled,
-        snapshot.GlobalMaintenanceMode, snapshot.ReadOnlyMode,
-        snapshot.EmergencyAbuseMitigation, snapshot.UdpDisabled,
-        snapshot.IPv6Frozen, snapshot.PolicyFreezeMode,
-        snapshot.CompatibilityMode.ToString(), snapshot.StrictnessProfile.ToString()));
+        after.AnnounceDisabled, after.ScrapeDisabled,
+        after.GlobalMaintenanceMode, after.ReadOnlyMode,
+        after.EmergencyAbuseMitigation, after.UdpDisabled,
+        after.IPv6Frozen, after.PolicyFreezeMode,
+        after.CompatibilityMode.ToString(), after.StrictnessProfile.ToString()));
 });
 
 // ─── Abuse Intelligence Diagnostics ──────────────────────────────────────────

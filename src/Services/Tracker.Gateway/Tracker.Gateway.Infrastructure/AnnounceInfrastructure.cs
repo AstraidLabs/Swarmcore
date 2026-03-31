@@ -974,6 +974,9 @@ public static class GatewayInfrastructureServiceCollectionExtensions
         services.AddSingleton<IAnnounceTelemetryWriter>(static serviceProvider => serviceProvider.GetRequiredService<ChannelAnnounceTelemetryWriter>());
         services.AddSingleton<RuntimeGovernanceStateService>();
         services.AddSingleton<IRuntimeGovernanceState>(static sp => sp.GetRequiredService<RuntimeGovernanceStateService>());
+        services.AddSingleton<GovernancePersistenceService>();
+        services.AddSingleton<GovernanceAuditService>();
+        services.AddScoped<GovernanceStartupRecoveryService>();
         services.AddSingleton<AdvancedAbuseGuard>();
         services.AddSingleton<IAnnounceService, AnnounceService>();
         services.AddSingleton<IScrapeService, ScrapeService>();
@@ -982,6 +985,7 @@ public static class GatewayInfrastructureServiceCollectionExtensions
         services.AddHostedService<GatewayDependencyMonitorService>();
         services.AddHostedService<AnnounceTelemetryBackgroundService>();
         services.AddHostedService<GatewayWarmupService>();
+        services.AddHostedService<GovernanceRefreshBackgroundService>();
         return services;
     }
 

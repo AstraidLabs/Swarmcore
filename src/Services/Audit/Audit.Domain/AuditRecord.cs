@@ -46,6 +46,20 @@ public static class AuditAction
     public const string AdminPermissionGroupUpdated = "admin.permission_group.updated";
     public const string AdminPermissionGroupDeleted = "admin.permission_group.deleted";
     public const string AdminProfileUpdated = "admin.profile.updated";
+
+    // ─── Governance ─────────────────────────────────────────────────────
+    public const string GovernanceUpdated = "governance.state.updated";
+    public const string GovernanceRestored = "governance.state.restored";
+    public const string GovernanceAnnounceDisabledChanged = "governance.announce_disabled.changed";
+    public const string GovernanceScrapeDisabledChanged = "governance.scrape_disabled.changed";
+    public const string GovernanceMaintenanceModeChanged = "governance.maintenance_mode.changed";
+    public const string GovernanceReadOnlyModeChanged = "governance.read_only_mode.changed";
+    public const string GovernanceEmergencyAbuseMitigationChanged = "governance.emergency_abuse_mitigation.changed";
+    public const string GovernanceUdpDisabledChanged = "governance.udp_disabled.changed";
+    public const string GovernanceIPv6FrozenChanged = "governance.ipv6_frozen.changed";
+    public const string GovernancePolicyFreezeModeChanged = "governance.policy_freeze_mode.changed";
+    public const string GovernanceCompatibilityModeChanged = "governance.compatibility_mode.changed";
+    public const string GovernanceStrictnessProfileChanged = "governance.strictness_profile.changed";
 }
 
 public sealed class AuditRecord : Entity<Guid>

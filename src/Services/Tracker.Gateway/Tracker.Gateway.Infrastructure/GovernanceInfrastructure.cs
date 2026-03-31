@@ -1,9 +1,16 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
 using BeeTracker.BuildingBlocks.Observability.Diagnostics;
+using BeeTracker.Caching.Redis;
+using Audit.Application;
+using Audit.Domain;
 using Tracker.Gateway.Application.Announce;
 
 namespace Tracker.Gateway.Infrastructure;
@@ -49,7 +56,7 @@ public sealed class RuntimeGovernanceStateService : IRuntimeGovernanceState
 
     public RuntimeGovernanceSnapshot GetSnapshot() => Current;
 
-    public void Apply(RuntimeGovernanceUpdate update)
+    public RuntimeGovernanceSnapshot Apply(RuntimeGovernanceUpdate update)
     {
         var current = Current;
         var next = new RuntimeGovernanceSnapshot(
@@ -64,6 +71,289 @@ public sealed class RuntimeGovernanceStateService : IRuntimeGovernanceState
             update.CompatibilityMode ?? current.CompatibilityMode,
             update.StrictnessProfile ?? current.StrictnessProfile);
         Volatile.Write(ref _snapshot, next);
+        return next;
+    }
+
+    /// <summary>
+    /// Replaces the entire snapshot atomically. Used for startup recovery and pub/sub refresh.
+    /// </summary>
+    public void ReplaceSnapshot(RuntimeGovernanceSnapshot snapshot)
+    {
+        Volatile.Write(ref _snapshot, snapshot);
+    }
+}
+
+// ─── Governance Redis Persistence ───────────────────────────────────────────
+
+/// <summary>
+/// Redis key scheme and serialization for governance state persistence.
+/// </summary>
+public static class GovernanceRedisKeys
+{
+    public const string GovernanceStateKey = "governance:state";
+    public const string GovernanceUpdateChannel = "governance:state:updated";
+
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    public static string Serialize(RuntimeGovernanceSnapshot snapshot) =>
+        JsonSerializer.Serialize(snapshot, SerializerOptions);
+
+    public static RuntimeGovernanceSnapshot? Deserialize(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        return JsonSerializer.Deserialize<RuntimeGovernanceSnapshot>(json, SerializerOptions);
+    }
+}
+
+/// <summary>
+/// Persists governance state to Redis and publishes update notifications.
+/// Does NOT touch the hot path. Called only on admin governance mutations.
+/// </summary>
+public sealed class GovernancePersistenceService(
+    IRedisCacheClient redisClient,
+    ILogger<GovernancePersistenceService> logger)
+{
+    /// <summary>
+    /// Persists the governance snapshot to Redis and publishes an update notification.
+    /// </summary>
+    public async Task PersistAndPublishAsync(RuntimeGovernanceSnapshot snapshot, CancellationToken cancellationToken = default)
+    {
+        var json = GovernanceRedisKeys.Serialize(snapshot);
+
+        try
+        {
+            await redisClient.Database.StringSetAsync(
+                GovernanceRedisKeys.GovernanceStateKey,
+                json);
+
+            await redisClient.Subscriber.PublishAsync(
+                GovernanceRedisKeys.GovernanceUpdateChannel,
+                json);
+
+            logger.LogInformation("Governance state persisted to Redis and update published.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to persist governance state to Redis.");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Loads the governance snapshot from Redis. Returns null if no persisted state exists.
+    /// </summary>
+    public async Task<RuntimeGovernanceSnapshot?> LoadAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var json = await redisClient.Database.StringGetAsync(GovernanceRedisKeys.GovernanceStateKey);
+            if (json.IsNullOrEmpty)
+            {
+                logger.LogDebug("No persisted governance state found in Redis.");
+                return null;
+            }
+
+            var snapshot = GovernanceRedisKeys.Deserialize(json!);
+            if (snapshot is not null)
+            {
+                logger.LogInformation("Governance state loaded from Redis.");
+            }
+
+            return snapshot;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to load governance state from Redis. Falling back to config defaults.");
+            return null;
+        }
+    }
+}
+
+/// <summary>
+/// Audits governance state changes via the async audit channel.
+/// Produces detailed per-field change records and one summary record.
+/// </summary>
+public sealed class GovernanceAuditService(IAuditChannelWriter auditChannelWriter)
+{
+    public void AuditGovernanceChange(
+        RuntimeGovernanceSnapshot before,
+        RuntimeGovernanceSnapshot after,
+        string? actorId,
+        string? ipAddress,
+        string? userAgent,
+        string? correlationId)
+    {
+        var metadataJson = JsonSerializer.Serialize(new
+        {
+            before = GovernanceRedisKeys.Serialize(before),
+            after = GovernanceRedisKeys.Serialize(after),
+        });
+
+        // Summary audit record for the overall governance change
+        auditChannelWriter.TryWrite(AuditRecord.Create(
+            AuditAction.GovernanceUpdated,
+            actorId,
+            targetUserId: null,
+            correlationId,
+            ipAddress,
+            userAgent,
+            AuditOutcome.Success,
+            metadataJson: metadataJson));
+
+        // Per-field change records for granular audit trail
+        if (before.AnnounceDisabled != after.AnnounceDisabled)
+            WriteFieldChange(AuditAction.GovernanceAnnounceDisabledChanged, before.AnnounceDisabled, after.AnnounceDisabled, actorId, ipAddress, userAgent, correlationId);
+        if (before.ScrapeDisabled != after.ScrapeDisabled)
+            WriteFieldChange(AuditAction.GovernanceScrapeDisabledChanged, before.ScrapeDisabled, after.ScrapeDisabled, actorId, ipAddress, userAgent, correlationId);
+        if (before.GlobalMaintenanceMode != after.GlobalMaintenanceMode)
+            WriteFieldChange(AuditAction.GovernanceMaintenanceModeChanged, before.GlobalMaintenanceMode, after.GlobalMaintenanceMode, actorId, ipAddress, userAgent, correlationId);
+        if (before.ReadOnlyMode != after.ReadOnlyMode)
+            WriteFieldChange(AuditAction.GovernanceReadOnlyModeChanged, before.ReadOnlyMode, after.ReadOnlyMode, actorId, ipAddress, userAgent, correlationId);
+        if (before.EmergencyAbuseMitigation != after.EmergencyAbuseMitigation)
+            WriteFieldChange(AuditAction.GovernanceEmergencyAbuseMitigationChanged, before.EmergencyAbuseMitigation, after.EmergencyAbuseMitigation, actorId, ipAddress, userAgent, correlationId);
+        if (before.UdpDisabled != after.UdpDisabled)
+            WriteFieldChange(AuditAction.GovernanceUdpDisabledChanged, before.UdpDisabled, after.UdpDisabled, actorId, ipAddress, userAgent, correlationId);
+        if (before.IPv6Frozen != after.IPv6Frozen)
+            WriteFieldChange(AuditAction.GovernanceIPv6FrozenChanged, before.IPv6Frozen, after.IPv6Frozen, actorId, ipAddress, userAgent, correlationId);
+        if (before.PolicyFreezeMode != after.PolicyFreezeMode)
+            WriteFieldChange(AuditAction.GovernancePolicyFreezeModeChanged, before.PolicyFreezeMode, after.PolicyFreezeMode, actorId, ipAddress, userAgent, correlationId);
+        if (before.CompatibilityMode != after.CompatibilityMode)
+            WriteFieldChange(AuditAction.GovernanceCompatibilityModeChanged, before.CompatibilityMode, after.CompatibilityMode, actorId, ipAddress, userAgent, correlationId);
+        if (before.StrictnessProfile != after.StrictnessProfile)
+            WriteFieldChange(AuditAction.GovernanceStrictnessProfileChanged, before.StrictnessProfile, after.StrictnessProfile, actorId, ipAddress, userAgent, correlationId);
+    }
+
+    public void AuditGovernanceRestored(RuntimeGovernanceSnapshot restored, string source)
+    {
+        var metadataJson = JsonSerializer.Serialize(new
+        {
+            source,
+            state = GovernanceRedisKeys.Serialize(restored),
+        });
+
+        auditChannelWriter.TryWrite(AuditRecord.Create(
+            AuditAction.GovernanceRestored,
+            actorId: "system",
+            targetUserId: null,
+            correlationId: null,
+            ipAddress: null,
+            userAgent: null,
+            AuditOutcome.Success,
+            reasonCode: $"restored_from_{source}",
+            metadataJson: metadataJson));
+    }
+
+    private void WriteFieldChange<T>(
+        string action, T before, T after,
+        string? actorId, string? ipAddress, string? userAgent, string? correlationId)
+    {
+        var metadataJson = JsonSerializer.Serialize(new { before = before?.ToString(), after = after?.ToString() });
+        auditChannelWriter.TryWrite(AuditRecord.Create(
+            action,
+            actorId,
+            targetUserId: null,
+            correlationId,
+            ipAddress,
+            userAgent,
+            AuditOutcome.Success,
+            metadataJson: metadataJson));
+    }
+}
+
+/// <summary>
+/// Subscribes to Redis governance update notifications.
+/// When another node (or the admin service proxy) persists a governance change,
+/// this service refreshes the local in-memory snapshot without any hot-path cost.
+/// </summary>
+public sealed class GovernanceRefreshBackgroundService(
+    IRedisCacheClient redisClient,
+    RuntimeGovernanceStateService governanceStateService,
+    IOptions<TrackerNodeOptions> nodeOptions,
+    ILogger<GovernanceRefreshBackgroundService> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        logger.LogInformation("Governance refresh subscriber starting.");
+
+        try
+        {
+            await redisClient.Subscriber.SubscribeAsync(
+                GovernanceRedisKeys.GovernanceUpdateChannel,
+                (_, message) =>
+                {
+                    try
+                    {
+                        var snapshot = GovernanceRedisKeys.Deserialize(message!);
+                        if (snapshot is not null)
+                        {
+                            governanceStateService.ReplaceSnapshot(snapshot);
+                            logger.LogDebug("Governance state refreshed from pub/sub notification on node {NodeId}.", nodeOptions.Value.NodeId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to deserialize governance update from pub/sub.");
+                    }
+                });
+
+            // Keep the background service alive until cancellation.
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Graceful shutdown
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Governance refresh subscriber encountered a fatal error.");
+        }
+        finally
+        {
+            try
+            {
+                await redisClient.Subscriber.UnsubscribeAsync(GovernanceRedisKeys.GovernanceUpdateChannel);
+            }
+            catch
+            {
+                // Best-effort unsubscribe on shutdown.
+            }
+
+            logger.LogInformation("Governance refresh subscriber stopped.");
+        }
+    }
+}
+
+/// <summary>
+/// Restores governance state from Redis on startup, before the gateway accepts traffic.
+/// Falls back to config defaults if Redis is unavailable or has no persisted state.
+/// </summary>
+public sealed class GovernanceStartupRecoveryService(
+    RuntimeGovernanceStateService governanceStateService,
+    GovernancePersistenceService persistenceService,
+    GovernanceAuditService auditService,
+    ILogger<GovernanceStartupRecoveryService> logger)
+{
+    public async Task RecoverAsync(CancellationToken cancellationToken)
+    {
+        var persisted = await persistenceService.LoadAsync(cancellationToken);
+        if (persisted is not null)
+        {
+            governanceStateService.ReplaceSnapshot(persisted);
+            auditService.AuditGovernanceRestored(persisted, "redis");
+            logger.LogInformation("Governance state recovered from Redis on startup.");
+        }
+        else
+        {
+            var fallback = governanceStateService.GetSnapshot();
+            logger.LogInformation("No persisted governance state found. Using config defaults: " +
+                "AnnounceDisabled={AnnounceDisabled}, MaintenanceMode={MaintenanceMode}, ReadOnlyMode={ReadOnlyMode}.",
+                fallback.AnnounceDisabled, fallback.GlobalMaintenanceMode, fallback.ReadOnlyMode);
+        }
     }
 }
 
