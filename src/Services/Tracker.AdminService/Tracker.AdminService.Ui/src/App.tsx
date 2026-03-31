@@ -383,6 +383,16 @@ type ClusterNodeStateDto = {
   heartbeatFresh: boolean;
 };
 
+type DashboardSummaryDto = {
+  activeNodeCount: number;
+  readyNodeCount: number;
+  degradedNodeCount: number;
+  totalOwnedShards: number;
+  notificationStats: NotificationOutboxStatsDto;
+  nodeStates: ClusterNodeStateDto[];
+  observedAtUtc: string;
+};
+
 type TrackerNodeCatalogItemDto = {
   nodeKey: string;
   nodeName: string;
@@ -1767,6 +1777,7 @@ function DashboardPage({
   const { dictionary } = useI18n();
   const dashboard = dictionary.dashboard;
   const [overview, setOverview] = useState<ClusterOverviewDto | null>(null);
+  const [summary, setSummary] = useState<DashboardSummaryDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [liveStats, setLiveStats] = useState<Map<string, LiveStatsMessage>>(new Map());
   const [liveConnected, setLiveConnected] = useState(false);
@@ -1774,10 +1785,14 @@ function DashboardPage({
   useEffect(() => {
     let isMounted = true;
 
-    apiRequest<ClusterOverviewDto>("/api/admin/cluster-overview", accessToken, onReauthenticate)
-      .then((clusterOverview) => {
+    Promise.all([
+      apiRequest<ClusterOverviewDto>("/api/admin/cluster-overview", accessToken, onReauthenticate),
+      apiRequest<DashboardSummaryDto>("/api/admin/dashboard/summary", accessToken, onReauthenticate)
+    ])
+      .then(([clusterOverview, dashboardSummary]) => {
         if (isMounted) {
           setOverview(clusterOverview);
+          setSummary(dashboardSummary);
         }
       })
       .catch((requestError) => {
@@ -1809,14 +1824,30 @@ function DashboardPage({
       } catch { /* ignore malformed messages */ }
     });
 
+    connection.on("DashboardSummary", (message: string) => {
+      try {
+        const updated: DashboardSummaryDto = JSON.parse(message);
+        setSummary(updated);
+      } catch { /* ignore malformed messages */ }
+    });
+
     connection.start()
-      .then(() => setLiveConnected(true))
+      .then(() => {
+        setLiveConnected(true);
+        connection.invoke("JoinDashboard").catch(() => {});
+      })
       .catch(() => setLiveConnected(false));
 
-    connection.onreconnected(() => setLiveConnected(true));
+    connection.onreconnected(() => {
+      setLiveConnected(true);
+      connection.invoke("JoinDashboard").catch(() => {});
+    });
     connection.onclose(() => setLiveConnected(false));
 
-    return () => { connection.stop(); };
+    return () => {
+      connection.invoke("LeaveDashboard").catch(() => {});
+      connection.stop();
+    };
   }, [accessToken]);
 
   if (error) {
@@ -1836,9 +1867,11 @@ function DashboardPage({
   const capabilityCategories = Array.from(new Set(grantedCapabilities.map((capability) => capability.category)));
   const totalPeers = Array.from(liveStats.values()).reduce((sum, s) => sum + s.activePeers, 0);
   const totalSwarms = Array.from(liveStats.values()).reduce((sum, s) => sum + s.activeSwarms, 0);
+  const totalQueueLength = Array.from(liveStats.values()).reduce((sum, s) => sum + s.telemetryQueueLength, 0);
 
   return (
     <div className="space-y-6">
+      {/* Primary stat cards */}
       <section className="grid gap-4 xl:grid-cols-4">
         <div className="app-stat-card">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.readinessTitle}</p>
@@ -1856,26 +1889,26 @@ function DashboardPage({
           </div>
         </div>
         <div className="app-stat-card">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">Active peers</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.activePeersTitle}</p>
           <div className="mt-4 flex items-end justify-between">
             <p className="app-stat-value">{totalPeers.toLocaleString()}</p>
             <StatusPill tone={liveConnected ? "good" : "neutral"}>{liveConnected ? "Live" : "Offline"}</StatusPill>
           </div>
           <p className="mt-3 text-sm leading-6 text-steel">
-            Real-time peer count across {liveStats.size} reporting {liveStats.size === 1 ? "node" : "nodes"}.
+            {dashboard.activePeersBody.replace("{count}", String(liveStats.size)).replace("{noun}", liveStats.size === 1 ? "node" : "nodes")}
           </p>
           <div className="app-stat-bar">
             <div className="app-stat-bar-fill bg-brand" style={{ width: `${liveStats.size > 0 ? 100 : 0}%` }} />
           </div>
         </div>
         <div className="app-stat-card">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">Active swarms</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.activeSwarmsTitle}</p>
           <div className="mt-4 flex items-end justify-between">
             <p className="app-stat-value">{totalSwarms.toLocaleString()}</p>
             <span className="text-sm text-steel">{liveStats.size} {liveStats.size === 1 ? "node" : "nodes"}</span>
           </div>
           <p className="mt-3 text-sm leading-6 text-steel">
-            Tracked swarm count from live telemetry stream.
+            {dashboard.activeSwarmsBody}
           </p>
           <div className="app-stat-bar">
             <div className="app-stat-bar-fill bg-brand" style={{ width: `${liveStats.size > 0 ? 100 : 0}%` }} />
@@ -1890,7 +1923,7 @@ function DashboardPage({
             </StatusPill>
           </div>
           <p className="mt-3 text-sm leading-6 text-steel">
-            {new Date(overview.observedAtUtc).toLocaleDateString()} · {overview.nodes.length} nodes in the current cluster snapshot.
+            {new Date(overview.observedAtUtc).toLocaleDateString()} · {overview.nodes.length} {dashboard.snapshotNodesLabel}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             {capabilityCategories.slice(0, 3).map((category) => (
@@ -1899,35 +1932,189 @@ function DashboardPage({
           </div>
         </div>
       </section>
-      {liveStats.size > 0 && (
-        <Card title="Live node telemetry" eyebrow="Real-time">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {Array.from(liveStats.entries()).map(([nodeId, stats]) => (
-              <div key={nodeId} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-5 py-4">
-                <div className="flex items-start justify-between gap-4">
-                  <p className="text-sm font-semibold text-ink">{nodeId}</p>
-                  <StatusPill tone="good">Live</StatusPill>
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-                  <div>
-                    <p className="text-lg font-bold text-ink">{stats.activePeers.toLocaleString()}</p>
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">Peers</p>
-                  </div>
-                  <div>
-                    <p className="text-lg font-bold text-ink">{stats.activeSwarms.toLocaleString()}</p>
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">Swarms</p>
-                  </div>
-                  <div>
-                    <p className="text-lg font-bold text-ink">{stats.telemetryQueueLength}</p>
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">Queue</p>
-                  </div>
-                </div>
-                <p className="mt-3 text-xs text-steel">Updated {new Date(stats.timestamp).toLocaleTimeString()}</p>
+
+      {/* Tracker traffic summary widget */}
+      <Card title={dashboard.trafficSummaryTitle} eyebrow={dashboard.trafficSummaryEyebrow}>
+        <div className="grid gap-6 md:grid-cols-4">
+          <div className="text-center">
+            <p className="text-3xl font-bold tracking-tight text-ink">{totalPeers.toLocaleString()}</p>
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.trafficTotalPeers}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-3xl font-bold tracking-tight text-ink">{totalSwarms.toLocaleString()}</p>
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.trafficTotalSwarms}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-3xl font-bold tracking-tight text-ink">{totalQueueLength.toLocaleString()}</p>
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.trafficQueueDepth}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-3xl font-bold tracking-tight text-ink">{liveStats.size}</p>
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.trafficReportingNodes}</p>
+          </div>
+        </div>
+        {liveStats.size > 0 && (
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">
+                  <th className="pb-3 pr-4">{dashboard.trafficNodeColumn}</th>
+                  <th className="pb-3 pr-4 text-right">{dashboard.trafficPeersColumn}</th>
+                  <th className="pb-3 pr-4 text-right">{dashboard.trafficSwarmsColumn}</th>
+                  <th className="pb-3 pr-4 text-right">{dashboard.trafficQueueColumn}</th>
+                  <th className="pb-3 text-right">{dashboard.trafficUpdatedColumn}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from(liveStats.entries()).map(([nodeId, stats]) => (
+                  <tr key={nodeId} className="border-b border-slate-100">
+                    <td className="py-3 pr-4 font-medium text-ink">{nodeId}</td>
+                    <td className="py-3 pr-4 text-right text-ink">{stats.activePeers.toLocaleString()}</td>
+                    <td className="py-3 pr-4 text-right text-ink">{stats.activeSwarms.toLocaleString()}</td>
+                    <td className="py-3 pr-4 text-right text-ink">{stats.telemetryQueueLength.toLocaleString()}</td>
+                    <td className="py-3 text-right text-steel">{new Date(stats.timestamp).toLocaleTimeString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Notification health widget + Security summary widget */}
+      <section className="grid gap-4 xl:grid-cols-2">
+        {summary && (
+          <Card title={dashboard.notificationHealthTitle} eyebrow={dashboard.notificationHealthEyebrow}>
+            <div className="grid grid-cols-3 gap-4 sm:grid-cols-5">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-ink">{summary.notificationStats.pendingCount}</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.notifPending}</p>
               </div>
-            ))}
+              <div className="text-center">
+                <p className="text-2xl font-bold text-ink">{summary.notificationStats.processingCount}</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.notifProcessing}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-moss">{summary.notificationStats.sentCount}</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.notifSent}</p>
+              </div>
+              <div className="text-center">
+                <p className={`text-2xl font-bold ${summary.notificationStats.failedCount > 0 ? "text-rose-600" : "text-ink"}`}>
+                  {summary.notificationStats.failedCount}
+                </p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.notifFailed}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-ink">{summary.notificationStats.cancelledCount}</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.notifCancelled}</p>
+              </div>
+            </div>
+            <div className="mt-5">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-steel">{dashboard.notifTotalLabel}</span>
+                <span className="font-semibold text-ink">{summary.notificationStats.totalCount}</span>
+              </div>
+              {summary.notificationStats.totalCount > 0 && (
+                <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-slate-100">
+                  <div className="bg-moss" style={{ width: `${(summary.notificationStats.sentCount / summary.notificationStats.totalCount) * 100}%` }} />
+                  <div className="bg-amber-400" style={{ width: `${(summary.notificationStats.processingCount / summary.notificationStats.totalCount) * 100}%` }} />
+                  <div className="bg-sky-400" style={{ width: `${(summary.notificationStats.pendingCount / summary.notificationStats.totalCount) * 100}%` }} />
+                  <div className="bg-rose-500" style={{ width: `${(summary.notificationStats.failedCount / summary.notificationStats.totalCount) * 100}%` }} />
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
+
+        {summary && (
+          <Card title={dashboard.securitySummaryTitle} eyebrow={dashboard.securitySummaryEyebrow}>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-ink">{summary.activeNodeCount}</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.securityActiveNodes}</p>
+              </div>
+              <div className="text-center">
+                <p className={`text-2xl font-bold ${summary.degradedNodeCount > 0 ? "text-rose-600" : "text-moss"}`}>
+                  {summary.degradedNodeCount}
+                </p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.securityDegradedNodes}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-ink">{summary.totalOwnedShards}</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.securityOwnedShards}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-ink">
+                  {summary.nodeStates.filter((n) => n.heartbeatFresh).length}/{summary.nodeStates.length}
+                </p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-steel/70">{dashboard.securityFreshHeartbeats}</p>
+              </div>
+            </div>
+            {summary.nodeStates.length > 0 && (
+              <div className="mt-5 space-y-2">
+                {summary.nodeStates.map((node) => (
+                  <div key={node.nodeId} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <span className={`inline-block h-2 w-2 rounded-full ${node.heartbeatFresh ? "bg-moss" : "bg-rose-500"}`} />
+                      <span className="text-sm font-medium text-ink">{node.nodeId}</span>
+                      <span className="text-xs text-steel">{node.region}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-steel">{node.ownedShardCount} {dashboard.securityShardsLabel}</span>
+                      <StatusPill tone={node.operationalState === "Active" ? "good" : "warn"}>
+                        {node.operationalState}
+                      </StatusPill>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+      </section>
+
+      {/* Cluster-wide aggregated stats widget */}
+      {summary && (
+        <Card title={dashboard.clusterStatsTitle} eyebrow={dashboard.clusterStatsEyebrow}>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {summary.nodeStates.map((node) => {
+              const nodeLiveStats = liveStats.get(node.nodeId);
+              return (
+                <div key={node.nodeId} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-5 py-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">{node.nodeId}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-steel/70">{node.region}</p>
+                    </div>
+                    <StatusPill tone={node.heartbeatFresh ? "good" : "warn"}>
+                      {node.operationalState}
+                    </StatusPill>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+                    <div>
+                      <p className="text-lg font-bold text-ink">{nodeLiveStats ? nodeLiveStats.activePeers.toLocaleString() : "\u2014"}</p>
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">{dashboard.clusterStatsPeers}</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-ink">{nodeLiveStats ? nodeLiveStats.activeSwarms.toLocaleString() : "\u2014"}</p>
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">{dashboard.clusterStatsSwarms}</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-ink">{node.ownedShardCount}</p>
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-steel/70">{dashboard.clusterStatsShards}</p>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-steel">
+                    {dashboard.lastHeartbeat} {new Date(node.heartbeatObservedAtUtc).toLocaleTimeString()}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </Card>
       )}
+
+      {/* Readiness map (existing, retained) */}
       <Card title={dashboard.readinessMapTitle} eyebrow={dashboard.operationsEyebrow}>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {overview.nodes.map((node) => (

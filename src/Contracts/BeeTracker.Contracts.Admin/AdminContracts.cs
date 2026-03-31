@@ -438,6 +438,22 @@ public sealed record TrackerNodeConfigViewDto(
     TrackerNodeAbuseViewDto Abuse,
     ConfigValidationDto Validation);
 
+// ─── Dashboard Summary ──────────────────────────────────────────────────────
+
+/// <summary>
+/// Aggregated dashboard summary returned by the admin summary endpoint.
+/// Combines cluster health, notification pipeline status and node operational states
+/// into a single DTO consumed by the admin dashboard widgets.
+/// </summary>
+public sealed record DashboardSummaryDto(
+    int ActiveNodeCount,
+    int ReadyNodeCount,
+    int DegradedNodeCount,
+    int TotalOwnedShards,
+    NotificationOutboxStatsDto NotificationStats,
+    IReadOnlyCollection<ClusterNodeStateDto> NodeStates,
+    DateTimeOffset ObservedAtUtc);
+
 // ─── Notification Outbox Administration ─────────────────────────────────────
 
 public sealed record NotificationOutboxItemDto(

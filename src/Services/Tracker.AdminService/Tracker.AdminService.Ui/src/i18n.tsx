@@ -132,6 +132,42 @@ type DashboardTranslations = {
   bulletConfig: string;
   capabilitiesTitle: string;
   capabilitiesEyebrow: string;
+  activePeersTitle: string;
+  activePeersBody: string;
+  activeSwarmsTitle: string;
+  activeSwarmsBody: string;
+  snapshotNodesLabel: string;
+  trafficSummaryTitle: string;
+  trafficSummaryEyebrow: string;
+  trafficTotalPeers: string;
+  trafficTotalSwarms: string;
+  trafficQueueDepth: string;
+  trafficReportingNodes: string;
+  trafficNodeColumn: string;
+  trafficPeersColumn: string;
+  trafficSwarmsColumn: string;
+  trafficQueueColumn: string;
+  trafficUpdatedColumn: string;
+  notificationHealthTitle: string;
+  notificationHealthEyebrow: string;
+  notifPending: string;
+  notifProcessing: string;
+  notifSent: string;
+  notifFailed: string;
+  notifCancelled: string;
+  notifTotalLabel: string;
+  securitySummaryTitle: string;
+  securitySummaryEyebrow: string;
+  securityActiveNodes: string;
+  securityDegradedNodes: string;
+  securityOwnedShards: string;
+  securityFreshHeartbeats: string;
+  securityShardsLabel: string;
+  clusterStatsTitle: string;
+  clusterStatsEyebrow: string;
+  clusterStatsPeers: string;
+  clusterStatsSwarms: string;
+  clusterStatsShards: string;
 };
 
 type TorrentsTranslations = {
@@ -486,7 +522,43 @@ const english: I18nDictionary = {
     bulletOperator: "Administrative actions stay capability-aware, auditable and reversible where possible.",
     bulletConfig: "Configuration and coordination stay predictable across multi-node deployments.",
     capabilitiesTitle: "Granted capabilities",
-    capabilitiesEyebrow: "Authorization"
+    capabilitiesEyebrow: "Authorization",
+    activePeersTitle: "Active peers",
+    activePeersBody: "Real-time peer count across {count} reporting {noun}.",
+    activeSwarmsTitle: "Active swarms",
+    activeSwarmsBody: "Tracked swarm count from live telemetry stream.",
+    snapshotNodesLabel: "nodes in the current cluster snapshot.",
+    trafficSummaryTitle: "Tracker traffic summary",
+    trafficSummaryEyebrow: "Real-time",
+    trafficTotalPeers: "Total peers",
+    trafficTotalSwarms: "Total swarms",
+    trafficQueueDepth: "Queue depth",
+    trafficReportingNodes: "Reporting nodes",
+    trafficNodeColumn: "Node",
+    trafficPeersColumn: "Peers",
+    trafficSwarmsColumn: "Swarms",
+    trafficQueueColumn: "Queue",
+    trafficUpdatedColumn: "Updated",
+    notificationHealthTitle: "Notification pipeline",
+    notificationHealthEyebrow: "Health",
+    notifPending: "Pending",
+    notifProcessing: "Processing",
+    notifSent: "Sent",
+    notifFailed: "Failed",
+    notifCancelled: "Cancelled",
+    notifTotalLabel: "Total notifications",
+    securitySummaryTitle: "Cluster security posture",
+    securitySummaryEyebrow: "Security",
+    securityActiveNodes: "Active nodes",
+    securityDegradedNodes: "Degraded",
+    securityOwnedShards: "Owned shards",
+    securityFreshHeartbeats: "Fresh heartbeats",
+    securityShardsLabel: "shards",
+    clusterStatsTitle: "Cluster node overview",
+    clusterStatsEyebrow: "Aggregated",
+    clusterStatsPeers: "Peers",
+    clusterStatsSwarms: "Swarms",
+    clusterStatsShards: "Shards"
   },
   torrents: {
     cardTitle: "Torrents",
