@@ -309,4 +309,114 @@ public sealed class RuntimeSwarmStoreTests
 
         Assert.Equal(1, counts.SeederCount + counts.LeecherCount);
     }
+
+    // ─── Admin Read / Cleanup Tests ─────────────────────────────────────────
+
+    [Fact]
+    public void GetSwarmPage_ReturnsActiveSwarms()
+    {
+        var store = CreateStore();
+        var now = DateTimeOffset.UtcNow;
+
+        store.ApplyMutation(MakeRequest(Hash1, "1111111111111111111111111111111111111111", PeerEndpoint.FromIPv4(0x0A000001, 6881)), TimeSpan.FromMinutes(30), now);
+        store.ApplyMutation(MakeRequest(Hash1, "2222222222222222222222222222222222222222", PeerEndpoint.FromIPv4(0x0A000002, 6882)), TimeSpan.FromMinutes(30), now);
+
+        var hash2 = InfoHashKey.FromBytes(Convert.FromHexString("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"));
+        store.ApplyMutation(MakeRequest(hash2, "3333333333333333333333333333333333333333", PeerEndpoint.FromIPv4(0x0A000003, 6883)), TimeSpan.FromMinutes(30), now);
+
+        var snapshot = store.GetSwarmPage(now, null, 1, 10);
+
+        Assert.Equal(2, snapshot.TotalCount);
+        Assert.Equal(2, snapshot.Items.Length);
+        // Hash1 has 2 peers, hash2 has 1 — Hash1 should come first (sorted by total peers desc)
+        Assert.Equal(Hash1, snapshot.Items[0].InfoHash);
+    }
+
+    [Fact]
+    public void GetSwarmPage_FiltersOnSearchInfoHash()
+    {
+        var store = CreateStore();
+        var now = DateTimeOffset.UtcNow;
+
+        store.ApplyMutation(MakeRequest(Hash1, "1111111111111111111111111111111111111111", PeerEndpoint.FromIPv4(0x0A000001, 6881)), TimeSpan.FromMinutes(30), now);
+
+        var hash2 = InfoHashKey.FromBytes(Convert.FromHexString("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"));
+        store.ApplyMutation(MakeRequest(hash2, "2222222222222222222222222222222222222222", PeerEndpoint.FromIPv4(0x0A000002, 6882)), TimeSpan.FromMinutes(30), now);
+
+        var snapshot = store.GetSwarmPage(now, "BBBB", 1, 10);
+        Assert.Equal(1, snapshot.TotalCount);
+        Assert.Equal("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", snapshot.Items[0].InfoHash.ToHexString());
+    }
+
+    [Fact]
+    public void GetSwarmPage_PaginatesCorrectly()
+    {
+        var store = CreateStore();
+        var now = DateTimeOffset.UtcNow;
+
+        for (var i = 0; i < 5; i++)
+        {
+            var hash = InfoHashKey.FromBytes(Convert.FromHexString($"{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}{i:D2}"));
+            store.ApplyMutation(MakeRequest(hash, $"{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}{i + 1:D2}", PeerEndpoint.FromIPv4((uint)(0x0A000001 + i), 6881)), TimeSpan.FromMinutes(30), now);
+        }
+
+        var page1 = store.GetSwarmPage(now, null, 1, 2);
+        var page2 = store.GetSwarmPage(now, null, 2, 2);
+        var page3 = store.GetSwarmPage(now, null, 3, 2);
+
+        Assert.Equal(5, page1.TotalCount);
+        Assert.Equal(2, page1.Items.Length);
+        Assert.Equal(2, page2.Items.Length);
+        Assert.Single(page3.Items);
+    }
+
+    [Fact]
+    public void GetSwarmDetail_ReturnsNullForUnknownSwarm()
+    {
+        var store = CreateStore();
+        var result = store.GetSwarmDetail(Hash1, DateTimeOffset.UtcNow);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetSwarmDetail_ReturnsPeerList()
+    {
+        var store = CreateStore();
+        var now = DateTimeOffset.UtcNow;
+
+        store.ApplyMutation(MakeRequest(Hash1, "1111111111111111111111111111111111111111", PeerEndpoint.FromIPv4(0x0A000001, 6881)), TimeSpan.FromMinutes(30), now);
+        store.ApplyMutation(MakeRequest(Hash1, "2222222222222222222222222222222222222222", PeerEndpoint.FromIPv4(0x0A000002, 6882), left: 0), TimeSpan.FromMinutes(30), now);
+
+        var detail = store.GetSwarmDetail(Hash1, now);
+        Assert.NotNull(detail);
+        Assert.Equal(Hash1.ToHexString(), detail.InfoHash);
+        Assert.Equal(2, detail.Peers.Length);
+        Assert.Contains(detail.Peers, static p => p.IsSeeder);
+        Assert.Contains(detail.Peers, static p => !p.IsSeeder);
+    }
+
+    [Fact]
+    public void CleanupSwarm_RemovesExpiredPeers()
+    {
+        var store = CreateStore();
+        var past = DateTimeOffset.UtcNow.AddMinutes(-60);
+
+        // Add peers in the past with a short TTL, so they are expired "now"
+        store.ApplyMutation(MakeRequest(Hash1, "1111111111111111111111111111111111111111", PeerEndpoint.FromIPv4(0x0A000001, 6881)), TimeSpan.FromMinutes(5), past);
+        store.ApplyMutation(MakeRequest(Hash1, "2222222222222222222222222222222222222222", PeerEndpoint.FromIPv4(0x0A000002, 6882)), TimeSpan.FromMinutes(5), past);
+
+        var removed = store.CleanupSwarm(Hash1, DateTimeOffset.UtcNow);
+        Assert.Equal(2, removed);
+
+        var counts = store.GetCounts(Hash1, DateTimeOffset.UtcNow);
+        Assert.Equal(0, counts.SeederCount + counts.LeecherCount);
+    }
+
+    [Fact]
+    public void CleanupSwarm_ReturnsZeroForUnknownSwarm()
+    {
+        var store = CreateStore();
+        var removed = store.CleanupSwarm(Hash1, DateTimeOffset.UtcNow);
+        Assert.Equal(0, removed);
+    }
 }

@@ -88,6 +88,51 @@ type TrackerAccessAdminDto = {
   version: number;
 };
 
+type SwarmSummaryDto = {
+  infoHash: string;
+  seeders: number;
+  leechers: number;
+  downloaded: number;
+};
+
+type SwarmPeerDto = {
+  peerId: string;
+  ip: string;
+  port: number;
+  uploaded: number;
+  downloaded: number;
+  left: number;
+  isSeeder: boolean;
+};
+
+type AggregatedSwarmListResultDto = {
+  totalCount: number;
+  items: SwarmSummaryDto[];
+  respondedNodeCount: number;
+  totalNodeCount: number;
+  failedNodeIds: string[];
+  observedAtUtc: string;
+};
+
+type AggregatedSwarmDetailDto = {
+  infoHash: string;
+  seeders: number;
+  leechers: number;
+  downloaded: number;
+  peers: SwarmPeerDto[];
+  contributingNodeIds: string[];
+  failedNodeIds: string[];
+  observedAtUtc: string;
+};
+
+type AggregatedSwarmCleanupResultDto = {
+  infoHash: string;
+  totalRemovedPeers: number;
+  nodeResults: Array<{ nodeId: string; infoHash: string; removedPeers: number }>;
+  failedNodeIds: string[];
+  observedAtUtc: string;
+};
+
 type AuditRecordDto = {
   id: string;
   occurredAtUtc: string;
@@ -6136,6 +6181,265 @@ function BulkTrackerAccessEditorPage({
   );
 }
 
+// ─── Runtime Swarm Administration ───────────────────────────────────────────
+
+function SwarmsPage({
+  accessToken,
+  onReauthenticate,
+  capabilities
+}: {
+  accessToken: string;
+  onReauthenticate: (fresh: boolean) => Promise<void>;
+  capabilities: CapabilityDto[];
+}) {
+  const [view, setView] = useCatalogViewState({
+    search: "",
+    filter: "all",
+    sort: "peers:desc",
+    page: 1,
+    pageSize: 25
+  });
+  const { query, preview } = view;
+  const [items, setItems] = useState<SwarmSummaryDto[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [detail, setDetail] = useState<AggregatedSwarmDetailDto | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [clusterMeta, setClusterMeta] = useState<{ respondedNodeCount: number; totalNodeCount: number; failedNodeIds: string[] } | null>(null);
+  const [cleanupConfirm, setCleanupConfirm] = useState<string | null>(null);
+  const canCleanup = hasGrantedCapability(capabilities, "admin.cleanup.swarm");
+  const pageCount = Math.max(1, Math.ceil(totalCount / query.pageSize));
+
+  const reload = async () => {
+    const searchParam = query.search ? `&search=${encodeURIComponent(query.search)}` : "";
+    const result = await apiRequest<AggregatedSwarmListResultDto>(
+      `/api/admin/swarms?page=${query.page}&pageSize=${query.pageSize}${searchParam}`,
+      accessToken,
+      onReauthenticate
+    );
+    setItems(result.items);
+    setTotalCount(result.totalCount);
+    setClusterMeta({ respondedNodeCount: result.respondedNodeCount, totalNodeCount: result.totalNodeCount, failedNodeIds: result.failedNodeIds });
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+    reload()
+      .then(() => { if (isMounted) setError(null); })
+      .catch((e) => { if (isMounted) { setError(e instanceof Error ? e.message : "Failed to load swarms."); setItems([]); setTotalCount(0); } })
+      .finally(() => { if (isMounted) setIsLoading(false); });
+    return () => { isMounted = false; };
+  }, [accessToken, onReauthenticate, query.search, query.page, query.pageSize]);
+
+  useEffect(() => {
+    if (!preview) { setDetail(null); return; }
+    let isMounted = true;
+    setDetailLoading(true);
+    apiRequest<AggregatedSwarmDetailDto>(
+      `/api/admin/swarms/${encodeURIComponent(preview)}`,
+      accessToken,
+      onReauthenticate
+    )
+      .then((d) => { if (isMounted) setDetail(d); })
+      .catch(() => { if (isMounted) setDetail(null); })
+      .finally(() => { if (isMounted) setDetailLoading(false); });
+    return () => { isMounted = false; };
+  }, [preview, accessToken, onReauthenticate]);
+
+  const runCleanup = async (infoHash: string) => {
+    try {
+      setError(null);
+      const result = await apiMutation<AggregatedSwarmCleanupResultDto, Record<string, never>>(
+        `/api/admin/swarms/${encodeURIComponent(infoHash)}/cleanup`,
+        "POST",
+        accessToken,
+        {},
+        onReauthenticate
+      );
+      setStatus(`Cleanup complete: ${result.totalRemovedPeers} stale peer(s) removed across ${result.nodeResults.length} node(s).${result.failedNodeIds.length > 0 ? ` ${result.failedNodeIds.length} node(s) unreachable.` : ""}`);
+      await reload();
+      if (preview === infoHash) {
+        setView((current) => ({ ...current, preview: infoHash }));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Cleanup failed.");
+    } finally {
+      setCleanupConfirm(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <CatalogToolbar
+        title="Runtime swarms"
+        description="Inspect active swarms across all gateway nodes. Data is aggregated in real time."
+        totalCount={totalCount}
+        search={query.search}
+        onSearchChange={(value) => setView((current) => ({ ...current, query: { ...current.query, search: value, page: 1 } }))}
+        searchPlaceholder="Search by info hash"
+        filter={query.filter}
+        onFilterChange={() => {}}
+        filterOptions={[{ value: "all", label: "All swarms" }]}
+        sortValue={query.sort}
+        onSortChange={(value) => setView((current) => ({ ...current, query: { ...current.query, sort: value, page: 1 } }))}
+        sortOptions={[
+          { value: "peers:desc", label: "Most active first" },
+          { value: "peers:asc", label: "Least active first" }
+        ]}
+        pageSize={query.pageSize}
+        onPageSizeChange={(value) => setView((current) => ({ ...current, query: { ...current.query, pageSize: value, page: 1 } }))}
+      />
+      {clusterMeta && clusterMeta.failedNodeIds.length > 0 ? (
+        <div className="app-notice-warn">
+          Partial cluster response: {clusterMeta.respondedNodeCount}/{clusterMeta.totalNodeCount} nodes responded.
+          Unreachable: {clusterMeta.failedNodeIds.join(", ")}.
+        </div>
+      ) : null}
+      {status ? <div className="app-notice-success">{status}</div> : null}
+      {error ? <div className="app-notice-warn">{error}</div> : null}
+      <div className="app-data-table">
+        <table>
+          <thead>
+            <tr>
+              <th className="w-[400px]"><SortHeaderButton label="Info hash" field="infohash" activeField="infohash" activeDirection="asc" onSort={() => {}} /></th>
+              <th className="w-24 text-right">Seeders</th>
+              <th className="w-24 text-right">Leechers</th>
+              <th className="w-24 text-right">Completed</th>
+              <th className="w-28 text-right">Total peers</th>
+              {canCleanup ? <th className="w-20">Actions</th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <TableStateRow colSpan={canCleanup ? 6 : 5} state="loading" />
+            ) : items.length === 0 ? (
+              <TableStateRow colSpan={canCleanup ? 6 : 5} state="empty" message="No active swarms found." />
+            ) : (
+              items.map((item) => (
+                <CatalogTableRow key={item.infoHash} onOpen={() => setView((current) => ({ ...current, preview: item.infoHash }))}>
+                  <td className="font-mono text-xs truncate max-w-[400px]" title={item.infoHash}>
+                    <CopyValueButton value={item.infoHash}>{item.infoHash}</CopyValueButton>
+                  </td>
+                  <td className="text-right tabular-nums">{item.seeders.toLocaleString()}</td>
+                  <td className="text-right tabular-nums">{item.leechers.toLocaleString()}</td>
+                  <td className="text-right tabular-nums">{item.downloaded.toLocaleString()}</td>
+                  <td className="text-right tabular-nums font-semibold">{(item.seeders + item.leechers).toLocaleString()}</td>
+                  {canCleanup ? (
+                    <td>
+                      <RowActionsMenu
+                        actions={[
+                          { label: "Cleanup stale peers", onClick: () => setCleanupConfirm(item.infoHash) }
+                        ]}
+                      />
+                    </td>
+                  ) : null}
+                </CatalogTableRow>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <PaginationFooter page={query.page} pageCount={pageCount} onPageChange={(p) => setView((current) => ({ ...current, query: { ...current.query, page: p } }))} />
+      {preview && detail ? (
+        <PreviewDrawer title={`Swarm ${detail.infoHash.substring(0, 12)}...`} onClose={() => setView((current) => ({ ...current, preview: null }))}>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <div className="text-steel">Info hash</div>
+                <div className="font-mono text-xs break-all">{detail.infoHash}</div>
+              </div>
+              <div>
+                <div className="text-steel">Seeders</div>
+                <div className="font-semibold">{detail.seeders.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-steel">Leechers</div>
+                <div className="font-semibold">{detail.leechers.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-steel">Completed</div>
+                <div className="font-semibold">{detail.downloaded.toLocaleString()}</div>
+              </div>
+            </div>
+            {detail.contributingNodeIds.length > 0 ? (
+              <div className="text-sm">
+                <div className="text-steel">Contributing nodes</div>
+                <div>{detail.contributingNodeIds.join(", ")}</div>
+              </div>
+            ) : null}
+            {detail.failedNodeIds.length > 0 ? (
+              <div className="text-sm text-amber-600">
+                <div className="font-medium">Unreachable nodes</div>
+                <div>{detail.failedNodeIds.join(", ")}</div>
+              </div>
+            ) : null}
+            <div>
+              <div className="text-steel text-sm mb-2">Peers ({detail.peers.length})</div>
+              {detail.peers.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-steel">
+                        <th className="py-1 pr-3">IP</th>
+                        <th className="py-1 pr-3">Port</th>
+                        <th className="py-1 pr-3">Type</th>
+                        <th className="py-1 pr-3 text-right">Uploaded</th>
+                        <th className="py-1 pr-3 text-right">Downloaded</th>
+                        <th className="py-1 text-right">Left</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.peers.map((peer, idx) => (
+                        <tr key={`${peer.peerId}-${idx}`} className="border-t border-separator">
+                          <td className="py-1 pr-3 font-mono">{peer.ip}</td>
+                          <td className="py-1 pr-3 tabular-nums">{peer.port}</td>
+                          <td className="py-1 pr-3">{peer.isSeeder ? "Seeder" : "Leecher"}</td>
+                          <td className="py-1 pr-3 text-right tabular-nums">{formatBytes(peer.uploaded)}</td>
+                          <td className="py-1 pr-3 text-right tabular-nums">{formatBytes(peer.downloaded)}</td>
+                          <td className="py-1 text-right tabular-nums">{formatBytes(peer.left)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-steel text-sm">No peers in this swarm.</div>
+              )}
+            </div>
+          </div>
+        </PreviewDrawer>
+      ) : preview && detailLoading ? (
+        <PreviewDrawer title="Loading..." onClose={() => setView((current) => ({ ...current, preview: null }))}>
+          <div className="text-steel text-sm">Loading swarm details...</div>
+        </PreviewDrawer>
+      ) : null}
+      {cleanupConfirm ? (
+        <ConfirmActionModal
+          title="Cleanup stale peers"
+          message={`Remove expired peers from swarm ${cleanupConfirm.substring(0, 16)}... across all gateway nodes?`}
+          confirmLabel="Cleanup"
+          severity="medium"
+          onConfirm={() => runCleanup(cleanupConfirm)}
+          onCancel={() => setCleanupConfirm(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(1024));
+  const value = bytes / Math.pow(1024, Math.min(i, units.length - 1));
+  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[Math.min(i, units.length - 1)]}`;
+}
+
+// ─── Audit ──────────────────────────────────────────────────────────────────
+
 function AuditPage({
   accessToken,
   onReauthenticate
@@ -7261,6 +7565,9 @@ function Shell({
           hasPermission(session.permissions, "admin.dashboard.view")
             ? { to: "/cluster", label: "Cluster", description: "Node states, shard ownership and cluster health.", icon: "overview" }
             : null,
+          hasPermission(session.permissions, "admin.nodes.view")
+            ? { to: "/swarms", label: "Swarms", description: "Runtime swarm state aggregated across all gateway nodes.", icon: "torrents" }
+            : null,
           hasPermission(session.permissions, permissionKeys.auditView)
             ? { to: "/notifications", label: "Notifications", description: "Email outbox delivery status and retry controls.", icon: "audit" }
             : null
@@ -8071,6 +8378,14 @@ function AuthenticatedAdminApp({
             <PermissionGate permissions={session.permissions} permission="admin.dashboard.view">
               <ClusterPage accessToken={accessToken} onReauthenticate={onSignin} />
             </PermissionGate>
+          }
+        />
+        <Route
+          path="/swarms"
+          element={
+            <CapabilityGate capabilities={capabilities} action="admin.read.swarms">
+              <SwarmsPage accessToken={accessToken} onReauthenticate={onSignin} capabilities={capabilities} />
+            </CapabilityGate>
           }
         />
         <Route
