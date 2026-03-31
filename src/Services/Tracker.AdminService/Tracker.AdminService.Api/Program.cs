@@ -259,6 +259,12 @@ adminApi.MapGet("/cluster-overview", async ([FromServices] ISender sender, Cance
     return Results.Ok(result);
 }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.StatsView));
 
+adminApi.MapGet("/dashboard/summary", async ([FromServices] ISender sender, CancellationToken cancellationToken) =>
+{
+    var result = await sender.Send(new GetDashboardSummaryQuery(), cancellationToken);
+    return Results.Ok(result);
+}).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.StatsView));
+
 // ─── Cluster Shard Diagnostics ────────────────────────────────────────────────
 
 adminApi.MapGet("/cluster/shards", async (

@@ -65,6 +65,8 @@ public enum BanCatalogFilter
 
 public sealed record GetClusterOverviewQuery() : IRequest<ClusterOverviewDto>;
 
+public sealed record GetDashboardSummaryQuery() : IRequest<DashboardSummaryDto>;
+
 public sealed record ListAuditRecordsQuery(GridQuery Query, AuditRecordFilter Filter) : IRequest<PageResult<AuditRecordDto>>;
 
 public sealed record ListMaintenanceRunsQuery(GridQuery Query, MaintenanceRunFilter Filter) : IRequest<PageResult<MaintenanceRunDto>>;
@@ -204,6 +206,38 @@ internal sealed class GetClusterNodeStatesQueryHandler(IClusterNodeStateReader r
 {
     public Task<IReadOnlyCollection<ClusterNodeStateDto>> Handle(GetClusterNodeStatesQuery request, CancellationToken cancellationToken)
         => reader.GetAllNodeStatesAsync(cancellationToken);
+}
+
+internal sealed class GetDashboardSummaryQueryHandler(
+    IClusterOverviewReader clusterOverviewReader,
+    IClusterNodeStateReader nodeStateReader,
+    INotificationAdminReader notificationReader)
+    : IRequestHandler<GetDashboardSummaryQuery, DashboardSummaryDto>
+{
+    public async Task<DashboardSummaryDto> Handle(GetDashboardSummaryQuery request, CancellationToken cancellationToken)
+    {
+        var overviewTask = clusterOverviewReader.GetAsync(cancellationToken);
+        var nodeStatesTask = nodeStateReader.GetAllNodeStatesAsync(cancellationToken);
+        var notificationStatsTask = notificationReader.GetStatsAsync(cancellationToken);
+
+        await Task.WhenAll(overviewTask, nodeStatesTask, notificationStatsTask);
+
+        var overview = overviewTask.Result;
+        var nodeStates = nodeStatesTask.Result;
+        var notificationStats = notificationStatsTask.Result;
+
+        var readyCount = overview.Nodes.Count(n => n.Ready);
+        var totalShards = nodeStates.Sum(n => n.OwnedShardCount);
+
+        return new DashboardSummaryDto(
+            ActiveNodeCount: overview.ActiveNodeCount,
+            ReadyNodeCount: readyCount,
+            DegradedNodeCount: overview.ActiveNodeCount - readyCount,
+            TotalOwnedShards: totalShards,
+            NotificationStats: notificationStats,
+            NodeStates: nodeStates.ToArray(),
+            ObservedAtUtc: DateTimeOffset.UtcNow);
+    }
 }
 
 public interface IAuditRecordReader
