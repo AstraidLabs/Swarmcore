@@ -748,6 +748,31 @@ adminApi.MapPost("/notifications/{id:guid}/cancel",
         return result ? Results.Ok() : Results.NotFound();
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
 
+// ─── Swarm Administration ───────────────────────────────────────────────────
+
+adminApi.MapGet("/swarms",
+    async (string? search, int? page, int? pageSize, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var p = Math.Max(1, page ?? 1);
+        var ps = Math.Clamp(pageSize ?? 25, 1, 250);
+        var result = await sender.Send(new ListSwarmsQuery(search, p, ps), cancellationToken);
+        return Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.NodesView));
+
+adminApi.MapGet("/swarms/{infoHash}",
+    async (string infoHash, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(new GetSwarmDetailQuery(infoHash), cancellationToken);
+        return result is not null ? Results.Ok(result) : Results.NotFound();
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.NodesView));
+
+adminApi.MapPost("/swarms/{infoHash}/cleanup",
+    async (string infoHash, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(new CleanupSwarmCommand(infoHash), cancellationToken);
+        return Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.MaintenanceExecute));
+
 // ─── Gateway Admin Proxy ────────────────────────────────────────────────────
 
 adminApi.MapGet("/gateway/{nodeKey}/overview",

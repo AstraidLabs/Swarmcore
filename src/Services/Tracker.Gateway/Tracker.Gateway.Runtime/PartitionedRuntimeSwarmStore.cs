@@ -440,6 +440,123 @@ public sealed class PartitionedRuntimeSwarmStore : IRuntimeSwarmStore
         swarm.Peers.RemoveAt(lastIndex);
     }
 
+    // ─── Admin Read / Cleanup Methods ──────────────────────────────────────────
+
+    /// <summary>
+    /// Returns a snapshot of swarms with pagination support for admin listing.
+    /// Sorted by peer count descending (most active swarms first).
+    /// </summary>
+    public SwarmAdminSnapshot GetSwarmPage(DateTimeOffset now, string? searchInfoHash, int page, int pageSize)
+    {
+        var nowSeconds = now.ToUnixTimeSeconds();
+        var all = new List<(InfoHashKey InfoHash, int Seeders, int Leechers, int Downloaded)>(256);
+
+        foreach (var shard in _shards)
+        {
+            lock (shard.SyncRoot)
+            {
+                foreach (var pair in shard.Swarms)
+                {
+                    lock (pair.Value.SyncRoot)
+                    {
+                        if (nowSeconds >= pair.Value.NextSweepUnixSeconds)
+                        {
+                            PruneExpiredUnlocked(pair.Value, nowSeconds);
+                            pair.Value.NextSweepUnixSeconds = nowSeconds + _options.ExpirySweepIntervalSeconds;
+                        }
+
+                        if (pair.Value.Peers.Count == 0)
+                            continue;
+
+                        if (searchInfoHash is not null)
+                        {
+                            var hex = pair.Key.ToHexString();
+                            if (!hex.Contains(searchInfoHash, StringComparison.OrdinalIgnoreCase))
+                                continue;
+                        }
+
+                        all.Add((pair.Key, pair.Value.SeederCount, pair.Value.LeecherCount, pair.Value.DownloadedCount));
+                    }
+                }
+            }
+        }
+
+        all.Sort(static (a, b) =>
+        {
+            var totalA = a.Seeders + a.Leechers;
+            var totalB = b.Seeders + b.Leechers;
+            return totalB.CompareTo(totalA);
+        });
+
+        var totalCount = all.Count;
+        var skip = (page - 1) * pageSize;
+        var items = all.Skip(skip).Take(pageSize).ToArray();
+
+        return new SwarmAdminSnapshot(totalCount, items);
+    }
+
+    /// <summary>
+    /// Returns detailed info about a single swarm including all peers.
+    /// Used by admin detail endpoint.
+    /// </summary>
+    public SwarmAdminDetail? GetSwarmDetail(InfoHashKey infoHash, DateTimeOffset now)
+    {
+        var swarm = GetExistingSwarm(infoHash);
+        if (swarm is null) return null;
+
+        var nowSeconds = now.ToUnixTimeSeconds();
+        lock (swarm.SyncRoot)
+        {
+            if (nowSeconds >= swarm.NextSweepUnixSeconds)
+            {
+                PruneExpiredUnlocked(swarm, nowSeconds);
+                swarm.NextSweepUnixSeconds = nowSeconds + _options.ExpirySweepIntervalSeconds;
+            }
+
+            if (swarm.Peers.Count == 0) return null;
+
+            var peers = new SwarmAdminPeer[swarm.Peers.Count];
+            for (var i = 0; i < swarm.Peers.Count; i++)
+            {
+                var p = swarm.Peers[i];
+                peers[i] = new SwarmAdminPeer(
+                    p.PeerId.ToHexString(),
+                    p.Endpoint.ToIpString(),
+                    p.Endpoint.Port,
+                    p.Uploaded,
+                    p.Downloaded,
+                    p.Left,
+                    p.IsSeeder,
+                    p.ExpiresAtUnixSeconds);
+            }
+
+            return new SwarmAdminDetail(
+                infoHash.ToHexString(),
+                swarm.SeederCount,
+                swarm.LeecherCount,
+                swarm.DownloadedCount,
+                peers);
+        }
+    }
+
+    /// <summary>
+    /// Removes stale (expired) peers from a specific swarm. Returns the number of peers removed.
+    /// Used by admin cleanup endpoint.
+    /// </summary>
+    public int CleanupSwarm(InfoHashKey infoHash, DateTimeOffset now)
+    {
+        var swarm = GetExistingSwarm(infoHash);
+        if (swarm is null) return 0;
+
+        var nowSeconds = now.ToUnixTimeSeconds();
+        lock (swarm.SyncRoot)
+        {
+            var before = swarm.Peers.Count;
+            PruneExpiredUnlocked(swarm, nowSeconds);
+            return before - swarm.Peers.Count;
+        }
+    }
+
     private static bool ShouldRecordCompleted(PeerState existing, in AnnounceRequest request)
     {
         return request.Event == TrackerEvent.Completed
@@ -449,3 +566,26 @@ public sealed class PartitionedRuntimeSwarmStore : IRuntimeSwarmStore
             && existing.Left > 0;
     }
 }
+
+// ─── Admin Read Models ─────────────────────────────────────────────────────
+
+public sealed record SwarmAdminSnapshot(
+    int TotalCount,
+    (InfoHashKey InfoHash, int Seeders, int Leechers, int Downloaded)[] Items);
+
+public sealed record SwarmAdminPeer(
+    string PeerId,
+    string Ip,
+    int Port,
+    long Uploaded,
+    long Downloaded,
+    long Left,
+    bool IsSeeder,
+    long ExpiresAtUnixSeconds);
+
+public sealed record SwarmAdminDetail(
+    string InfoHash,
+    int Seeders,
+    int Leechers,
+    int Downloaded,
+    SwarmAdminPeer[] Peers);

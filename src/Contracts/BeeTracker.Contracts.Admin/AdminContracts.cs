@@ -510,3 +510,68 @@ public sealed record SwarmPeerDto(
 public sealed record SwarmListResultDto(
     int TotalCount,
     IReadOnlyCollection<SwarmSummaryDto> Items);
+
+// ─── Cluster Swarm Aggregation ────────────────────────────────────────────
+
+/// <summary>
+/// Response from a single gateway node for swarm listing.
+/// </summary>
+public sealed record NodeSwarmListResponseDto(
+    string NodeId,
+    int TotalCount,
+    int Page,
+    int PageSize,
+    IReadOnlyCollection<SwarmSummaryDto> Items);
+
+/// <summary>
+/// Response from a single gateway node for swarm detail.
+/// </summary>
+public sealed record NodeSwarmDetailResponseDto(
+    string NodeId,
+    string InfoHash,
+    int Seeders,
+    int Leechers,
+    int Downloaded,
+    IReadOnlyCollection<SwarmPeerDto> Peers);
+
+/// <summary>
+/// Response from a single gateway node for swarm cleanup.
+/// </summary>
+public sealed record NodeSwarmCleanupResponseDto(
+    string NodeId,
+    string InfoHash,
+    int RemovedPeers);
+
+/// <summary>
+/// Aggregated cluster-wide swarm listing with partial failure metadata.
+/// </summary>
+public sealed record AggregatedSwarmListResultDto(
+    int TotalCount,
+    IReadOnlyCollection<SwarmSummaryDto> Items,
+    int RespondedNodeCount,
+    int TotalNodeCount,
+    IReadOnlyCollection<string> FailedNodeIds,
+    DateTimeOffset ObservedAtUtc);
+
+/// <summary>
+/// Aggregated cluster-wide swarm detail. Merges peer lists from all nodes.
+/// </summary>
+public sealed record AggregatedSwarmDetailDto(
+    string InfoHash,
+    int Seeders,
+    int Leechers,
+    int Downloaded,
+    IReadOnlyCollection<SwarmPeerDto> Peers,
+    IReadOnlyCollection<string> ContributingNodeIds,
+    IReadOnlyCollection<string> FailedNodeIds,
+    DateTimeOffset ObservedAtUtc);
+
+/// <summary>
+/// Aggregated cleanup result across all gateway nodes.
+/// </summary>
+public sealed record AggregatedSwarmCleanupResultDto(
+    string InfoHash,
+    int TotalRemovedPeers,
+    IReadOnlyCollection<NodeSwarmCleanupResponseDto> NodeResults,
+    IReadOnlyCollection<string> FailedNodeIds,
+    DateTimeOffset ObservedAtUtc);

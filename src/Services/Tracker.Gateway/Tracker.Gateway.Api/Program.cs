@@ -648,6 +648,108 @@ app.MapGet("/admin/config/validate", (
 app.MapGet("/admin/node/config", (ITrackerNodeConfigurationSnapshotAccessor accessor)
     => Results.Ok(accessor.Current));
 
+// ─── Swarm Administration Endpoints ──────────────────────────────────────────
+
+/// <summary>
+/// Returns a paginated list of active swarms on this gateway node.
+/// Used by the admin service to aggregate cluster-wide swarm data.
+/// </summary>
+app.MapGet("/admin/swarms", (
+    string? search,
+    int? page,
+    int? pageSize,
+    IRuntimeSwarmStore runtimeSwarmStore,
+    IOptions<TrackerNodeOptions> nodeOptions) =>
+{
+    var store = (PartitionedRuntimeSwarmStore)runtimeSwarmStore;
+    var p = Math.Max(1, page ?? 1);
+    var ps = Math.Clamp(pageSize ?? 50, 1, 500);
+    var snapshot = store.GetSwarmPage(DateTimeOffset.UtcNow, search, p, ps);
+
+    var items = snapshot.Items.Select(static item => new BeeTracker.Contracts.Admin.SwarmSummaryDto(
+        item.InfoHash.ToHexString(),
+        item.Seeders,
+        item.Leechers,
+        item.Downloaded)).ToArray();
+
+    return Results.Ok(new
+    {
+        nodeId = nodeOptions.Value.NodeId,
+        totalCount = snapshot.TotalCount,
+        page = p,
+        pageSize = ps,
+        items
+    });
+});
+
+/// <summary>
+/// Returns detailed info about a single swarm on this gateway node, including all peers.
+/// </summary>
+app.MapGet("/admin/swarms/{infoHash}", (
+    string infoHash,
+    IRuntimeSwarmStore runtimeSwarmStore,
+    IOptions<TrackerNodeOptions> nodeOptions) =>
+{
+    if (infoHash.Length != 40 || !IsHexString(infoHash))
+    {
+        return Results.BadRequest(new { error = "info_hash must be a 40-character hex string" });
+    }
+
+    var store = (PartitionedRuntimeSwarmStore)runtimeSwarmStore;
+    var key = InfoHashKey.FromBytes(Convert.FromHexString(infoHash));
+    var detail = store.GetSwarmDetail(key, DateTimeOffset.UtcNow);
+
+    if (detail is null)
+    {
+        return Results.NotFound(new { error = "swarm_not_found", nodeId = nodeOptions.Value.NodeId });
+    }
+
+    return Results.Ok(new
+    {
+        nodeId = nodeOptions.Value.NodeId,
+        infoHash = detail.InfoHash,
+        seeders = detail.Seeders,
+        leechers = detail.Leechers,
+        downloaded = detail.Downloaded,
+        peers = detail.Peers.Select(static p => new BeeTracker.Contracts.Admin.SwarmPeerDto(
+            p.PeerId, p.Ip, p.Port, p.Uploaded, p.Downloaded, p.Left, p.IsSeeder))
+    });
+});
+
+/// <summary>
+/// Removes stale (expired) peers from a specific swarm on this gateway node.
+/// </summary>
+app.MapPost("/admin/swarms/{infoHash}/cleanup", (
+    string infoHash,
+    IRuntimeSwarmStore runtimeSwarmStore,
+    IOptions<TrackerNodeOptions> nodeOptions) =>
+{
+    if (infoHash.Length != 40 || !IsHexString(infoHash))
+    {
+        return Results.BadRequest(new { error = "info_hash must be a 40-character hex string" });
+    }
+
+    var store = (PartitionedRuntimeSwarmStore)runtimeSwarmStore;
+    var key = InfoHashKey.FromBytes(Convert.FromHexString(infoHash));
+    var removed = store.CleanupSwarm(key, DateTimeOffset.UtcNow);
+
+    return Results.Ok(new
+    {
+        nodeId = nodeOptions.Value.NodeId,
+        infoHash,
+        removedPeers = removed
+    });
+});
+
+static bool IsHexString(string value)
+{
+    foreach (var c in value)
+    {
+        if (!char.IsAsciiHexDigit(c)) return false;
+    }
+    return true;
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

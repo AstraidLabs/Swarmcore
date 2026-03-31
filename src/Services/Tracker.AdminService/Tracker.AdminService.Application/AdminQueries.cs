@@ -263,6 +263,44 @@ public interface IGatewayAdminClient
     Task<NodeOperationalStateDto?> DrainNodeAsync(string nodeKey, string nodeId, CancellationToken cancellationToken);
     Task<NodeOperationalStateDto?> SetMaintenanceAsync(string nodeKey, string nodeId, CancellationToken cancellationToken);
     Task<NodeOperationalStateDto?> ActivateNodeAsync(string nodeKey, string nodeId, CancellationToken cancellationToken);
+    Task<NodeSwarmListResponseDto?> GetSwarmsAsync(string nodeKey, string? search, int page, int pageSize, CancellationToken cancellationToken);
+    Task<NodeSwarmDetailResponseDto?> GetSwarmDetailAsync(string nodeKey, string infoHash, CancellationToken cancellationToken);
+    Task<NodeSwarmCleanupResponseDto?> CleanupSwarmAsync(string nodeKey, string infoHash, CancellationToken cancellationToken);
+}
+
+// ─── Swarm Aggregation Service ──────────────────────────────────────────────
+
+/// <summary>
+/// Aggregates runtime swarm data from all gateway nodes in the cluster.
+/// Handles partial failures gracefully and reports metadata about which nodes responded.
+/// </summary>
+public interface ISwarmAggregationService
+{
+    Task<AggregatedSwarmListResultDto> ListSwarmsAsync(string? search, int page, int pageSize, CancellationToken cancellationToken);
+    Task<AggregatedSwarmDetailDto?> GetSwarmDetailAsync(string infoHash, CancellationToken cancellationToken);
+    Task<AggregatedSwarmCleanupResultDto> CleanupSwarmAsync(string infoHash, CancellationToken cancellationToken);
+}
+
+public sealed record ListSwarmsQuery(string? Search, int Page, int PageSize) : IRequest<AggregatedSwarmListResultDto>;
+public sealed record GetSwarmDetailQuery(string InfoHash) : IRequest<AggregatedSwarmDetailDto?>;
+public sealed record CleanupSwarmCommand(string InfoHash) : IRequest<AggregatedSwarmCleanupResultDto>;
+
+internal sealed class ListSwarmsQueryHandler(ISwarmAggregationService aggregation) : IRequestHandler<ListSwarmsQuery, AggregatedSwarmListResultDto>
+{
+    public Task<AggregatedSwarmListResultDto> Handle(ListSwarmsQuery request, CancellationToken cancellationToken)
+        => aggregation.ListSwarmsAsync(request.Search, request.Page, request.PageSize, cancellationToken);
+}
+
+internal sealed class GetSwarmDetailQueryHandler(ISwarmAggregationService aggregation) : IRequestHandler<GetSwarmDetailQuery, AggregatedSwarmDetailDto?>
+{
+    public Task<AggregatedSwarmDetailDto?> Handle(GetSwarmDetailQuery request, CancellationToken cancellationToken)
+        => aggregation.GetSwarmDetailAsync(request.InfoHash, cancellationToken);
+}
+
+internal sealed class CleanupSwarmCommandHandler(ISwarmAggregationService aggregation) : IRequestHandler<CleanupSwarmCommand, AggregatedSwarmCleanupResultDto>
+{
+    public Task<AggregatedSwarmCleanupResultDto> Handle(CleanupSwarmCommand request, CancellationToken cancellationToken)
+        => aggregation.CleanupSwarmAsync(request.InfoHash, cancellationToken);
 }
 
 // ─── Notification Outbox Admin Reader ───────────────────────────────────────

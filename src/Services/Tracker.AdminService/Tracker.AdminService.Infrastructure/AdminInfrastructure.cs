@@ -11,6 +11,7 @@ using BeeTracker.BuildingBlocks.Infrastructure.Data;
 using BeeTracker.Contracts.Admin;
 using BeeTracker.Contracts.Configuration;
 using BeeTracker.Contracts.Runtime;
+using Microsoft.Extensions.Logging;
 using Tracker.AdminService.Application;
 using Notification.Infrastructure;
 using Tracker.ConfigurationService.Application;
@@ -1700,6 +1701,205 @@ public sealed class EfNotificationAdminReader(
     }
 }
 
+// ─── Swarm Aggregation Service ──────────────────────────────────────────────
+
+/// <summary>
+/// Aggregates runtime swarm data by proxying to all known gateway nodes in parallel.
+/// Handles partial failures gracefully — responses include metadata about which nodes contributed.
+/// </summary>
+public sealed class GatewaySwarmAggregationService(
+    IGatewayAdminClient gatewayClient,
+    ITrackerNodeConfigurationReader configReader,
+    ILogger<GatewaySwarmAggregationService> logger) : ISwarmAggregationService
+{
+    public async Task<AggregatedSwarmListResultDto> ListSwarmsAsync(string? search, int page, int pageSize, CancellationToken cancellationToken)
+    {
+        var nodeKeys = await GetAllNodeKeysAsync(cancellationToken);
+
+        var tasks = nodeKeys.Select(nodeKey => FetchSwarmsFromNodeAsync(nodeKey, search, page, pageSize, cancellationToken)).ToArray();
+        var results = await Task.WhenAll(tasks);
+
+        var allItems = new Dictionary<string, SwarmSummaryDto>(StringComparer.OrdinalIgnoreCase);
+        var failedNodeIds = new List<string>();
+        var respondedCount = 0;
+
+        for (var i = 0; i < results.Length; i++)
+        {
+            var (nodeKey, response) = results[i];
+            if (response is null)
+            {
+                failedNodeIds.Add(nodeKey);
+                continue;
+            }
+
+            respondedCount++;
+            foreach (var item in response.Items)
+            {
+                if (allItems.TryGetValue(item.InfoHash, out var existing))
+                {
+                    allItems[item.InfoHash] = new SwarmSummaryDto(
+                        item.InfoHash,
+                        existing.Seeders + item.Seeders,
+                        existing.Leechers + item.Leechers,
+                        existing.Downloaded + item.Downloaded);
+                }
+                else
+                {
+                    allItems[item.InfoHash] = item;
+                }
+            }
+        }
+
+        var sorted = allItems.Values
+            .OrderByDescending(static s => s.Seeders + s.Leechers)
+            .ToArray();
+
+        var totalCount = sorted.Length;
+        var paged = sorted
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToArray();
+
+        return new AggregatedSwarmListResultDto(
+            totalCount,
+            paged,
+            respondedCount,
+            nodeKeys.Count,
+            failedNodeIds,
+            DateTimeOffset.UtcNow);
+    }
+
+    public async Task<AggregatedSwarmDetailDto?> GetSwarmDetailAsync(string infoHash, CancellationToken cancellationToken)
+    {
+        var nodeKeys = await GetAllNodeKeysAsync(cancellationToken);
+
+        var tasks = nodeKeys.Select(nodeKey => FetchSwarmDetailFromNodeAsync(nodeKey, infoHash, cancellationToken)).ToArray();
+        var results = await Task.WhenAll(tasks);
+
+        var allPeers = new List<SwarmPeerDto>();
+        var contributingNodeIds = new List<string>();
+        var failedNodeIds = new List<string>();
+        var totalSeeders = 0;
+        var totalLeechers = 0;
+        var totalDownloaded = 0;
+
+        for (var i = 0; i < results.Length; i++)
+        {
+            var (nodeKey, response) = results[i];
+            if (response is null)
+            {
+                failedNodeIds.Add(nodeKey);
+                continue;
+            }
+
+            if (response.Peers.Count > 0 || response.Seeders > 0 || response.Leechers > 0)
+            {
+                contributingNodeIds.Add(response.NodeId);
+                totalSeeders += response.Seeders;
+                totalLeechers += response.Leechers;
+                totalDownloaded += response.Downloaded;
+                allPeers.AddRange(response.Peers);
+            }
+        }
+
+        if (contributingNodeIds.Count == 0 && failedNodeIds.Count == 0)
+            return null;
+
+        return new AggregatedSwarmDetailDto(
+            infoHash,
+            totalSeeders,
+            totalLeechers,
+            totalDownloaded,
+            allPeers,
+            contributingNodeIds,
+            failedNodeIds,
+            DateTimeOffset.UtcNow);
+    }
+
+    public async Task<AggregatedSwarmCleanupResultDto> CleanupSwarmAsync(string infoHash, CancellationToken cancellationToken)
+    {
+        var nodeKeys = await GetAllNodeKeysAsync(cancellationToken);
+
+        var tasks = nodeKeys.Select(nodeKey => CleanupSwarmOnNodeAsync(nodeKey, infoHash, cancellationToken)).ToArray();
+        var results = await Task.WhenAll(tasks);
+
+        var nodeResults = new List<NodeSwarmCleanupResponseDto>();
+        var failedNodeIds = new List<string>();
+        var totalRemoved = 0;
+
+        for (var i = 0; i < results.Length; i++)
+        {
+            var (nodeKey, response) = results[i];
+            if (response is null)
+            {
+                failedNodeIds.Add(nodeKey);
+                continue;
+            }
+
+            nodeResults.Add(response);
+            totalRemoved += response.RemovedPeers;
+        }
+
+        return new AggregatedSwarmCleanupResultDto(
+            infoHash,
+            totalRemoved,
+            nodeResults,
+            failedNodeIds,
+            DateTimeOffset.UtcNow);
+    }
+
+    private async Task<IReadOnlyList<string>> GetAllNodeKeysAsync(CancellationToken cancellationToken)
+    {
+        var configs = await configReader.ListTrackerNodeConfigurationsAsync(cancellationToken);
+        return configs.Select(static c => c.NodeKey).ToArray();
+    }
+
+    private async Task<(string NodeKey, NodeSwarmListResponseDto? Response)> FetchSwarmsFromNodeAsync(
+        string nodeKey, string? search, int page, int pageSize, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await gatewayClient.GetSwarmsAsync(nodeKey, search, 1, 10000, cancellationToken);
+            return (nodeKey, response);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to fetch swarm list from gateway node {NodeKey}", nodeKey);
+            return (nodeKey, null);
+        }
+    }
+
+    private async Task<(string NodeKey, NodeSwarmDetailResponseDto? Response)> FetchSwarmDetailFromNodeAsync(
+        string nodeKey, string infoHash, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await gatewayClient.GetSwarmDetailAsync(nodeKey, infoHash, cancellationToken);
+            return (nodeKey, response);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to fetch swarm detail from gateway node {NodeKey}", nodeKey);
+            return (nodeKey, null);
+        }
+    }
+
+    private async Task<(string NodeKey, NodeSwarmCleanupResponseDto? Response)> CleanupSwarmOnNodeAsync(
+        string nodeKey, string infoHash, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await gatewayClient.CleanupSwarmAsync(nodeKey, infoHash, cancellationToken);
+            return (nodeKey, response);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to cleanup swarm on gateway node {NodeKey}", nodeKey);
+            return (nodeKey, null);
+        }
+    }
+}
+
 // ─── Gateway Admin Proxy Client ─────────────────────────────────────────────
 
 public sealed class HttpGatewayAdminClient(
@@ -1734,6 +1934,20 @@ public sealed class HttpGatewayAdminClient(
 
     public Task<NodeOperationalStateDto?> ActivateNodeAsync(string nodeKey, string nodeId, CancellationToken cancellationToken)
         => PostAsync<NodeOperationalStateDto>(nodeKey, $"/admin/nodes/{Uri.EscapeDataString(nodeId)}/activate", cancellationToken);
+
+    public Task<NodeSwarmListResponseDto?> GetSwarmsAsync(string nodeKey, string? search, int page, int pageSize, CancellationToken cancellationToken)
+    {
+        var query = $"/admin/swarms?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrWhiteSpace(search))
+            query += $"&search={Uri.EscapeDataString(search)}";
+        return GetAsync<NodeSwarmListResponseDto>(nodeKey, query, cancellationToken);
+    }
+
+    public Task<NodeSwarmDetailResponseDto?> GetSwarmDetailAsync(string nodeKey, string infoHash, CancellationToken cancellationToken)
+        => GetAsync<NodeSwarmDetailResponseDto>(nodeKey, $"/admin/swarms/{Uri.EscapeDataString(infoHash)}", cancellationToken);
+
+    public Task<NodeSwarmCleanupResponseDto?> CleanupSwarmAsync(string nodeKey, string infoHash, CancellationToken cancellationToken)
+        => PostAsync<NodeSwarmCleanupResponseDto>(nodeKey, $"/admin/swarms/{Uri.EscapeDataString(infoHash)}/cleanup", cancellationToken);
 
     private async Task<string?> ResolveBaseUrlAsync(string nodeKey, CancellationToken cancellationToken)
     {
@@ -1812,6 +2026,7 @@ public static class AdminInfrastructureServiceCollectionExtensions
         services.AddScoped<IAdminMutationOrchestrator, ConfigurationMutationOrchestrator>();
         services.AddScoped<INotificationAdminReader, EfNotificationAdminReader>();
         services.AddHttpClient<IGatewayAdminClient, HttpGatewayAdminClient>();
+        services.AddScoped<ISwarmAggregationService, GatewaySwarmAggregationService>();
         return services;
     }
 }
