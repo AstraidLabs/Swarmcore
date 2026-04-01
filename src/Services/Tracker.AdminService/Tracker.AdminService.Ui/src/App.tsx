@@ -361,6 +361,39 @@ type AbuseDiagnosticsEntryDto = {
   restrictionLevel: string;
 };
 
+type AbuseEventDto = {
+  id: string;
+  nodeId: string;
+  ip: string;
+  passkey?: string | null;
+  eventType: string;
+  scoreContribution: number;
+  detail?: string | null;
+  occurredAtUtc: string;
+};
+
+type AbuseEventFeedResultDto = {
+  items: AbuseEventDto[];
+  totalCount: number;
+};
+
+type AggregatedAbuseOffenderDto = {
+  ip: string;
+  totalEvents: number;
+  totalScore: number;
+  highestRestriction: string;
+  firstSeenUtc: string;
+  lastSeenUtc: string;
+};
+
+type AbuseOverviewDto = {
+  totalEvents: number;
+  distinctIps: number;
+  distinctPasskeys: number;
+  topOffenders: AggregatedAbuseOffenderDto[];
+  observedAtUtc: string;
+};
+
 type ClusterShardDiagnosticsDto = {
   observedAtUtc: string;
   totalShards: number;
@@ -2429,8 +2462,18 @@ function AbusePage({
   const [nodes, setNodes] = useState<TrackerNodeCatalogItemDto[]>([]);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [abuse, setAbuse] = useState<AbuseDiagnosticsDto | null>(null);
+  const [overview, setOverview] = useState<AbuseOverviewDto | null>(null);
+  const [eventFeed, setEventFeed] = useState<AbuseEventFeedResultDto | null>(null);
+  const [eventPage, setEventPage] = useState(1);
+  const [ipFilter, setIpFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isOverviewLoading, setIsOverviewLoading] = useState(true);
+  const [isFeedLoading, setIsFeedLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [promoteIp, setPromoteIp] = useState<string | null>(null);
+  const [promoteReason, setPromoteReason] = useState("Automated abuse detection");
+  const [promoteMessage, setPromoteMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"realtime" | "persistent" | "feed">("persistent");
 
   useEffect(() => {
     let isMounted = true;
@@ -2451,12 +2494,28 @@ function AbusePage({
     return () => { isMounted = false; };
   }, [accessToken, onReauthenticate]);
 
+  // Load persistent cross-node overview
+  useEffect(() => {
+    let isMounted = true;
+    setIsOverviewLoading(true);
+    apiRequest<AbuseOverviewDto>(
+      "/api/admin/abuse/overview?topOffenderCount=50",
+      accessToken,
+      onReauthenticate
+    ).then((data) => {
+      if (isMounted) { setOverview(data); setIsOverviewLoading(false); }
+    }).catch(() => {
+      if (isMounted) setIsOverviewLoading(false);
+    });
+    return () => { isMounted = false; };
+  }, [accessToken, onReauthenticate]);
+
+  // Load realtime node diagnostics
   useEffect(() => {
     if (!selectedNodeKey) return;
     let isMounted = true;
     setIsLoading(true);
     setAbuse(null);
-    setError(null);
 
     apiRequest<AbuseDiagnosticsDto>(
       `/api/admin/gateway/${encodeURIComponent(selectedNodeKey)}/abuse/diagnostics`,
@@ -2474,96 +2533,299 @@ function AbusePage({
     return () => { isMounted = false; };
   }, [selectedNodeKey, accessToken, onReauthenticate]);
 
+  // Load event feed
+  useEffect(() => {
+    let isMounted = true;
+    setIsFeedLoading(true);
+    const params = new URLSearchParams({ page: String(eventPage), pageSize: "25" });
+    if (ipFilter.trim()) params.set("ip", ipFilter.trim());
+    apiRequest<AbuseEventFeedResultDto>(
+      `/api/admin/abuse/events?${params}`,
+      accessToken,
+      onReauthenticate
+    ).then((data) => {
+      if (isMounted) { setEventFeed(data); setIsFeedLoading(false); }
+    }).catch(() => {
+      if (isMounted) setIsFeedLoading(false);
+    });
+    return () => { isMounted = false; };
+  }, [accessToken, onReauthenticate, eventPage, ipFilter]);
+
   const restrictionTone = (level: string): "good" | "warn" | "neutral" =>
     level === "None" ? "good" : level === "Warned" ? "neutral" : "warn";
+
+  const handlePromoteBan = async (ip: string) => {
+    try {
+      setPromoteMessage(null);
+      await apiMutation<BanRuleAdminDto, { reason: string; expiresAtUtc: string | null }>(
+        `/api/admin/abuse/promote-ban/${encodeURIComponent(ip)}`,
+        "POST",
+        accessToken,
+        { reason: promoteReason, expiresAtUtc: null },
+        onReauthenticate
+      );
+      setPromoteMessage(`IP ban created for ${ip}.`);
+      setPromoteIp(null);
+    } catch (err) {
+      setPromoteMessage(err instanceof Error ? err.message : "Failed to create IP ban.");
+    }
+  };
 
   return (
     <div className="app-page-stack">
       {error && <div className="app-notice-warn"><p>{error}</p></div>}
+      {promoteMessage && <div className="app-notice-good"><p>{promoteMessage}</p></div>}
 
-      <Card title="Target node" eyebrow="Gateway">
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium text-steel">Node</span>
-          <select
-            className="app-input w-64"
-            value={selectedNodeKey ?? ""}
-            onChange={(e) => setSelectedNodeKey(e.target.value || null)}
-          >
-            {nodes.length === 0 && <option value="">No nodes configured</option>}
-            {nodes.map((node) => (
-              <option key={node.nodeKey} value={node.nodeKey}>
-                {node.nodeName} ({node.nodeKey}) &mdash; {node.region}
-              </option>
-            ))}
-          </select>
-        </label>
-      </Card>
+      {/* Tab navigation */}
+      <div className="flex gap-2 border-b border-slate-200 pb-1">
+        {(["persistent", "realtime", "feed"] as const).map((tab) => (
+          <button key={tab} type="button"
+            className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${activeTab === tab ? "bg-white border border-b-0 border-slate-200 text-ink" : "text-steel hover:text-ink"}`}
+            onClick={() => setActiveTab(tab)}>
+            {tab === "persistent" ? "Cross-node overview" : tab === "realtime" ? "Realtime (per node)" : "Event feed"}
+          </button>
+        ))}
+      </div>
 
-      {isLoading && selectedNodeKey && (
-        <Card title="Loading"><p className="text-sm text-ink/60">Fetching abuse diagnostics from gateway...</p></Card>
+      {/* Cross-node persistent overview */}
+      {activeTab === "persistent" && (
+        <>
+          {isOverviewLoading ? (
+            <Card title="Loading"><p className="text-sm text-ink/60">Loading cross-node abuse overview...</p></Card>
+          ) : overview ? (
+            <>
+              <section className="grid gap-4 md:grid-cols-3">
+                {([
+                  ["Events (24h)", overview.totalEvents],
+                  ["Distinct IPs", overview.distinctIps],
+                  ["Distinct Passkeys", overview.distinctPasskeys]
+                ] as const).map(([label, count]) => (
+                  <div key={label} className="app-stat-card">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{label}</p>
+                    <p className="mt-2 text-2xl font-bold text-ink">{count.toLocaleString()}</p>
+                  </div>
+                ))}
+              </section>
+
+              <Card title="Top offenders (cross-node, 24h)" eyebrow="Persistent Abuse Intelligence">
+                {overview.topOffenders.length === 0 ? (
+                  <p className="text-sm text-steel">No abuse events recorded in the last 24 hours.</p>
+                ) : (
+                  <div className="app-data-table">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="app-table-head">
+                          <tr>
+                            <th className="px-5 py-4">IP</th>
+                            <th className="px-5 py-4">Events</th>
+                            <th className="px-5 py-4">Score</th>
+                            <th className="px-5 py-4">Restriction</th>
+                            <th className="px-5 py-4">First seen</th>
+                            <th className="px-5 py-4">Last seen</th>
+                            <th className="px-5 py-4">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {overview.topOffenders.map((offender) => (
+                            <tr key={offender.ip} className="border-t border-slate-100 hover:bg-slate-50/60">
+                              <td className="px-5 py-4 font-mono text-xs font-medium text-ink">{offender.ip}</td>
+                              <td className="px-5 py-4 text-steel">{offender.totalEvents}</td>
+                              <td className="px-5 py-4 font-semibold text-ink">{offender.totalScore}</td>
+                              <td className="px-5 py-4">
+                                <StatusPill tone={restrictionTone(offender.highestRestriction)}>{offender.highestRestriction}</StatusPill>
+                              </td>
+                              <td className="px-5 py-4 text-steel text-xs">{new Date(offender.firstSeenUtc).toLocaleString()}</td>
+                              <td className="px-5 py-4 text-steel text-xs">{new Date(offender.lastSeenUtc).toLocaleString()}</td>
+                              <td className="px-5 py-4">
+                                <button type="button" className="app-button-danger text-xs py-1 px-2"
+                                  onClick={() => { setPromoteIp(offender.ip); setPromoteReason("Automated abuse detection"); }}>
+                                  Ban IP
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </>
+          ) : (
+            <Card title="Unavailable"><p className="text-sm text-steel">Unable to load cross-node abuse overview. Ensure the abuse_events table exists.</p></Card>
+          )}
+        </>
       )}
 
-      {abuse && (
+      {/* Realtime per-node diagnostics */}
+      {activeTab === "realtime" && (
         <>
-          <section className="grid gap-4 md:grid-cols-5">
-            {([
-              ["Tracked IPs", abuse.trackedIps],
-              ["Tracked Passkeys", abuse.trackedPasskeys],
-              ["Warned", abuse.warnedCount],
-              ["Soft restricted", abuse.softRestrictedCount],
-              ["Hard blocked", abuse.hardBlockedCount]
-            ] as const).map(([label, count]) => (
-              <div key={label} className="app-stat-card">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{label}</p>
-                <p className="mt-2 text-2xl font-bold text-ink">{count.toLocaleString()}</p>
-              </div>
-            ))}
-          </section>
+          <Card title="Target node" eyebrow="Gateway">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-steel">Node</span>
+              <select
+                className="app-input w-64"
+                value={selectedNodeKey ?? ""}
+                onChange={(e) => setSelectedNodeKey(e.target.value || null)}
+              >
+                {nodes.length === 0 && <option value="">No nodes configured</option>}
+                {nodes.map((node) => (
+                  <option key={node.nodeKey} value={node.nodeKey}>
+                    {node.nodeName} ({node.nodeKey}) &mdash; {node.region}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </Card>
 
-          <Card title="Top offenders" eyebrow="Abuse Intelligence">
-            {abuse.topOffenders.length === 0 ? (
-              <p className="text-sm text-steel">No abuse activity detected on this node.</p>
-            ) : (
-              <div className="app-data-table">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="app-table-head">
-                      <tr>
-                        <th className="px-5 py-4">Key</th>
-                        <th className="px-5 py-4">Type</th>
-                        <th className="px-5 py-4">Score</th>
-                        <th className="px-5 py-4">Malformed</th>
-                        <th className="px-5 py-4">Policy denied</th>
-                        <th className="px-5 py-4">PeerID anomaly</th>
-                        <th className="px-5 py-4">Suspicious</th>
-                        <th className="px-5 py-4">Scrape amp.</th>
-                        <th className="px-5 py-4">Restriction</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {abuse.topOffenders.map((offender) => (
-                        <tr key={offender.key} className="border-t border-slate-100 hover:bg-slate-50/60">
-                          <td className="px-5 py-4 font-mono text-xs font-medium text-ink">{offender.key}</td>
-                          <td className="px-5 py-4 text-steel">{offender.keyType}</td>
-                          <td className="px-5 py-4 font-semibold text-ink">{offender.totalScore}</td>
-                          <td className="px-5 py-4 text-steel">{offender.malformedRequestCount}</td>
-                          <td className="px-5 py-4 text-steel">{offender.deniedPolicyCount}</td>
-                          <td className="px-5 py-4 text-steel">{offender.peerIdAnomalyCount}</td>
-                          <td className="px-5 py-4 text-steel">{offender.suspiciousPatternCount}</td>
-                          <td className="px-5 py-4 text-steel">{offender.scrapeAmplificationCount}</td>
-                          <td className="px-5 py-4">
-                            <StatusPill tone={restrictionTone(offender.restrictionLevel)}>{offender.restrictionLevel}</StatusPill>
-                          </td>
+          {isLoading && selectedNodeKey && (
+            <Card title="Loading"><p className="text-sm text-ink/60">Fetching abuse diagnostics from gateway...</p></Card>
+          )}
+
+          {abuse && (
+            <>
+              <section className="grid gap-4 md:grid-cols-5">
+                {([
+                  ["Tracked IPs", abuse.trackedIps],
+                  ["Tracked Passkeys", abuse.trackedPasskeys],
+                  ["Warned", abuse.warnedCount],
+                  ["Soft restricted", abuse.softRestrictedCount],
+                  ["Hard blocked", abuse.hardBlockedCount]
+                ] as const).map(([label, count]) => (
+                  <div key={label} className="app-stat-card">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-steel/70">{label}</p>
+                    <p className="mt-2 text-2xl font-bold text-ink">{count.toLocaleString()}</p>
+                  </div>
+                ))}
+              </section>
+
+              <Card title="Top offenders" eyebrow="Abuse Intelligence">
+                {abuse.topOffenders.length === 0 ? (
+                  <p className="text-sm text-steel">No abuse activity detected on this node.</p>
+                ) : (
+                  <div className="app-data-table">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="app-table-head">
+                          <tr>
+                            <th className="px-5 py-4">Key</th>
+                            <th className="px-5 py-4">Type</th>
+                            <th className="px-5 py-4">Score</th>
+                            <th className="px-5 py-4">Malformed</th>
+                            <th className="px-5 py-4">Policy denied</th>
+                            <th className="px-5 py-4">PeerID anomaly</th>
+                            <th className="px-5 py-4">Suspicious</th>
+                            <th className="px-5 py-4">Scrape amp.</th>
+                            <th className="px-5 py-4">Restriction</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {abuse.topOffenders.map((offender) => (
+                            <tr key={offender.key} className="border-t border-slate-100 hover:bg-slate-50/60">
+                              <td className="px-5 py-4 font-mono text-xs font-medium text-ink">{offender.key}</td>
+                              <td className="px-5 py-4 text-steel">{offender.keyType}</td>
+                              <td className="px-5 py-4 font-semibold text-ink">{offender.totalScore}</td>
+                              <td className="px-5 py-4 text-steel">{offender.malformedRequestCount}</td>
+                              <td className="px-5 py-4 text-steel">{offender.deniedPolicyCount}</td>
+                              <td className="px-5 py-4 text-steel">{offender.peerIdAnomalyCount}</td>
+                              <td className="px-5 py-4 text-steel">{offender.suspiciousPatternCount}</td>
+                              <td className="px-5 py-4 text-steel">{offender.scrapeAmplificationCount}</td>
+                              <td className="px-5 py-4">
+                                <StatusPill tone={restrictionTone(offender.restrictionLevel)}>{offender.restrictionLevel}</StatusPill>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+        </>
+      )}
+
+      {/* Persistent event feed */}
+      {activeTab === "feed" && (
+        <>
+          <Card title="Abuse event feed" eyebrow="Persistent History">
+            <div className="flex items-end gap-3 mb-4">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium text-steel">Filter by IP</span>
+                <input className="app-input w-48 font-mono text-xs" placeholder="e.g. 192.168.1.1"
+                  value={ipFilter} onChange={(e) => { setIpFilter(e.target.value); setEventPage(1); }} />
+              </label>
+            </div>
+            {isFeedLoading ? (
+              <p className="text-sm text-ink/60">Loading events...</p>
+            ) : eventFeed && eventFeed.items.length > 0 ? (
+              <>
+                <div className="app-data-table">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="app-table-head">
+                        <tr>
+                          <th className="px-5 py-4">Time</th>
+                          <th className="px-5 py-4">Node</th>
+                          <th className="px-5 py-4">IP</th>
+                          <th className="px-5 py-4">Passkey</th>
+                          <th className="px-5 py-4">Event</th>
+                          <th className="px-5 py-4">Score</th>
+                          <th className="px-5 py-4">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {eventFeed.items.map((evt) => (
+                          <tr key={evt.id} className="border-t border-slate-100 hover:bg-slate-50/60">
+                            <td className="px-5 py-4 text-xs text-steel whitespace-nowrap">{new Date(evt.occurredAtUtc).toLocaleString()}</td>
+                            <td className="px-5 py-4 text-xs text-steel">{evt.nodeId}</td>
+                            <td className="px-5 py-4 font-mono text-xs font-medium text-ink">{evt.ip}</td>
+                            <td className="px-5 py-4 font-mono text-xs text-steel">{evt.passkey ?? "-"}</td>
+                            <td className="px-5 py-4 text-steel">{evt.eventType}</td>
+                            <td className="px-5 py-4 font-semibold text-ink">+{evt.scoreContribution}</td>
+                            <td className="px-5 py-4">
+                              <button type="button" className="app-button-danger text-xs py-1 px-2"
+                                onClick={() => { setPromoteIp(evt.ip); setPromoteReason(`Abuse event: ${evt.eventType}`); }}>
+                                Ban IP
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+                <div className="flex items-center gap-3 mt-3 text-sm text-steel">
+                  <span>{eventFeed.totalCount} total events</span>
+                  <button type="button" className="app-button-secondary text-xs" disabled={eventPage <= 1} onClick={() => setEventPage((p) => p - 1)}>Previous</button>
+                  <span>Page {eventPage}</span>
+                  <button type="button" className="app-button-secondary text-xs" disabled={eventFeed.items.length < 25} onClick={() => setEventPage((p) => p + 1)}>Next</button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-steel">No abuse events recorded yet.</p>
             )}
           </Card>
         </>
       )}
+
+      {/* Promote to IP Ban modal */}
+      <ConfirmActionModal
+        open={promoteIp !== null}
+        title="Create IP ban"
+        description={`Ban IP address ${promoteIp ?? ""}? This will block all announce and scrape requests from this IP across all nodes.`}
+        confirmLabel="Create ban"
+        onClose={() => setPromoteIp(null)}
+        onConfirm={() => {
+          if (promoteIp) void handlePromoteBan(promoteIp);
+        }}
+      >
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-ink">Reason</span>
+          <input className="app-input" value={promoteReason} onChange={(e) => setPromoteReason(e.target.value)} />
+        </label>
+      </ConfirmActionModal>
     </div>
   );
 }
@@ -5999,7 +6261,13 @@ function BanEditorPage({
           <div className="app-form-grid">
             <label className="space-y-2">
               <span className="text-sm font-medium text-ink">{labels.scope}</span>
-              <input className="app-input" value={form.scope} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value }))} />
+              <select className="app-input" value={form.scope} disabled={!isCreate || isLoading} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value }))}>
+                <option value="">— select —</option>
+                <option value="torrent">torrent</option>
+                <option value="passkey">passkey</option>
+                <option value="user">user</option>
+                <option value="ip">ip</option>
+              </select>
             </label>
             <label className="space-y-2">
               <span className="text-sm font-medium text-ink">{labels.subject}</span>

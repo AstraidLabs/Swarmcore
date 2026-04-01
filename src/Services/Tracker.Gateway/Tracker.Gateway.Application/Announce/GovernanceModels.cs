@@ -128,3 +128,32 @@ public sealed record AbuseDiagnosticsEntry(
     string RestrictionLevel,
     DateTimeOffset FirstSeenUtc,
     DateTimeOffset LastSeenUtc);
+
+// ─── Abuse Events ─────────────────────────────────────────────────────────
+
+public static class AbuseEventTypes
+{
+    public const string MalformedRequest = "malformed_request";
+    public const string DeniedPolicy = "denied_policy";
+    public const string PeerIdAnomaly = "peer_id_anomaly";
+    public const string SuspiciousPattern = "suspicious_pattern";
+    public const string ScrapeAmplification = "scrape_amplification";
+}
+
+public sealed record AbuseEvent(
+    Guid Id,
+    string NodeId,
+    string Ip,
+    string? Passkey,
+    string EventType,
+    int ScoreContribution,
+    string? Detail,
+    DateTimeOffset OccurredAtUtc);
+
+/// <summary>
+/// Fire-and-forget abuse event writer. Does not block the hot path.
+/// </summary>
+public interface IAbuseEventChannelWriter
+{
+    bool TryWrite(AbuseEvent abuseEvent);
+}

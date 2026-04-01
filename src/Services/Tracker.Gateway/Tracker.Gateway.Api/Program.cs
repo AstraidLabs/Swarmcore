@@ -230,6 +230,7 @@ app.MapGet("/announce/{passkey?}", async Task (
     [FromServices] IAnnounceRequestValidator validator,
     [FromServices] IAnnounceAbuseGuard abuseGuard,
     [FromServices] AdvancedAbuseGuard advancedAbuseGuard,
+    [FromServices] IIpBanGuard ipBanGuard,
     [FromServices] IAnnounceService announceService,
     [FromServices] IBencodeResponseWriter bencodeResponseWriter,
     CancellationToken cancellationToken) =>
@@ -277,6 +278,16 @@ app.MapGet("/announce/{passkey?}", async Task (
         }
     }
 
+    // Persistent IP ban check (L1/L2 cached, no DB hit on hot path)
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        if (await ipBanGuard.EvaluateAsync(ip, cancellationToken) is { } ipBanError)
+        {
+            await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, ipBanError.StatusCode, ipBanError.FailureReason, cancellationToken);
+            return;
+        }
+    }
+
     if (abuseGuard.Evaluate(httpContext, request) is { } abuseError)
     {
         TrackerDiagnostics.AnnounceDenied.Add(1, new KeyValuePair<string, object?>("reason", abuseError.FailureReason));
@@ -315,6 +326,7 @@ app.MapGet("/scrape/{passkey?}", async Task (
     [FromServices] IScrapeRequestValidator validator,
     [FromServices] IScrapeAbuseGuard scrapeAbuseGuard,
     [FromServices] AdvancedAbuseGuard advancedAbuseGuard,
+    [FromServices] IIpBanGuard ipBanGuard,
     [FromServices] IScrapeService scrapeService,
     [FromServices] IBencodeResponseWriter bencodeResponseWriter,
     CancellationToken cancellationToken) =>
@@ -353,6 +365,16 @@ app.MapGet("/scrape/{passkey?}", async Task (
         {
             TrackerDiagnostics.AbuseIntelHardBlock.Add(1);
             await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, StatusCodes.Status403Forbidden, "access denied", cancellationToken);
+            return;
+        }
+    }
+
+    // Persistent IP ban check (L1/L2 cached, no DB hit on hot path)
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        if (await ipBanGuard.EvaluateAsync(ip, cancellationToken) is { } ipBanError)
+        {
+            await bencodeResponseWriter.WriteFailureAsync(httpContext.Response, ipBanError.StatusCode, ipBanError.FailureReason, cancellationToken);
             return;
         }
     }

@@ -79,6 +79,11 @@ public interface IPasskeyRedactor
     string? Redact(string? passkey);
 }
 
+public interface IIpBanGuard
+{
+    ValueTask<AnnounceError?> EvaluateAsync(string ip, CancellationToken cancellationToken);
+}
+
 public interface IAnnounceAbuseGuard
 {
     AnnounceError? Evaluate(HttpContext httpContext, in AnnounceRequest request);

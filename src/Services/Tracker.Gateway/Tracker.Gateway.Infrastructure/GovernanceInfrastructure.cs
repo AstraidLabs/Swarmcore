@@ -1,14 +1,17 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Channels;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
 using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using BeeTracker.Caching.Redis;
+using BeeTracker.Persistence.Postgres;
 using Audit.Application;
 using Audit.Domain;
 using Tracker.Gateway.Application.Announce;
@@ -360,6 +363,7 @@ public sealed class GovernanceStartupRecoveryService(
 /// <summary>
 /// Advanced abuse guard with combined IP + passkey scoring, anomaly detection,
 /// and structured abuse diagnostics. Extends basic rate limiting with behavioral analysis.
+/// Emits significant abuse events asynchronously via the abuse event channel.
 /// </summary>
 public sealed class AdvancedAbuseGuard
 {
@@ -367,6 +371,17 @@ public sealed class AdvancedAbuseGuard
     private readonly ConcurrentDictionary<string, AbuseScore> _passkeyScores = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, AbuseScore> _combinedScores = new(StringComparer.Ordinal);
     private long _lastSweepWindow;
+
+    private readonly IAbuseEventChannelWriter? _eventWriter;
+    private readonly string _nodeId;
+
+    public AdvancedAbuseGuard() : this(null, null) { }
+
+    public AdvancedAbuseGuard(IAbuseEventChannelWriter? eventWriter, IOptions<TrackerNodeOptions>? nodeOptions)
+    {
+        _eventWriter = eventWriter;
+        _nodeId = nodeOptions?.Value.NodeId ?? System.Environment.MachineName;
+    }
 
     public void RecordMalformedRequest(string ip, string? passkey)
     {
@@ -378,6 +393,7 @@ public sealed class AdvancedAbuseGuard
             GetOrCreateScore(_passkeyScores, passkey, now).MalformedRequestCount++;
             GetOrCreateScore(_combinedScores, $"{ip}|{passkey}", now).MalformedRequestCount++;
         }
+        EmitEvent(ip, passkey, AbuseEventTypes.MalformedRequest, 3, now);
     }
 
     public void RecordDeniedPolicy(string ip, string? passkey)
@@ -390,6 +406,7 @@ public sealed class AdvancedAbuseGuard
             GetOrCreateScore(_passkeyScores, passkey, now).DeniedPolicyCount++;
             GetOrCreateScore(_combinedScores, $"{ip}|{passkey}", now).DeniedPolicyCount++;
         }
+        EmitEvent(ip, passkey, AbuseEventTypes.DeniedPolicy, 2, now);
     }
 
     public void RecordPeerIdAnomaly(string ip, string? passkey)
@@ -401,6 +418,7 @@ public sealed class AdvancedAbuseGuard
         {
             GetOrCreateScore(_passkeyScores, passkey, now).PeerIdAnomalyCount++;
         }
+        EmitEvent(ip, passkey, AbuseEventTypes.PeerIdAnomaly, 4, now);
     }
 
     public void RecordSuspiciousPattern(string ip, string? passkey)
@@ -412,6 +430,7 @@ public sealed class AdvancedAbuseGuard
         {
             GetOrCreateScore(_passkeyScores, passkey, now).SuspiciousPatternCount++;
         }
+        EmitEvent(ip, passkey, AbuseEventTypes.SuspiciousPattern, 5, now);
     }
 
     public void RecordScrapeAmplification(string ip)
@@ -419,6 +438,13 @@ public sealed class AdvancedAbuseGuard
         var now = DateTimeOffset.UtcNow;
         GetOrCreateScore(_ipScores, ip, now).ScrapeAmplificationCount++;
         TrackerDiagnostics.AbuseIntelScrapeAmplification.Add(1);
+        EmitEvent(ip, null, AbuseEventTypes.ScrapeAmplification, 3, now);
+    }
+
+    private void EmitEvent(string ip, string? passkey, string eventType, int scoreContribution, DateTimeOffset now)
+    {
+        _eventWriter?.TryWrite(new AbuseEvent(
+            Guid.NewGuid(), _nodeId, ip, passkey, eventType, scoreContribution, null, now));
     }
 
     public AbuseRestrictionLevel EvaluateIp(string ip)
@@ -538,6 +564,157 @@ public sealed record AbuseDiagnosticsSummary(
     int WarnedCount,
     int SoftRestrictedCount,
     int HardBlockedCount);
+
+// ─── Abuse Event Channel + Persistence ──────────────────────────────────────
+
+/// <summary>
+/// Bounded channel writer for abuse events. Fire-and-forget from hot path.
+/// </summary>
+public sealed class AbuseEventChannelWriter : IAbuseEventChannelWriter
+{
+    private readonly Channel<AbuseEvent> _channel = Channel.CreateBounded<AbuseEvent>(new BoundedChannelOptions(8_192)
+    {
+        SingleReader = true,
+        SingleWriter = false,
+        FullMode = BoundedChannelFullMode.DropOldest
+    });
+
+    internal ChannelReader<AbuseEvent> Reader => _channel.Reader;
+
+    public bool TryWrite(AbuseEvent abuseEvent) => _channel.Writer.TryWrite(abuseEvent);
+}
+
+/// <summary>
+/// Background service that drains the abuse event channel and persists events to PostgreSQL in batches.
+/// Also publishes events to Redis for cross-node visibility.
+/// </summary>
+public sealed class AbuseEventPersistenceService(
+    AbuseEventChannelWriter channelWriter,
+    IPostgresConnectionFactory postgresConnectionFactory,
+    IRedisCacheClient redisCacheClient,
+    ILogger<AbuseEventPersistenceService> logger) : BackgroundService
+{
+    private const string InsertSql =
+        "INSERT INTO abuse_events (id, node_id, ip, passkey, event_type, score_contribution, detail, occurred_at_utc) " +
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING";
+
+    private const string AbuseRedisChannel = "tracker:abuse:events";
+    private const int MaxBatchSize = 100;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await EnsureTableAsync(stoppingToken);
+
+        var batch = new List<AbuseEvent>(MaxBatchSize);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                // Wait for first item
+                if (!await channelWriter.Reader.WaitToReadAsync(stoppingToken))
+                    break;
+
+                // Drain available items up to batch size
+                batch.Clear();
+                while (batch.Count < MaxBatchSize && channelWriter.Reader.TryRead(out var item))
+                {
+                    batch.Add(item);
+                }
+
+                if (batch.Count == 0)
+                    continue;
+
+                // Persist batch to PostgreSQL
+                await PersistBatchAsync(batch, stoppingToken);
+
+                // Publish to Redis for cross-node aggregation (best effort)
+                await PublishBatchAsync(batch);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Abuse event persistence batch failed. {Count} events dropped.", batch.Count);
+            }
+        }
+    }
+
+    private async Task EnsureTableAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var connection = await postgresConnectionFactory.OpenConnectionAsync(cancellationToken);
+            await using var cmd = new NpgsqlCommand("""
+                CREATE TABLE IF NOT EXISTS abuse_events (
+                    id uuid PRIMARY KEY,
+                    node_id text NOT NULL,
+                    ip text NOT NULL,
+                    passkey text,
+                    event_type text NOT NULL,
+                    score_contribution integer NOT NULL,
+                    detail text,
+                    occurred_at_utc timestamp with time zone NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_abuse_events_occurred ON abuse_events (occurred_at_utc DESC);
+                CREATE INDEX IF NOT EXISTS ix_abuse_events_ip ON abuse_events (ip, occurred_at_utc DESC);
+                """, connection);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+            logger.LogInformation("Abuse events table ensured.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to ensure abuse_events table. Persistence may fail.");
+        }
+    }
+
+    private async Task PersistBatchAsync(List<AbuseEvent> batch, CancellationToken cancellationToken)
+    {
+        await using var connection = await postgresConnectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var batchCommand = new NpgsqlBatch(connection);
+
+        foreach (var evt in batch)
+        {
+            var cmd = new NpgsqlBatchCommand(InsertSql);
+            cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = evt.Id });
+            cmd.Parameters.Add(new NpgsqlParameter<string> { TypedValue = evt.NodeId });
+            cmd.Parameters.Add(new NpgsqlParameter<string> { TypedValue = evt.Ip });
+            cmd.Parameters.Add(new NpgsqlParameter { Value = (object?)evt.Passkey ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter<string> { TypedValue = evt.EventType });
+            cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = evt.ScoreContribution });
+            cmd.Parameters.Add(new NpgsqlParameter { Value = (object?)evt.Detail ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = evt.OccurredAtUtc.UtcDateTime });
+            batchCommand.BatchCommands.Add(cmd);
+        }
+
+        await batchCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task PublishBatchAsync(List<AbuseEvent> batch)
+    {
+        try
+        {
+            foreach (var evt in batch)
+            {
+                var json = JsonSerializer.Serialize(evt, JsonOptions);
+                await redisCacheClient.Subscriber.PublishAsync(
+                    StackExchange.Redis.RedisChannel.Literal(AbuseRedisChannel), json);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Failed to publish abuse events to Redis. Events are still persisted.");
+        }
+    }
+}
 
 /// <summary>
 /// Startup configuration validator. Checks for dangerous or incompatible settings.
