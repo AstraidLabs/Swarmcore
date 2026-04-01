@@ -591,3 +591,38 @@ public sealed record AggregatedSwarmCleanupResultDto(
     IReadOnlyCollection<NodeSwarmCleanupResponseDto> NodeResults,
     IReadOnlyCollection<string> FailedNodeIds,
     DateTimeOffset ObservedAtUtc);
+
+// ─── Abuse Events ─────────────────────────────────────────────────────────
+
+public sealed record AbuseEventDto(
+    Guid Id,
+    string NodeId,
+    string Ip,
+    string? Passkey,
+    string EventType,
+    int ScoreContribution,
+    string? Detail,
+    DateTimeOffset OccurredAtUtc);
+
+public sealed record AbuseEventFeedResultDto(
+    IReadOnlyCollection<AbuseEventDto> Items,
+    int TotalCount);
+
+public sealed record AggregatedAbuseOffenderDto(
+    string Ip,
+    int TotalEvents,
+    int TotalScore,
+    string HighestRestriction,
+    DateTimeOffset FirstSeenUtc,
+    DateTimeOffset LastSeenUtc);
+
+public sealed record AbuseOverviewDto(
+    int TotalEvents,
+    int DistinctIps,
+    int DistinctPasskeys,
+    IReadOnlyCollection<AggregatedAbuseOffenderDto> TopOffenders,
+    DateTimeOffset ObservedAtUtc);
+
+public sealed record PromoteIpBanRequest(
+    string Reason,
+    DateTimeOffset? ExpiresAtUtc);

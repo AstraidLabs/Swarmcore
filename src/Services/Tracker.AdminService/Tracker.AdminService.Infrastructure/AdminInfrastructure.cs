@@ -767,6 +767,143 @@ public sealed class EfBanAdminReader(TrackerConfigurationDbContext dbContext) : 
         };
 }
 
+// ─── Abuse Event Reader ───────────────────────────────────────────────────
+
+public sealed class NpgsqlAbuseEventReader(
+    BeeTracker.Persistence.Postgres.IPostgresConnectionFactory postgresConnectionFactory) : IAbuseEventReader
+{
+    public async Task<AbuseEventFeedResultDto> ListAsync(int page, int pageSize, string? ip, string? eventType, CancellationToken cancellationToken)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+        var offset = (page - 1) * pageSize;
+
+        await using var connection = await postgresConnectionFactory.OpenConnectionAsync(cancellationToken);
+
+        // Count query
+        var countSql = "SELECT COUNT(*) FROM abuse_events WHERE 1=1";
+        var dataSql = "SELECT id, node_id, ip, passkey, event_type, score_contribution, detail, occurred_at_utc FROM abuse_events WHERE 1=1";
+
+        if (!string.IsNullOrWhiteSpace(ip))
+        {
+            countSql += " AND ip = @ip";
+            dataSql += " AND ip = @ip";
+        }
+        if (!string.IsNullOrWhiteSpace(eventType))
+        {
+            countSql += " AND event_type = @eventType";
+            dataSql += " AND event_type = @eventType";
+        }
+
+        dataSql += " ORDER BY occurred_at_utc DESC LIMIT @limit OFFSET @offset";
+
+        await using var countCmd = new NpgsqlCommand(countSql, connection);
+        await using var dataCmd = new NpgsqlCommand(dataSql, connection);
+
+        if (!string.IsNullOrWhiteSpace(ip))
+        {
+            countCmd.Parameters.AddWithValue("ip", ip);
+            dataCmd.Parameters.AddWithValue("ip", ip);
+        }
+        if (!string.IsNullOrWhiteSpace(eventType))
+        {
+            countCmd.Parameters.AddWithValue("eventType", eventType);
+            dataCmd.Parameters.AddWithValue("eventType", eventType);
+        }
+        dataCmd.Parameters.AddWithValue("limit", pageSize);
+        dataCmd.Parameters.AddWithValue("offset", offset);
+
+        var totalCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync(cancellationToken));
+
+        var items = new List<AbuseEventDto>();
+        await using var reader = await dataCmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(new AbuseEventDto(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.GetString(4),
+                reader.GetInt32(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                new DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc))));
+        }
+
+        return new AbuseEventFeedResultDto(items, totalCount);
+    }
+
+    public async Task<AbuseOverviewDto> GetOverviewAsync(int topOffenderCount, CancellationToken cancellationToken)
+    {
+        topOffenderCount = Math.Clamp(topOffenderCount, 1, 200);
+
+        await using var connection = await postgresConnectionFactory.OpenConnectionAsync(cancellationToken);
+
+        // Aggregate stats
+        await using var statsCmd = new NpgsqlCommand("""
+            SELECT
+                COUNT(*)::int AS total_events,
+                COUNT(DISTINCT ip)::int AS distinct_ips,
+                COUNT(DISTINCT passkey) FILTER (WHERE passkey IS NOT NULL)::int AS distinct_passkeys
+            FROM abuse_events
+            WHERE occurred_at_utc > NOW() - INTERVAL '24 hours'
+            """, connection);
+
+        int totalEvents = 0, distinctIps = 0, distinctPasskeys = 0;
+        await using (var reader = await statsCmd.ExecuteReaderAsync(cancellationToken))
+        {
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                totalEvents = reader.GetInt32(0);
+                distinctIps = reader.GetInt32(1);
+                distinctPasskeys = reader.GetInt32(2);
+            }
+        }
+
+        // Top offenders by IP
+        await using var offendersCmd = new NpgsqlCommand("""
+            SELECT
+                ip,
+                COUNT(*)::int AS total_events,
+                SUM(score_contribution)::int AS total_score,
+                MIN(occurred_at_utc) AS first_seen,
+                MAX(occurred_at_utc) AS last_seen
+            FROM abuse_events
+            WHERE occurred_at_utc > NOW() - INTERVAL '24 hours'
+            GROUP BY ip
+            ORDER BY total_score DESC
+            LIMIT @limit
+            """, connection);
+        offendersCmd.Parameters.AddWithValue("limit", topOffenderCount);
+
+        var offenders = new List<AggregatedAbuseOffenderDto>();
+        await using (var reader = await offendersCmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var totalScore = reader.GetInt32(2);
+                var restriction = totalScore switch
+                {
+                    >= 50 => "HardBlock",
+                    >= 25 => "SoftRestrict",
+                    >= 10 => "Warned",
+                    _ => "None"
+                };
+
+                offenders.Add(new AggregatedAbuseOffenderDto(
+                    reader.GetString(0),
+                    reader.GetInt32(1),
+                    totalScore,
+                    restriction,
+                    new DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(3), DateTimeKind.Utc)),
+                    new DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(4), DateTimeKind.Utc))));
+            }
+        }
+
+        return new AbuseOverviewDto(totalEvents, distinctIps, distinctPasskeys, offenders, DateTimeOffset.UtcNow);
+    }
+}
+
 public sealed class TrackerNodeConfigAdminReader(
     ITrackerNodeConfigurationReader trackerNodeConfigurationReader) : ITrackerNodeConfigAdminReader
 {
@@ -2022,6 +2159,7 @@ public static class AdminInfrastructureServiceCollectionExtensions
         services.AddScoped<IPasskeyAdminReader, EfPasskeyAdminReader>();
         services.AddScoped<ITrackerAccessRightsAdminReader, EfTrackerAccessRightsAdminReader>();
         services.AddScoped<IBanAdminReader, EfBanAdminReader>();
+        services.AddSingleton<IAbuseEventReader, NpgsqlAbuseEventReader>();
         services.AddScoped<ITrackerNodeConfigAdminReader, TrackerNodeConfigAdminReader>();
         services.AddScoped<IAdminMutationOrchestrator, ConfigurationMutationOrchestrator>();
         services.AddScoped<INotificationAdminReader, EfNotificationAdminReader>();

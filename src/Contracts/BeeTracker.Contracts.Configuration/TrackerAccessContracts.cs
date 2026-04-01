@@ -5,6 +5,7 @@ public static class TrackerBanScopes
     public const string Torrent = "torrent";
     public const string Passkey = "passkey";
     public const string User = "user";
+    public const string Ip = "ip";
 }
 
 public static class TrackerAccessDenialReasons

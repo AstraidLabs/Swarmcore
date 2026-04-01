@@ -444,6 +444,31 @@ internal sealed class GetBanRuleQueryHandler(IBanAdminReader reader) : IRequestH
         => reader.GetAsync(request.Scope, request.Subject, cancellationToken);
 }
 
+// ─── Abuse Event Queries ──────────────────────────────────────────────────
+
+public sealed record ListAbuseEventsQuery(int Page, int PageSize, string? Ip = null, string? EventType = null)
+    : IRequest<AbuseEventFeedResultDto>;
+
+public sealed record GetAbuseOverviewQuery(int TopOffenderCount = 50) : IRequest<AbuseOverviewDto>;
+
+public interface IAbuseEventReader
+{
+    Task<AbuseEventFeedResultDto> ListAsync(int page, int pageSize, string? ip, string? eventType, CancellationToken cancellationToken);
+    Task<AbuseOverviewDto> GetOverviewAsync(int topOffenderCount, CancellationToken cancellationToken);
+}
+
+internal sealed class ListAbuseEventsQueryHandler(IAbuseEventReader reader) : IRequestHandler<ListAbuseEventsQuery, AbuseEventFeedResultDto>
+{
+    public Task<AbuseEventFeedResultDto> Handle(ListAbuseEventsQuery request, CancellationToken cancellationToken)
+        => reader.ListAsync(request.Page, request.PageSize, request.Ip, request.EventType, cancellationToken);
+}
+
+internal sealed class GetAbuseOverviewQueryHandler(IAbuseEventReader reader) : IRequestHandler<GetAbuseOverviewQuery, AbuseOverviewDto>
+{
+    public Task<AbuseOverviewDto> Handle(GetAbuseOverviewQuery request, CancellationToken cancellationToken)
+        => reader.GetOverviewAsync(request.TopOffenderCount, cancellationToken);
+}
+
 internal sealed class ListTrackerNodeConfigsQueryHandler(ITrackerNodeConfigAdminReader reader) : IRequestHandler<ListTrackerNodeConfigsQuery, PageResult<TrackerNodeCatalogItemDto>>
 {
     public Task<PageResult<TrackerNodeCatalogItemDto>> Handle(ListTrackerNodeConfigsQuery request, CancellationToken cancellationToken)

@@ -449,6 +449,34 @@ adminApi.MapDelete("/bans/{scope}/{subject}",
             httpContext);
     }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansManage));
 
+// ─── Abuse Events ─────────────────────────────────────────────────────────
+
+adminApi.MapGet("/abuse/events",
+    async (int? page, int? pageSize, string? ip, string? eventType, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(new ListAbuseEventsQuery(
+            page ?? 1, pageSize ?? 50, ip, eventType), cancellationToken);
+        return Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansView));
+
+adminApi.MapGet("/abuse/overview",
+    async (int? topOffenderCount, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        var result = await sender.Send(new GetAbuseOverviewQuery(topOffenderCount ?? 50), cancellationToken);
+        return Results.Ok(result);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansView));
+
+adminApi.MapPost("/abuse/promote-ban/{ip}",
+    async (HttpContext httpContext, string ip, PromoteIpBanRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+    {
+        return await AdminMutationEndpointExecutor.ExecuteAsync(
+            async () => Results.Ok(await sender.Send(new UpsertBanAdminCommand(
+                "ip", ip,
+                new BanRuleUpsertRequest(request.Reason, request.ExpiresAtUtc),
+                AdminAuthorization.CreateMutationContext(httpContext)), cancellationToken)),
+            httpContext);
+    }).RequireAuthorization(AdminAuthorizationPolicies.ForPermission(AdminPermissions.BansManage));
+
 adminApi.MapPut("/torrents/{infoHash}/policy",
     async (HttpContext httpContext, string infoHash, TorrentPolicyUpsertRequest request, [FromServices] ISender sender, CancellationToken cancellationToken) =>
     {

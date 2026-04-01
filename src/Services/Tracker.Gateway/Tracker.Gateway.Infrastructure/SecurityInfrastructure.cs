@@ -7,8 +7,10 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using StackExchange.Redis;
 using BeeTracker.BuildingBlocks.Abstractions.Options;
+using BeeTracker.BuildingBlocks.Abstractions.Time;
 using BeeTracker.BuildingBlocks.Observability.Diagnostics;
 using BeeTracker.Caching.Redis;
+using BeeTracker.Contracts.Configuration;
 using BeeTracker.Persistence.Postgres;
 using Tracker.Gateway.Application.Announce;
 
@@ -139,6 +141,21 @@ public sealed class ScrapeAbuseGuard(IOptions<TrackerAbuseProtectionOptions> opt
         {
             TrackerDiagnostics.AbuseThrottled.Add(1, new KeyValuePair<string, object?>("type", "ip"));
             return new AnnounceError(StatusCodes.Status429TooManyRequests, "scrape throttled");
+        }
+
+        return null;
+    }
+}
+
+public sealed class IpBanGuard(IAccessSnapshotProvider accessSnapshotProvider, IClock clock) : IIpBanGuard
+{
+    public async ValueTask<AnnounceError?> EvaluateAsync(string ip, CancellationToken cancellationToken)
+    {
+        var banRule = await accessSnapshotProvider.GetBanRuleAsync(TrackerBanScopes.Ip, ip, cancellationToken);
+        if (banRule is not null && (banRule.ExpiresAtUtc is null || banRule.ExpiresAtUtc > clock.UtcNow))
+        {
+            TrackerDiagnostics.AbuseIntelHardBlock.Add(1);
+            return new AnnounceError(StatusCodes.Status403Forbidden, banRule.Reason);
         }
 
         return null;

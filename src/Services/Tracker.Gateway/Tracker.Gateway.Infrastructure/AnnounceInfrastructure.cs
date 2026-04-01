@@ -961,6 +961,7 @@ public static class GatewayInfrastructureServiceCollectionExtensions
         services.AddSingleton<IScrapeRequestValidator, ScrapeRequestValidator>();
         services.AddSingleton<IAnnounceAbuseGuard, AnnounceAbuseGuard>();
         services.AddSingleton<IScrapeAbuseGuard, ScrapeAbuseGuard>();
+        services.AddSingleton<IIpBanGuard, IpBanGuard>();
         services.AddSingleton<IGatewayDependencyState, GatewayDependencyState>();
         services.AddSingleton<AccessRefreshQueue>();
         services.AddSingleton<IAccessSnapshotStore, RedisPostgresAccessSnapshotStore>();
@@ -977,7 +978,12 @@ public static class GatewayInfrastructureServiceCollectionExtensions
         services.AddSingleton<GovernancePersistenceService>();
         services.AddSingleton<GovernanceAuditService>();
         services.AddScoped<GovernanceStartupRecoveryService>();
-        services.AddSingleton<AdvancedAbuseGuard>();
+        services.AddSingleton<AbuseEventChannelWriter>();
+        services.AddSingleton<IAbuseEventChannelWriter>(static sp => sp.GetRequiredService<AbuseEventChannelWriter>());
+        services.AddHostedService<AbuseEventPersistenceService>();
+        services.AddSingleton<AdvancedAbuseGuard>(static sp => new AdvancedAbuseGuard(
+            sp.GetRequiredService<IAbuseEventChannelWriter>(),
+            sp.GetRequiredService<IOptions<TrackerNodeOptions>>()));
         services.AddSingleton<IAnnounceService, AnnounceService>();
         services.AddSingleton<IScrapeService, ScrapeService>();
         services.AddHostedService<AccessSnapshotHydrationService>();
